@@ -2,6 +2,7 @@
 import { identityProviderKind } from "@composable-os/auth";
 import { PUBLIC_LIMIT_BINDING_NAMES, PUBLIC_LIMIT_DOWN_NOTICE } from "@composable-os/core";
 import { getMigrationLevel, type MigrationLevel } from "@composable-os/db";
+import { readRegistryStamp } from "@composable-os/db/registry";
 import { runner } from "./runner.ts";
 
 export interface HealthEnv {
@@ -102,6 +103,34 @@ export async function getHealth(env: HealthEnv): Promise<Health> {
     runner: runnerHealth,
     publicLimits,
   };
+}
+
+/** Where a host of many clients answers for itself (stage 66 step 7): on its callback hostname. */
+export const HOST_HEALTH_PATH = "/api/health";
+
+/**
+ * A host of many clients' own health, on its callback hostname, before any client is decided
+ * (stage 66 step 7, ADR 0618): the version these Workers run and whether the registry answers.
+ * What `cos fleet upgrade` smoke-checks, so the check reaches the new Workers while every client
+ * is paused ("being updated"). It reads one registry row (the stamp) and nothing of a client's.
+ */
+export async function hostHealthResponse(env: {
+  REGISTRY?: D1Database;
+  COS_RELEASE_VERSION?: string;
+}): Promise<Response> {
+  let registry: { ok: true } | { ok: false; error: string };
+  try {
+    if (!env.REGISTRY) throw new Error("no registry bound");
+    await readRegistryStamp(env.REGISTRY);
+    registry = { ok: true };
+  } catch (error) {
+    registry = { ok: false, error: message(error) };
+  }
+  const status = registry.ok ? "ok" : "degraded";
+  return Response.json(
+    { status, version: env.COS_RELEASE_VERSION || VERSION, commit: COMMIT, host: true, registry },
+    { status: registry.ok ? 200 : 503, headers: { "cache-control": "no-store" } },
+  );
 }
 
 export async function healthResponse(env: HealthEnv): Promise<Response> {

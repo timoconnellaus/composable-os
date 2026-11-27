@@ -8,6 +8,7 @@ export * from "./bundle.ts";
 export * from "./channel.ts";
 export * from "./cloudflare.ts";
 export * from "./deploy.ts";
+export * from "./fleet.ts";
 export * from "./gateway.ts";
 export * from "./github.ts";
 export * from "./hash.ts";

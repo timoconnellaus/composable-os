@@ -19,6 +19,7 @@ import {
   provisionResources,
   writeDeploymentState,
 } from "./deploy.ts";
+import { type FleetDeployInput, provisionFleet } from "./fleet.ts";
 import { mergeSecrets, provisionAiGateway, suppliedGatewayToken } from "./gateway.ts";
 
 export interface InstallReleaseInput {
@@ -28,6 +29,8 @@ export interface InstallReleaseInput {
   state: DeploymentState;
   /** Secret values to set, per manifest Worker name. */
   secrets: Record<string, Record<string, string>>;
+  /** A fleet deployment's keys and signed props (stage 66 step 7), when `state.fleet` is set. */
+  fleet?: FleetDeployInput;
   log?: Log;
 }
 
@@ -53,6 +56,8 @@ export async function installRelease(input: InstallReleaseInput): Promise<Instal
       input.state.resourceNames,
       { locationHint: input.state.locationHint },
     )),
+    // A fleet's own: the registry, the exports bucket, its queues (stage 66 step 7).
+    ...(input.state.fleet ? await provisionFleet(api, manifest, input.state, log) : {}),
   };
   const base: DeploymentState = { ...input.state, resources };
   const gateway = await provisionAiGateway({
@@ -75,6 +80,7 @@ export async function installRelease(input: InstallReleaseInput): Promise<Instal
     bundle,
     state,
     secrets: mergeSecrets(input.secrets, gateway.secrets),
+    ...(input.fleet ? { fleet: input.fleet } : {}),
     log,
   });
   return { state, databaseId, migrations, deploy, warnings: gateway.warnings };

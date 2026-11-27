@@ -237,3 +237,61 @@ describe("a client's environment", () => {
     expect(envNameUse("GATEKEEPER_EMAIL")).toMatchObject({ use: "kept-apart" });
   });
 });
+
+describe("a sender domain handed to another client (issue #529, F1; registry migration 0797)", () => {
+  it("starts unverified: an update, an upsert and an insert-or-replace cannot carry the verification over", async () => {
+    await insertDomain("gym-a.example", "gym-a", 1);
+    await expect(
+      registry
+        .prepare(
+          "UPDATE registry_sender_domains SET client = 'gym-b' WHERE domain = 'gym-a.example'",
+        )
+        .run(),
+    ).rejects.toThrow(/starts unverified/);
+    await expect(
+      registry
+        .prepare(
+          "INSERT INTO registry_sender_domains (domain, client, verified) VALUES ('gym-a.example', 'gym-b', 1) ON CONFLICT (domain) DO UPDATE SET client = excluded.client, verified = excluded.verified",
+        )
+        .run(),
+    ).rejects.toThrow(/starts unverified/);
+    await expect(
+      registry
+        .prepare(
+          "INSERT OR REPLACE INTO registry_sender_domains (domain, client, verified) VALUES ('gym-a.example', 'gym-b', 1)",
+        )
+        .run(),
+    ).rejects.toThrow(/starts unverified/);
+    expect(await listSenderDomains(registry)).toMatchObject([
+      { domain: "gym-a.example", client: "gym-a", verified: true },
+    ]);
+    // Handed over unverified, it is allowed: the new client's operator verifies it again.
+    await registry
+      .prepare(
+        "UPDATE registry_sender_domains SET client = 'gym-b', verified = 0, verified_at = NULL WHERE domain = 'gym-a.example'",
+      )
+      .run();
+    expect((await listSenderDomains(registry, "gym-b"))[0]?.verified).toBe(false);
+  });
+});
+
+describe("what no client may send as (issue #529, F2)", () => {
+  it("refuses a shared suffix, a shared mail domain or one under it, and the fleet's own domain", async () => {
+    for (const domain of ["co.uk", "com.au", "github.io", "gmail.com", "mail.outlook.com"]) {
+      await expect(addSenderDomain(registry, "gym-a", domain), domain).rejects.toThrow(
+        /Not a sender domain/,
+      );
+    }
+    const fleet = { fleetDomain: "fleet.example" };
+    for (const domain of ["fleet.example", "mail.fleet.example"]) {
+      await expect(addSenderDomain(registry, "gym-a", domain, fleet), domain).rejects.toThrow(
+        /fleet's own domain/,
+      );
+    }
+    expect(await listSenderDomains(registry)).toEqual([]);
+    await addSenderDomain(registry, "gym-a", "gym-a.co.uk", fleet);
+    expect((await listSenderDomains(registry, "gym-a")).map((d) => d.domain)).toEqual([
+      "gym-a.co.uk",
+    ]);
+  });
+});

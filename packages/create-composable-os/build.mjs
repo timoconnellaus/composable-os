@@ -34,3 +34,9 @@ cpSync(join(root, "packages", "sdk", "src"), join(here, "dist", "platform", "sdk
 cpSync(join(root, "packages", "db", "migrations"), join(here, "dist", "platform", "migrations"), {
   recursive: true,
 });
+// The registry's own migrations, which `cos fleet install` applies (stage 66 step 7).
+cpSync(
+  join(root, "packages", "db", "registry-migrations"),
+  join(here, "dist", "platform", "registry-migrations"),
+  { recursive: true },
+);

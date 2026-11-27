@@ -894,6 +894,39 @@ export class CloudflareClient {
     ).result;
   }
 
+  /**
+   * Sets a bucket's object lifecycle rules (stage 66 step 7): the fleet's exports bucket deletes
+   * what it keeps after `days` (a removed client's export is kept 90 days).
+   */
+  async putR2ExpiryRule(accountId: string, bucket: string, id: string, days: number) {
+    await this.request("PUT", `/accounts/${accountId}/r2/buckets/${bucket}/lifecycle`, {
+      rules: [
+        {
+          id,
+          enabled: true,
+          conditions: { prefix: "" },
+          deleteObjectsTransition: { condition: { type: "Age", maxAge: days * 24 * 60 * 60 } },
+        },
+      ],
+    });
+  }
+
+  /**
+   * Stamps a Stream video with its creator (stage 66 step 7: an imported client's videos, which
+   * the host's video host serves only to the client stamped as their creator). False when the
+   * account has no such video (an export from another account carries none).
+   */
+  async setStreamCreator(accountId: string, uid: string, creator: string): Promise<boolean> {
+    if (!/^[0-9a-f]{32}$/.test(uid)) throw new Error("Not a Stream video id");
+    try {
+      await this.request("POST", `/accounts/${accountId}/stream/${uid}`, { creator });
+      return true;
+    } catch (error) {
+      if (error instanceof CloudflareApiError && error.status === 404) return false;
+      throw error;
+    }
+  }
+
   // ---- Static assets (direct upload) ----------------------------------------------------------
 
   /** Starts an assets upload session; returns the JWT and the hashes the API still needs. */

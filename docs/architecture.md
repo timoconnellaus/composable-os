@@ -138,7 +138,21 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   (`apps/client-db`), so a release of the host does not restart every client's database; the
   host's Workers are to bind only its query-only entrypoint `ClientDbQueries`
   (`CLIENT_DB_QUERIES`, `clientDatabaseService`), and the namespace with the operator's methods is
-  bound only where the operator's commands run. No single-client release ships it.
+  bound only where the operator's commands run. No single-client deployment deploys it (a
+  release carries it as a `fleet` Worker since step 7).
+
+- **The operator's commands** (stage 66 step 7,
+  [ADR 0618](adr/0618-the-operators-commands-for-a-host-of-many-clients.md)): a fleet deployment
+  (`DeploymentState.fleet`) is deployed by the same engine with ADR 0615's list of bindings added
+  (`packages/release/src/fleet.ts`: the registry, the query path to cos-client-db with signed props,
+  the fan-out and parking queues with their consumers and DLQs, the parking ledger's class, the
+  host's keys from the operator's keys file); staging is a second fleet deployment named
+  `-staging`. `cos` writes the registry over D1's REST API (`@composable-os/db/registry-writes`)
+  and reaches clients' databases through the operator's Worker (`apps/operator`, the only binder of
+  the raw `ClientDb` namespace, answering a token set per command): `cos client add`, `cos fleet
+  upgrade` (pause, bookmark and migrate each client, upload once, smoke, resume; a failed migration
+  restores and uploads nothing), `cos client export`/`import`/`remove`, and `cos install --import`
+  for a client leaving to its own account. Each records its progress in `registry_operations`.
 
 - **The registry and the client's environment** (stage 66 step 3,
   [ADR 0613](adr/0613-the-registry-and-the-clients-environment.md)): a host that serves many

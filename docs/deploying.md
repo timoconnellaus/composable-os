@@ -1191,6 +1191,70 @@ node scripts/release/inspect-bundle.ts release-out/composable-os-crm-1.2.3.tar.g
 Releases are built by `.github/workflows/release.yml` on a `vX.Y.Z` / `vX.Y.Z-beta.N` tag; see
 [`scripts/release/README.md`](../scripts/release/README.md).
 
+## A host of many clients (stage 66 step 7)
+
+One deployment of the host serving many clients, each with a database of its own (stage 66, ADRs
+0613 to 0618). Live and staging are two deployments, each with its own Workers, registry, queues,
+cos-client-db and keys. Nothing here changes a single-client install. Not yet run on Cloudflare:
+every command below is proved locally and against the fake API only.
+
+```sh
+# Once per environment: the deployment's keys, into a file outside any repository (mode 0600).
+cos fleet keys --env staging --out ~/fleet-keys/staging.json
+# The host, its registry (migrated), cos-client-db, the operator's Worker, every fleet binding.
+cos fleet install --env staging --keys-file ~/fleet-keys/staging.json \
+  --callback-hostname callback-staging.<fleet domain> --domain <fleet domain>
+# A client: its registry rows, its database made and migrated, its hostnames. No upload.
+cos client add gym-a --env staging --location oc --web-hostname staging.gym-a.example
+cos client secret set gym-a GOOGLE_CLIENT_SECRET --env staging   # asked for, hidden; sealed
+# Its sender domain: added unverified; verify once it is onboarded to Email Sending in this account.
+cos client sender add gym-a gym-a.example --env staging
+cos client sender verify gym-a gym-a.example --env staging
+# A release across every client: staging first, then live.
+cos fleet upgrade --env staging --keys-file ~/fleet-keys/staging.json --version 1.4.0
+cos fleet upgrade --env live --keys-file ~/fleet-keys/live.json --version 1.4.0
+# A leaving client takes its data and its secrets; its own install keeps them.
+cos client export gym-a --out ./gym-a-export --leaving
+cos install --import ./gym-a-export          # in the client's own account
+cos client remove gym-a                      # export kept 90 days, then erased; id never reused
+```
+
+- **The keys file** holds the root key, the sealing key pair, the binding key and the props key.
+  `cos fleet keys` writes it once, refuses a path inside a git working tree, and never prints a
+  key; every `cos fleet install` and `upgrade` reads it (the props of the host's bindings are signed
+  with the props key). It must be the file the fleet was installed with: `cos` compares it with the
+  deployment's sealing public key and a fingerprint of its keys, and refuses any other with nothing
+  changed. Losing it means a planned move of every client: keep it as you keep the account's
+  token.
+- **The operator's Worker** (`<prefix>operator`) is how `cos` reaches clients' databases. Each
+  command sets it a fresh random token and replaces it at the end; it answers nobody else. One
+  command at a time uses it: a second command that needs it (`add`, `export`, `import`, `remove`,
+  `fleet upgrade`) is refused, before it changes anything, while another runs. `list`, `pause`,
+  `resume` and `secret` do not use it and are safe to run beside one. A command that was killed
+  holds it for 30 minutes; `--take-over` takes it sooner, when you know nothing else is running.
+- **Every command that removes or overwrites** asks for the client's id (or `--yes`); every command
+  takes `--dry-run`; every command that stops part-way is carried on (or, for an update, finished or
+  undone) by running it again: `cos client list` shows what is part-way.
+- **An update** pauses every client, bookmarks and migrates each, uploads the Workers once, checks
+  them at the host's own health address (`https://<callback hostname>/api/health`, which answers
+  while clients are paused) and resumes. A client whose migration fails is restored, and so
+  is every client migrated before it; nothing is uploaded. A client's own extension on a contract
+  the new release does not run stops the update before anything changes.
+- **Export and import** carry the database, files and secrets, not videos: an import re-stamps the
+  client's videos this account's Stream holds with its creator, and names any it does not (copying
+  videos is issue #525). `cos client import <id> --from <dir>` adds a new client only; an existing
+  id is refused, and so is an import while an update is unfinished.
+- **What an export's checks catch:** its hashes catch a damaged or cut-short part or file, not a
+  folder someone edited on purpose (the manifest is not signed): import only a folder you trust.
+  `secrets.json` is **unencrypted** JSON (mode 0600) holding the client's session keys and given
+  secrets: keep it as a password, and delete it once imported.
+- **A client's web app is on its own domain**, never under the fleet's domain beside the staff
+  hostnames: `cos client add` names a web hostname only with `--web-hostname`, and refuses one
+  anywhere under the fleet domain's registrable domain (it has no Public Suffix listing).
+- **Payments, text, inbound webhooks and email** are off for every client of a host of many clients
+  until their gatekeepers are made per client (ADR 0616). A client's Stripe keys can already be
+  stored (`cos client secret set <id> STRIPE_SECRET_KEY`), unused until then.
+
 ## Proving a client's database on Cloudflare (stage 66 step 1)
 
 One host for many clients keeps each client's records in a Durable Object (`ClientDb`, ADR 0612)

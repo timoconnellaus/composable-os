@@ -202,6 +202,15 @@
     },
     {
       "implicit": true,
+      "name": "crm-client-db:ClientDb",
+      "optional": true,
+      "type": "durable_object",
+      "usedBy": [
+        "crm-client-db"
+      ]
+    },
+    {
+      "implicit": true,
       "name": "crm-gatekeeper-payments:FakePaymentsLedger",
       "optional": true,
       "type": "durable_object",
@@ -974,6 +983,80 @@
         }
       ],
       "sha256": "afbc910017d4e88200bc5863df8e1633b0ce2410f9325945c91e9aabd2cc6589"
+    },
+    {
+      "bindings": [
+        {
+          "class_name": "ClientDb",
+          "name": "CLIENT_DB",
+          "type": "durable_object_namespace"
+        }
+      ],
+      "compatibilityDate": "2026-10-01",
+      "compatibilityFlags": [
+        "nodejs_compat"
+      ],
+      "crons": [],
+      "dependsOn": [],
+      "durableObjectMigrations": [
+        {
+          "new_sqlite_classes": [
+            "ClientDb"
+          ],
+          "tag": "v1"
+        }
+      ],
+      "mainModule": "index.js",
+      "modules": [
+        {
+          "name": "index.js",
+          "sha256": "a35f00a98e4d5201d00623b0c8a3e42c5dfbcb7e9667a7a8aafd6f63b6a8ea20",
+          "size": 56,
+          "type": "esm"
+        }
+      ],
+      "name": "crm-client-db",
+      "optional": true,
+      "package": "apps/client-db",
+      "public": false,
+      "queueConsumers": [],
+      "role": "fleet",
+      "secrets": [],
+      "sha256": "d07728cd26ea4cfbb5d90fcfb48bd8dabca7eb3d4a2d93d366ddff880cc28cb8"
+    },
+    {
+      "bindings": [
+        {
+          "class_name": "ClientDb",
+          "name": "CLIENT_DB",
+          "script_name": "$WORKER_NAME(crm-client-db)",
+          "type": "durable_object_namespace"
+        }
+      ],
+      "compatibilityDate": "2026-10-01",
+      "compatibilityFlags": [
+        "nodejs_compat"
+      ],
+      "crons": [],
+      "dependsOn": [],
+      "durableObjectMigrations": [],
+      "mainModule": "index.js",
+      "modules": [
+        {
+          "name": "index.js",
+          "sha256": "5ad5d8f8a335e7f4ffc98eb41602216b212fb214273a85577b79f3f48eebfaff",
+          "size": 55,
+          "type": "esm"
+        }
+      ],
+      "name": "crm-operator",
+      "optional": true,
+      "package": "apps/operator",
+      "public": true,
+      "queueConsumers": [],
+      "role": "fleet",
+      "secrets": [],
+      "sha256": "8c4182d52f88ca93a6a82d5443f4816730ef27107780861ea0bc32824ddc8e39"
     },
     {
       "bindings": [

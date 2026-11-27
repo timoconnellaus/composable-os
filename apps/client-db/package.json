@@ -6,6 +6,7 @@
   "description": "Stage 66: the Worker that holds clients' databases (ClientDb), apart from the host's Workers. Not in a single-client release.",
   "type": "module",
   "scripts": {
+    "build": "wrangler deploy --dry-run --outdir dist",
     "types": "wrangler types --strict-vars=false",
     "typecheck": "wrangler types --strict-vars=false --check && tsc --noEmit",
     "test": "vitest run"

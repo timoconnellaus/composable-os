@@ -305,9 +305,13 @@ describe("release manifest", () => {
     const manifest = await fixtureManifest();
     const order = deployOrder(manifest.workers).map((w) => w.name);
     expect(order.indexOf(RUNNER)).toBeLessThan(order.indexOf(APP));
-    expect(manifest.workers.filter((w) => w.optional).every((w) => w.role === "gatekeeper")).toBe(
-      true,
-    );
+    // Optional: gatekeepers, and the fleet Workers only a host of many clients deploys (stage 66
+    // step 7, ADR 0618).
+    expect(
+      manifest.workers
+        .filter((w) => w.optional)
+        .every((w) => w.role === "gatekeeper" || w.role === "fleet"),
+    ).toBe(true);
   });
 
   it("carries the AI Gateway set-up from deploy-inputs.json (ADR 0180)", async () => {

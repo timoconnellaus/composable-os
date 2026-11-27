@@ -1121,6 +1121,22 @@ export class ClientDb extends DurableObject {
   session(): { id: string; restoring: boolean } {
     return { id: this.#session, restoring: this.#restoring };
   }
+
+  /**
+   * Deletes everything the object holds, its tables and its own records, for good: what `cos
+   * client remove` calls once the client's export is kept (stage 66 step 7, ADR 0618). Refused
+   * while a restore waits or an export holds the database. Point-in-time recovery can still bring
+   * it back for 30 days, as for any write.
+   */
+  async erase(): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (this.#restoring) return { ok: false, error: RESTORING_MESSAGE };
+    const hold = this.ctx.storage.kv.get<HoldRecord>(HOLD_KEY);
+    if (hold && hold.until > Date.now()) return { ok: false, error: HELD_MESSAGE };
+    this.#staged.clear();
+    this.#held.clear();
+    await this.ctx.storage.deleteAll();
+    return { ok: true };
+  }
 }
 
 // --- The D1 binding's side -----------------------------------------------------------------------

@@ -1083,6 +1083,41 @@ export async function migrationsSchema(
   return schemaRows(reference);
 }
 
+/**
+ * Which objects of an imported database an import accepts as its extensions' own, beside the core
+ * schema the code's migrations make (`core`): stage 66 step 7, review of #526 S4. Their text is
+ * taken as the export declares it (checking it against what the reconciler would make from the
+ * imported manifests is not built), so what may be taken is narrow:
+ * - a table, or an index, of an extension table (`x_…`);
+ * - a view named `rec_…` or `x_…`: a view runs on no write. The core `rec_…` views are rebuilt
+ *   with the extensions' fields (packages/core `extensions/schema.ts`), so the imported text of one
+ *   stands in for the migrations' (it changes only what that client's own reads see);
+ * - a trigger only on an extension table (`x_…`), never on a core table or anything else.
+ * Never another object of a name the core schema has. Anything else of the imported database is
+ * then a difference, and the import is refused and the database emptied.
+ */
+export function importedExtensionObjects(actual: SchemaRow[], core: SchemaRow[]): SchemaRow[] {
+  const coreNames = new Set(core.map((row) => row.name));
+  const extensionTable = (name: string) => name.startsWith("x_");
+  return actual.filter((row) => {
+    if (coreNames.has(row.name) && !(row.type === "view" && row.name.startsWith("rec_"))) {
+      return false;
+    }
+    switch (row.type) {
+      case "table":
+        return extensionTable(row.name) && row.tbl_name === row.name;
+      case "index":
+        return extensionTable(row.tbl_name);
+      case "view":
+        return /^(rec_|x_)/.test(row.name) && row.tbl_name === row.name;
+      case "trigger":
+        return extensionTable(row.tbl_name);
+      default:
+        return false;
+    }
+  });
+}
+
 /** The names of objects in which two schemas differ (one has it, or their text differs). */
 export function schemaDifferences(actual: SchemaRow[], expected: SchemaRow[]): string[] {
   const key = (row: SchemaRow) => `${row.type} ${row.name}`;

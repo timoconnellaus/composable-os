@@ -84,6 +84,10 @@ export class FakeCloudflare {
   readonly creates: { type: "d1" | "r2"; name: string; locationHint: string | undefined }[] = [];
   /** R2 objects by `<bucket>/<key>` (the object upload API, stage 24). */
   readonly r2Objects = new Map<string, Uint8Array>();
+  /** Each bucket's lifecycle rules, as last put (stage 66 step 7: the exports bucket's expiry). */
+  readonly r2Lifecycle = new Map<string, unknown>();
+  /** Stream videos the account holds, by uid, with their creator (stage 66 step 7). */
+  readonly streamCreators = new Map<string, string | null>();
   readonly kv = new Map<string, string>();
   readonly queues = new Map<
     string,
@@ -323,6 +327,18 @@ export class FakeCloudflare {
         return ok({ name: b.name });
       }
       return ok({ buckets: [...this.r2].map((name) => ({ name })) });
+    }
+    m = new RegExp(`^${a}/r2/buckets/([^/]+)/lifecycle$`).exec(path);
+    if (m && method === "PUT") {
+      if (!this.r2.has(m[1] as string)) return fail(404, 10006, `no bucket ${m[1]}`);
+      this.r2Lifecycle.set(m[1] as string, b);
+      return ok(null);
+    }
+    m = new RegExp(`^${a}/stream/([0-9a-f]{32})$`).exec(path);
+    if (m && method === "POST") {
+      if (!this.streamCreators.has(m[1] as string)) return fail(404, 10003, "video not found");
+      if (typeof b.creator === "string") this.streamCreators.set(m[1] as string, b.creator);
+      return ok({ uid: m[1], creator: this.streamCreators.get(m[1] as string) });
     }
     m = new RegExp(`^${a}/r2/buckets/([^/]+)$`).exec(path);
     if (m && method === "DELETE") {

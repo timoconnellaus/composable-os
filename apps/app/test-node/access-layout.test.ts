@@ -94,6 +94,9 @@ describe("every route of cos-app is accounted for behind Access", () => {
       // Stage 29 step 4 (ADR 0728): a form's own page and a personal link's, public, drawn as
       // HTML; the page's calls go through the client-app binding's door.
       isFormPagePath: "/f/ask-about-a-trial",
+      // Stage 66 step 7 (ADR 0618): a host of many clients' own health, on its callback hostname
+      // only (never a client's): a single-client deployment's /api/health is TanStack Start's.
+      HOST_HEALTH_PATH: "/api/health",
     };
 
     expect([...dispatched].sort()).toEqual(Object.keys(known).sort());
@@ -110,6 +113,7 @@ describe("every route of cos-app is accounted for behind Access", () => {
       isCustomerFeedPath: "bypass",
       isDeskPath: "staff",
       isFormPagePath: "bypass",
+      HOST_HEALTH_PATH: "bypass",
     });
     // A personal link's page is the other path of the form page; the staff app has neither.
     expect(bypassFor("/form")?.path).toBe("/form");

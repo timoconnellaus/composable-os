@@ -45,6 +45,9 @@ describe("the registry's migrations", () => {
       "registry_hostnames",
       "registry_meta",
       "registry_migrations",
+      // The operator's commands' progress (migration 0795, stage 66 step 7).
+      "registry_operations",
+      "registry_operator_session",
       "registry_removed_clients",
       "registry_secrets",
       "registry_sender_domains",

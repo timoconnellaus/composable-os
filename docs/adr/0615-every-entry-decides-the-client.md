@@ -402,6 +402,17 @@ is closed here, with a test that fails when the fix is taken out.
   twice is two parked messages, each handled once. On a host of many clients a queue entry with
   no parking bindings fails at once, saying which are missing, before anything is acked.
 
+### Built by step 7 (2026-11-27, ADR 0618)
+- The list above ("What a many-client deployment binds") is what the deploy engine adds for a
+  fleet deployment (`packages/release/src/fleet.ts`), item by item, tested against a fixture
+  release; a single-client deployment's uploads have none of it. The ledger's class comes with a
+  Durable Object migration of the fleet's own, tagged `<release tag>+fleet`.
+- A queue is recognised by its deployed name (`isQueue`): what follows the product's prefix, with
+  staging's `-staging` taken off.
+- **Issue #523, F2:** a message whose copy reached the parking queue is acked whatever the ledger
+  answers, and is parked under an id derived from its queue and its own message id (`parkedIdOf`),
+  so a redelivery of the original is handled once.
+
 ### What is accepted
 - The memory fix of M6 reads the latest `active_since` and writes in two statements: two writes to
   one person's memory in the same millisecond with a fold between them can leave the second edit
