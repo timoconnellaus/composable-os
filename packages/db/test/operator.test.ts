@@ -383,52 +383,62 @@ describe("what an import accepts beside the core schema (review of #526, S4)", (
       })
     ).body.results as { name: string; sql: string }[];
 
-  it("refuses an extension's trigger that writes a core table, and an INSTEAD OF trigger (the reviewer's probes 1 and 2)", async () => {
-    const one = await importWith("op-n3-a", "op-n3-a2", [
+  // One test per import: each migrates two clients' databases, and several in one test outran
+  // the default timeout on CI.
+  it("refuses an extension's trigger that writes a core table (the reviewer's probe 1)", async () => {
+    const refused = await importWith("op-n3-a", "op-n3-a2", [
       "CREATE TABLE x_t (id TEXT PRIMARY KEY)",
       "CREATE TRIGGER evil AFTER INSERT ON x_t BEGIN UPDATE core_settings SET value = 'x'; END",
     ]);
-    expect(one).toMatch(/refused and the database emptied/);
-    const two = await importWith("op-n3-b", "op-n3-b2", [
+    expect(refused).toMatch(/refused and the database emptied/);
+  });
+
+  it("refuses an INSTEAD OF trigger (the reviewer's probe 2)", async () => {
+    const refused = await importWith("op-n3-b", "op-n3-b2", [
       "CREATE TABLE x_t (id TEXT PRIMARY KEY)",
       "CREATE VIEW x_v AS SELECT id FROM x_t",
       "CREATE TRIGGER x_io INSTEAD OF INSERT ON x_v BEGIN UPDATE core_settings SET value = 'x'; END",
     ]);
-    expect(two).toMatch(/INSTEAD OF/);
+    expect(refused).toMatch(/INSTEAD OF/);
     expect((await call({ action: "level", client: "op-n3-b2" })).body.applied).toBe(0);
   });
 
-  it("refuses the reviewer's string-named writes and reads of core tables, and an FTS5 table over one (review of #530, R1 and R2)", async () => {
-    const probes: [string, string[]][] = [
+  // The reviewer's string-named writes and reads of core tables, and an FTS5 table over one.
+  it.each<[string, string, string[]]>([
+    [
+      "a string-named UPDATE of a core table",
+      "op-r1-a",
       [
-        "op-r1-a",
-        [
-          "CREATE TABLE x_t (id TEXT PRIMARY KEY, role TEXT)",
-          "CREATE TRIGGER evil AFTER INSERT ON x_t BEGIN UPDATE 'core_settings' SET value = '\"pwned\"'; END",
-        ],
+        "CREATE TABLE x_t (id TEXT PRIMARY KEY, role TEXT)",
+        "CREATE TRIGGER evil AFTER INSERT ON x_t BEGIN UPDATE 'core_settings' SET value = '\"pwned\"'; END",
       ],
+    ],
+    [
+      "a string-named INSERT into a core table",
+      "op-r1-b",
       [
-        "op-r1-b",
-        [
-          "CREATE TABLE x_t (id TEXT PRIMARY KEY, role TEXT)",
-          "CREATE TRIGGER evil AFTER INSERT ON x_t BEGIN INSERT INTO 'core_settings' (key, value, updated_at) VALUES ('k', '1', 'now'); END",
-        ],
+        "CREATE TABLE x_t (id TEXT PRIMARY KEY, role TEXT)",
+        "CREATE TRIGGER evil AFTER INSERT ON x_t BEGIN INSERT INTO 'core_settings' (key, value, updated_at) VALUES ('k', '1', 'now'); END",
       ],
+    ],
+    [
+      "a string-named read of a core table",
+      "op-r1-c",
       [
-        "op-r1-c",
-        [
-          "CREATE TABLE x_t (id TEXT PRIMARY KEY, role TEXT)",
-          "CREATE TABLE x_copy (v TEXT)",
-          "CREATE TRIGGER evil AFTER INSERT ON x_t BEGIN INSERT INTO x_copy SELECT value FROM 'core_settings'; END",
-        ],
+        "CREATE TABLE x_t (id TEXT PRIMARY KEY, role TEXT)",
+        "CREATE TABLE x_copy (v TEXT)",
+        "CREATE TRIGGER evil AFTER INSERT ON x_t BEGIN INSERT INTO x_copy SELECT value FROM 'core_settings'; END",
       ],
-      ["op-r2-a", ["CREATE VIRTUAL TABLE x_fts USING fts5(value, content='core_settings')"]],
-    ];
-    for (const [src, extra] of probes) {
-      const refused = await importWith(src, `${src}-in`, extra);
-      expect(refused, src).toMatch(/refused and the database emptied/);
-      expect((await call({ action: "level", client: `${src}-in` })).body.applied, src).toBe(0);
-    }
+    ],
+    [
+      "an FTS5 table over a core table",
+      "op-r2-a",
+      ["CREATE VIRTUAL TABLE x_fts USING fts5(value, content='core_settings')"],
+    ],
+  ])("refuses %s (review of #530, R1 and R2)", async (_what, src, extra) => {
+    const refused = await importWith(src, `${src}-in`, extra);
+    expect(refused).toMatch(/refused and the database emptied/);
+    expect((await call({ action: "level", client: `${src}-in` })).body.applied).toBe(0);
   });
 
   it("refuses imported extension state that would aim a record view at core_session's tokens (review of #530, R3)", async () => {
@@ -485,43 +495,9 @@ describe("what an import accepts beside the core schema (review of #526, S4)", (
   });
 
   it("refuses, and empties the database, an export that hooks a core table with a trigger", async () => {
-    await newClient("op-hook-src");
-    await newClient("op-hook-dst");
-    await call({ action: "migrate", client: "op-hook-src", migrations: real.TEST_MIGRATIONS });
-    await real.CLIENT_DB.get(real.CLIENT_DB.idFromName("op-hook-src")).query(
-      [
-        {
-          sql: "CREATE TRIGGER x_hook AFTER INSERT ON core_settings BEGIN SELECT 1; END",
-          params: [],
-        },
-      ],
-      crypto.randomUUID(),
-    );
-    const record = await readClient(real.REGISTRY, "op-hook-src" as ClientId);
-    const exportKey = `op-hook-src/${record?.secretGeneration}/20261128T010203Z`;
-    let cursor: unknown = null;
-    const paths: string[] = [];
-    do {
-      const step = await call({
-        action: "export-db-part",
-        client: "op-hook-src",
-        exportKey,
-        cursor,
-      });
-      paths.push(step.body.path as string);
-      cursor = step.body.next;
-    } while (cursor);
-    let refused = "";
-    for (const path of paths) {
-      const part = JSON.parse(await ((await real.EXPORTS.get(path)) as R2ObjectBody).text());
-      const step = await call({
-        action: "import-db-part",
-        client: "op-hook-dst",
-        part,
-        migrations: real.TEST_MIGRATIONS,
-      });
-      if (step.status !== 200) refused = String(step.body.error);
-    }
+    const refused = await importWith("op-hook-src", "op-hook-dst", [
+      "CREATE TRIGGER x_hook AFTER INSERT ON core_settings BEGIN SELECT 1; END",
+    ]);
     expect(refused).toMatch(/refused and the database emptied/);
     expect((await call({ action: "level", client: "op-hook-dst" })).body.applied).toBe(0);
   });
