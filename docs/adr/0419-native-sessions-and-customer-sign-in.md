@@ -73,32 +73,54 @@ connection an admin chooses, and that no staff user is the sender.
 - The admin UI does not yet have a picker for the customer mail connection; it is set with
   `customer.settings.update`.
 
-## Amended 2026-11-27: a refresh whose answer was lost (issue #540, review of #548)
-A device whose refresh reached the host but whose answer did not (the app killed mid-request, the
-network lost) still holds the token it sent, and its next refresh used to count as reuse and end
-the session: an unexplained sign-out on a phone.
+## Amended 2026-11-27: a refresh whose answer was lost (issue #540, reviews of #548 and #554)
+A device whose refresh reached the host but whose answer did not (the network lost, a request
+given up after the client's 15 second limit) still holds the token it sent, and its next refresh
+counted as reuse and ended the session: an unexplained sign-out on a phone.
 
-- **The grace:** for `REFRESH_GRACE_MS` (60 seconds) after a rotation, the one refresh token it
-  rotated past is answered with **the same tokens** it was answered with: never a second rotation,
-  never a parallel session. Only that one token, only while those tokens are still the session's
-  (nothing has rotated since). A token two rotations back, or the previous one after the window,
-  ends the session at once, as before. Two refreshes racing with one token now both get the one
-  rotation's answer instead of ending the session.
-- **Nothing is stored as given.** The answer is kept sealed (AES-GCM) under a key derived
-  (HKDF-SHA256, salted with the session id) from the previous refresh token, which is stored only as
-  its hash (migration 1505: `previous_refresh_hash`, `previous_rotated_at`, `successor_sealed`).
-  Only someone presenting that token can open it; a copy of the database cannot, and a forged
-  token cannot.
-- **Why 60 seconds:** the client gives up on a refresh after 15 seconds and the next call tries
-  again at once (`tokenSession`, 2026-11-27), so a lost answer is retried within seconds; 60 leaves
-  room for a slow network and an app reopened straight away. A device killed for longer comes back
-  to a `refresh_reused` as before. Longer would widen what an old token is worth (below) for no
-  case worth covering.
-- **What a stolen old token is worth.** Within the window, the token just rotated past gets exactly
-  what the current one would: the tokens the device holds. That is no more than stealing the
-  current token, which today gets a rotation of its own. After the window, and for any older
-  token, it ends the session for both holders, unchanged. Two holders sharing one session can only
-  outlast reuse detection by each refreshing within 60 seconds of the other's rotation, which a
-  thief cannot time: a device refreshes when its own access token is near its end, minutes apart.
-- **A constant, not a setting.** Identity and policy are not AI-configurable (AGENTS.md); changing
-  the window is a code change and a review.
+**The rule.** The refresh token a rotation rotated past is answered again with **the same tokens**
+(never a second rotation, never a new session) only when all of these hold:
+- it is the token the session's last rotation rotated past;
+- within `REFRESH_GRACE_MS` (60 seconds) of that rotation;
+- that rotation's answer is **unused**: neither its access token nor its refresh token has been
+  presented. A device that received its answer uses the access token at once (it refreshed because
+  a call was waiting), and that first use closes the grace;
+- the session has **never** been answered again before: once in a session's life.
+
+Every such answer writes an audit row, `deviceSession.refreshReplayed` (the account, the session,
+when, how long after the rotation; no token), which admins see in Settings → Audit log. It does not
+change the session's last use, which the rotation moments before has just set. Any other
+presentation of a token rotated past (after the window, after the answer was used, a second time,
+a second grace in the session, or any older token) ends the session as reuse always has. Nothing
+matches on the client's address or network: a changed network is how answers get lost.
+
+**How the answer is kept.** Never as given. It is sealed with AES-GCM under a key derived
+(HKDF-SHA256, salted with the session id) from the previous refresh token, which is stored only as
+its hash, and bound to the session id and that hash (migration 1505). A copy of the database alone
+opens nothing. **A copy of the database together with the previous refresh token could open it
+until it is cleared:** at the answer's first use, at the grace answer, by the next rotation, and by
+the daily maintenance run once the window has passed (a device that never comes back). After that
+the copy and the token are worth nothing, as before.
+
+**What is no longer detected, and what a replayed previous token gets.** Before this amendment,
+presenting a token already rotated past always ended the session. Now, for a token the device has
+just refreshed with and whose answer it has not yet used, a replay inside 60 seconds gets the
+device's own new tokens, and nothing is ended:
+- A thief who captured the token in transit (a proxy, a logged request) sees when the device used
+  it, so it can time its replay into that moment.
+- If the device's answer was lost, the thief gets the tokens and the device's own retry then ends
+  the session: detected, as before, a moment later.
+- If the device got its answer but has not yet used it, the two now hold the same live tokens and
+  nothing is ended at once. The session ends at the next rotation, when the holder that did not
+  rotate next presents the old tokens, normally within one access token's life (ten minutes). Until
+  then the sharing is not detected, and only the audit row records it.
+- A thief can do this once a session: a second grace is refused and ends the session.
+- Outside the window, after the device's first call, and for any older token, nothing changed.
+
+**Why 60 seconds.** The client gives up on a refresh after 15 seconds and the next call retries at
+once, so a lost answer is retried within seconds; 60 leaves room for a slow network. An app killed
+and reopened minutes later is not covered: it is signed out, as before. The use-closes-it and
+once-a-session rules limit what the window gives a thief more than its length does.
+
+**A constant, not a setting.** Identity and policy are not AI-configurable (AGENTS.md): changing
+the window or the rule is a code change and a review.

@@ -1489,8 +1489,11 @@ generator's input. A change that would break a compiled client is a new API vers
 **Device session**
 A native app's sign-in on the HTTP surface: a short-lived access token and a refresh token that
 rotates on every use, for one audience, named by the device. A reused refresh token ends it, and
-so does a period without use (ADR 0419); the one token just rotated past gets the same answer
-again for 60 seconds, for a device whose answer was lost (ADR 0419, amended 2026-11-27).
+so does a period without use (ADR 0419). The one exception, for a device whose answer was lost:
+the token just rotated past gets the same answer again within 60 seconds, only while that answer
+is unused and once a session, and every such answer is audited. A thief who replays it in that
+moment shares the session undetected until the next rotation ends it (ADR 0419, amended
+2026-11-27).
 _Avoid_: token session, API key
 
 **Staff invite**
