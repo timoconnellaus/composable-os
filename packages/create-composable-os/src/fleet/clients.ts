@@ -308,6 +308,24 @@ export function ownDomainsProblem(ctx: FleetContext): string | null {
  * that this deployment did not make is refused, never adopted, unless `adopt` (the operator's word,
  * after a crash between making it and recording its id).
  */
+/**
+ * A zone left with no fallback origin (a throwaway run's teardown after live installed) is set
+ * back to `clients.<domain>` by the next `hostname add` or `verify`, and said (review of #543, F1).
+ */
+async function repairFallback(ctx: FleetContext): Promise<void> {
+  try {
+    const done = await (ctx.edge as FleetEdge).repairFallbackOrigin();
+    if (done) ctx.io.out(`  ${done}`);
+  } catch (error) {
+    if (isSaasNotEnabled(error)) {
+      throw new FleetError(
+        `Cloudflare for SaaS is not enabled on ${ctx.fleet.zone?.name ?? "the fleet's zone"}: ${saasStep(ctx.fleet.zone?.name ?? ctx.fleet.domain)}`,
+      );
+    }
+    throw error;
+  }
+}
+
 async function ownCustomHostname(
   ctx: FleetContext,
   id: ClientId,
@@ -575,6 +593,30 @@ export async function hostnameCommand(
       return 0;
     }
     if (adopt) {
+      // Adopting takes a custom hostname whose id this registry lost, never another deployment's
+      // (review of #543, N1): the domain's own TXT must already name this environment's client,
+      // and no other Worker (another deployment's cos-front) may hold its route.
+      const edge = ctx.edge as FleetEdge;
+      const mine = clientTxtValue(ctx.fleet.environment, id);
+      let named: string[];
+      try {
+        named = await (ctx.txt ?? (async () => []))(clientTxtName(hostname));
+      } catch (error) {
+        throw new FleetError(
+          `Could not read ${clientTxtName(hostname)}: ${(error as Error).message}. Nothing was changed.`,
+        );
+      }
+      if (!named.includes(mine) || named.some((v) => v.startsWith("cos-client=") && v !== mine)) {
+        throw new FleetError(
+          `Cannot adopt ${hostname}: its TXT ${clientTxtName(hostname)} does not say only ${mine} (${named.join(", ") || "none"}), so it may be another deployment's. Nothing was changed.`,
+        );
+      }
+      const other = await edge.otherRouteWorker(hostname);
+      if (other) {
+        throw new FleetError(
+          `Cannot adopt ${hostname}: its route is ${other}'s, not this deployment's cos-front, so it is another deployment's. Nothing was changed.`,
+        );
+      }
       await confirmFor(
         ctx,
         id,
@@ -591,6 +633,7 @@ export async function hostnameCommand(
       if (!row) await removeHostname(ctx.registry, id, hostname);
       throw error;
     }
+    await repairFallback(ctx);
     ctx.io.out(`Added ${hostname} to ${id}:`);
     for (const line of dnsInstructions(ctx, id, hostname)) ctx.io.out(line);
     return 0;
@@ -655,6 +698,7 @@ export async function hostnameCommand(
       ctx.io.out(`Would verify ${hostname} for ${id}. Nothing was changed (--dry-run).`);
       return 0;
     }
+    await repairFallback(ctx);
     // The route first, the mark last: a hostname marked verified is one cos-front is reached on.
     // A route of it that is another Worker's (another deployment's) is refused, never re-pointed.
     try {

@@ -78,6 +78,16 @@ export interface FleetEdge {
   routeToFront(hostname: string): Promise<void>;
   /** Its route (when cos-front's) and its custom hostname (when `ours`) gone: what was done. */
   removeCustomHostname(hostname: string, ours: string | null): Promise<string>;
+  /**
+   * The Worker of a route of `<hostname>/*` on the zone when it is not this deployment's cos-front
+   * (another deployment's, or someone's own), else null.
+   */
+  otherRouteWorker(hostname: string): Promise<string | null>;
+  /**
+   * Sets the zone's fallback origin to `clients.<domain>` when the zone has none (a throwaway run's
+   * teardown can leave it so): what was done, or null when there was nothing to do.
+   */
+  repairFallbackOrigin(): Promise<string | null>;
 }
 
 export interface EdgeInput {
@@ -275,6 +285,18 @@ export function cloudflareEdge(input: EdgeInput): FleetEdge | null {
         if (error instanceof RouteTakenError) throw new NotOursError(error.message);
         throw error;
       }
+    },
+    async otherRouteWorker(hostname) {
+      const route = (await api.listRoutes(zone.id)).find((r) => r.pattern === `${hostname}/*`);
+      if (!route || route.script === frontWorker) return null;
+      return route.script ?? "another Worker";
+    },
+    async repairFallbackOrigin() {
+      const target = fleetClientTarget(fleet.domain);
+      if (await api.getFallbackOrigin(zone.id)) return null;
+      await api.ensureProxiedPlaceholder(zone.id, target);
+      await api.putFallbackOrigin(zone.id, target);
+      return `the zone had no fallback origin: set to ${target}`;
     },
     async removeCustomHostname(hostname, ours) {
       const routed = frontWorker

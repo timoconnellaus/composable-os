@@ -331,6 +331,13 @@ Now:
 - Tested with a live and a staging fleet on one zone, the same client id and the same hostname: add,
   verify, remove and `cos client remove` in staging leave live's custom hostname, route and Custom
   Domains as they were.
+- **`--adopt` takes only a custom hostname that is provably this deployment's** (re-review, N1):
+  the domain's `_cos-client` TXT must already say only `cos-client=<this environment>:<id>`, and no
+  other Worker (another deployment's cos-front) may hold its route. Otherwise it is refused and
+  nothing is written, so a staging `--adopt` can never record live's id and later delete it.
+- **A zone left with no fallback origin** (a throwaway run's teardown after live installed) is
+  set back to `clients.<domain>` by the next `cos client hostname add` or `verify`, which says so
+  (re-review, F1). One already set is left alone.
 
 ### A zone without Cloudflare for SaaS (M3)
 

@@ -1251,6 +1251,25 @@ describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
     await expect(hostnameCommand(staging(), "add", "gym-a", "www.gym-a.example")).rejects.toThrow(
       /already a custom hostname on fleet\.example, which this deployment did not make/,
     );
+    // Staging cannot adopt it either (review of #543, N1): live's TXT names live's client, and
+    // with a TXT naming staging's, live's cos-front still holds its route.
+    await expect(
+      hostnameCommand(staging({ yes: true }), "add", "gym-a", "www.gym-a.example", {
+        adopt: true,
+      }),
+    ).rejects.toThrow(/does not say only cos-client=staging:gym-a \(cos-client=live:gym-a\)/);
+    txtRecords.set("_cos-client.www.gym-a.example", ["cos-client=staging:gym-a"]);
+    await expect(
+      hostnameCommand(staging({ yes: true }), "add", "gym-a", "www.gym-a.example", {
+        adopt: true,
+      }),
+    ).rejects.toThrow(/its route is demo-front's, not this deployment's cos-front/);
+    txtRecords.set("_cos-client.www.gym-a.example", ["cos-client=live:gym-a"]);
+    expect(
+      await stagingRegistry
+        .prepare("SELECT count(*) AS n FROM registry_hostnames WHERE surface = 'web'")
+        .first<{ n: number }>(),
+    ).toEqual({ n: 0 });
     // Even with the row written by hand and live's custom hostname id copied into it, live's TXT
     // (`cos-client=live:gym-a`) never verifies for staging, and live's route is never re-pointed.
     await stagingRegistry
@@ -1311,6 +1330,25 @@ describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
     ]);
   });
 
+  it("sets the zone's fallback origin back when a hostname is added or verified on a zone left with none (review of #543, F1)", async () => {
+    await addClient(edged(), { id: "gym-a" });
+    expect(cf.fallbackOrigins.size).toBe(0);
+    await hostnameCommand(edged(), "add", "gym-a", "www.gym-a.example");
+    expect(cf.fallbackOrigins.get(ZONE)).toBe("clients.fleet.example");
+    expect(out.lines.join("\n")).toContain(
+      "the zone had no fallback origin: set to clients.fleet.example",
+    );
+    // A throwaway run's teardown removes it: the next verify sets it again.
+    cf.fallbackOrigins.clear();
+    prove("www.gym-a.example", "gym-a");
+    expect(await hostnameCommand(edged(), "verify", "gym-a", "www.gym-a.example")).toBe(0);
+    expect(cf.fallbackOrigins.get(ZONE)).toBe("clients.fleet.example");
+    // Another's, in use, is left as it is.
+    cf.fallbackOrigins.set(ZONE, "proxy.other.example");
+    await hostnameCommand(edged(), "verify", "gym-a", "www.gym-a.example");
+    expect(cf.fallbackOrigins.get(ZONE)).toBe("proxy.other.example");
+  });
+
   it("adopts a custom hostname it lost the id of only when told to, after the client's id is typed", async () => {
     await addClient(edged(), { id: "gym-a" });
     await hostnameCommand(edged(), "add", "gym-a", "www.gym-a.example");
@@ -1319,7 +1357,14 @@ describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
     await expect(hostnameCommand(edged(), "add", "gym-a", "www.gym-a.example")).rejects.toThrow(
       /which this deployment did not make/,
     );
-    // Adopting asks for the client's id first.
+    // Adopting needs the domain's own TXT to name this environment's client (N1)…
+    await expect(
+      hostnameCommand(edged({ yes: true }), "add", "gym-a", "www.gym-a.example", {
+        adopt: true,
+      }),
+    ).rejects.toThrow(/does not say only cos-client=live:gym-a \(none\)/);
+    txtRecords.set("_cos-client.www.gym-a.example", ["cos-client=live:gym-a"]);
+    // …and asks for the client's id first.
     await expect(
       hostnameCommand(edged(), "add", "gym-a", "www.gym-a.example", { adopt: true }),
     ).rejects.toThrow(/--yes/);
