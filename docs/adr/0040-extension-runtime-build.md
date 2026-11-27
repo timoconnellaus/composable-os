@@ -174,8 +174,8 @@ workspace object, each pack's row read twice). Decided:
   a pack's tool (`x.<extension>.<tool>`) or object (`<extension>.<object>`) and is refused as
   `unknown_operation`, `invalid_input` or `not_found` answers `timeout` with `details.installing`
   and HTTP 503 (`Retry-After`): tried again, it gets its real answer. Core operations' refusals
-  are their own. The staff UI asks a read refused so again every 5 s and the typed client when the
-  host says, each for up to 30 s; neither retries a write for it. A pack that is not installed is
+  are their own. The staff UI asks a read refused so again every 5 s for up to 30 s, and never
+  retries a write for it; the typed client (`packages/client`) still retries a 503 only twice. A pack that is not installed is
   still refused; no permission or audience changes.
 - **Not decided here:** installing a client's packs when the operator adds or imports it, and
   bringing every client's up to date in `cos fleet upgrade`, so no person's request finds work to

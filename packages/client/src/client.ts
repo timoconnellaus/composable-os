@@ -52,20 +52,6 @@ export interface CallOptions {
   idempotencyKey?: string;
 }
 
-/** How long a read waits in all for a host that is still installing its packs (issue #558). */
-export const INSTALLING_WAIT_MS = 30_000;
-
-/** When a refusal says the host is still installing its packs: the wait it asks for, in ms. */
-export function installingRetryMs(error: unknown): number | null {
-  if (!(error instanceof ApiError)) return null;
-  const details = error.details as
-    | { installing?: unknown; retryAfterSeconds?: unknown }
-    | undefined;
-  if (details?.installing !== true) return null;
-  const seconds = Number(details.retryAfterSeconds);
-  return Math.min(Math.max(Number.isFinite(seconds) ? seconds : 5, 1), 10) * 1000;
-}
-
 /** The API version this runtime speaks. A host that no longer serves it says upgrade_required. */
 export const CLIENT_API_VERSION = "v1";
 
@@ -168,20 +154,11 @@ export function createClient<T extends OperationTypes>(
     const spec = specs[name];
     if (!spec) throw new ApiError("unknown_operation", `No operation named "${name}"`, 404);
     const key = spec.kind === "mutation" ? (callOptions.idempotencyKey ?? randomKey()) : null;
-    let waited = 0;
     for (let attempt = 0; ; attempt += 1) {
       try {
         return (await send(name, input, key)) as T[N]["output"];
       } catch (error) {
         if (error instanceof UpgradeRequiredError) options.onUpgradeRequired?.(error);
-        // A read while the host still installs its packs is asked again when it says, for up to
-        // INSTALLING_WAIT_MS in all (issue #558); a write is not, beyond the usual retries.
-        const after = spec.kind === "query" ? installingRetryMs(error) : null;
-        if (after !== null && waited + after <= INSTALLING_WAIT_MS) {
-          waited += after;
-          await sleep(after);
-          continue;
-        }
         if (attempt >= retries || !isRetryable(error)) throw error;
         await sleep(200 * 2 ** attempt);
       }
