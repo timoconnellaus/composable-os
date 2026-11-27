@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import { defineProduct } from "../packages/product/src/index.ts";
 import { CloudflareClient } from "../packages/release/src/cloudflare.ts";
 import { FakeCloudflare } from "../packages/release/src/testing/fake-cloudflare.ts";
@@ -20,6 +20,7 @@ import {
   describeFetchError,
   explainFailure,
   exportFacts,
+  FIRST_OP_BOUND_MS,
   hostnamesOf,
   inventory,
   owned,
@@ -1091,6 +1092,78 @@ test("the requests step: B's password at A must be the wrong-password answer, no
     assert.equal(ops.bravo, bravoFails ? 3 : 2);
     assert.equal(cancelled, repeat === 200 ? 1 : 0);
     assert.ok(slept.includes(5000));
+  }
+});
+
+test("a client's first operation must answer within FIRST_OP_BOUND_MS: a fresh client's (step 3) and the first after an upgrade (step 5), issue #558", async () => {
+  assert.equal(FIRST_OP_BOUND_MS, 5000);
+  const host = (url) => new URL(url).hostname.split("-admin.")[0];
+  /** Every call answers as it should; `slow`'s first person.list takes `ms` (a clock moved on). */
+  const fetchWith =
+    ({ slow, ms, version = () => VERSIONS.from }) =>
+    async (url, init = {}) => {
+      if (url.endsWith("/api/auth/sign-up/email")) {
+        return new Response("{}", {
+          status: 200,
+          headers: { "set-cookie": `__Host-cos.session_token=${host(url)}; Path=/` },
+        });
+      }
+      if (url.endsWith("/api/auth/sign-in/email")) return new Response("{}", { status: 401 });
+      if (url.includes("/api/v1/op/")) {
+        if (init.headers?.cookie !== `__Host-cos.session_token=${host(url)}`)
+          return new Response(JSON.stringify({ error: { code: "unauthenticated" } }), {
+            status: 401,
+          });
+        if (host(url) === slow.id && !slow.done) {
+          slow.done = true;
+          mock.timers.tick(ms);
+        }
+        return new Response("{}", { status: 200 });
+      }
+      if (url.endsWith("/api/health"))
+        return new Response(JSON.stringify({ host: true, version: version() }));
+      if (url.includes("/api/media")) return new Response("{}", { status: 201 });
+      return new Response("ok", { status: url.includes("workers.dev") ? 404 : 200 });
+    };
+  mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  try {
+    const requests = (ms) =>
+      step("requests").run({
+        ...stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }) }),
+        subdomain: "x",
+        fetch: fetchWith({ slow: { id: CLIENTS.b }, ms }),
+      });
+    // Staging run 46007691132: a fresh client's first person.list answered in 18.3 s.
+    await assert.rejects(
+      requests(18_300),
+      /bravo's first person\.list took 200 in 18\.3 s: more than 5 s for a first operation/,
+    );
+    await assert.doesNotReject(requests(FIRST_OP_BOUND_MS - 1000));
+
+    const upgrade = (ms) => {
+      const good = upgradeCos();
+      const ctx = stepCtx({
+        answer: good.answer,
+        version: () => good.state.version,
+        fetch: fetchWith({
+          slow: { id: CLIENTS.a },
+          ms,
+          version: () => good.state.version,
+        }),
+      });
+      for (const id of [CLIENTS.a, CLIENTS.b])
+        ctx.staff[id] = { cookie: `__Host-cos.session_token=${id}` };
+      return step("upgrade").run(ctx);
+    };
+    await assert.rejects(
+      upgrade(19_300),
+      /after the upgrade alpha's first person\.list took 200 in 19\.3 s: more than 5 s/,
+    );
+    const ok = await upgrade(1000);
+    assert.match(ok.note, /alpha's first person\.list after the upgrade answered 200 in 1\.0 s/);
+    assert.match(ok.note, /bravo's first person\.list after the upgrade answered 200 in 0\.0 s/);
+  } finally {
+    mock.timers.reset();
   }
 });
 

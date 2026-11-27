@@ -131,3 +131,35 @@ operation, and ros-runner exposes it as `installShipped()` for deploy scripts.
     takes 2 ms.
 - **The "Executions are serialised" consequence** no longer holds: 20 concurrent tool runs took
   1,452 ms before and 82 ms after.
+
+## Amendment, 2026-11-28 (issue #558): a request no longer waits for the install
+Measured on a host of many clients (staging run 46007691132): a fresh client's first staff
+operation took 18 to 19 s, the next 2 to 7 s. "cos-app runs it once per isolate before the first
+operation" was literal: the first call of every isolate waited for `installShipped`, which for a
+new client builds, type-checks and evaluates every pack (most of the time, about 80% locally) and
+for an installed one still made 1 + 3N calls (the shipped list and each pack's commit from the
+workspace object, each pack's row read twice). Decided:
+
+- **A record of the last install.** `installShipped` writes, in the client's own database
+  (`core_meta`, key `shipped_install`), a hash of the shipped list it installed (each extension's
+  id, version, optional flag and files, with the client's stamp) and of the extensions table's
+  rows (id, source, commit) once nothing failed. While both still match, it answers the recorded
+  outcomes from one query and calls neither the workspace object nor `extension.install`
+  (`apps/runner/src/extensions/shipped-stamp.ts`). A new release, a changed `COS_PACKS` or
+  `COS_ORG_EXTENSIONS`, and an admin's install, rollback, eject or uninstall each change one of
+  the hashes, so the full path runs as before; a failure writes no record, so the next isolate
+  tries again. The check is still a call to cos-runner: only the runner knows the shipped list
+  (its bundle and `COS_PACKS`, which cos-app's environment does not hold).
+- **A bounded wait.** cos-app waits for the check or install at most `SHIPPED_WAIT_MS` (2 s)
+  after it started, then the call goes on; the install runs under the request that started it
+  (`waitUntil`), so a request that ends or is cancelled does not stop it. One that fails is
+  started again by the next call, and so is one still unsettled after `SHIPPED_STALE_MS` (60 s,
+  past what `waitUntil` keeps alive), so no call waits on a promise that never settles.
+- **A retryable answer meanwhile.** While a client's install has not finished, a call refused as
+  `unknown_operation`, `invalid_input` or `not_found` (a pack's tool, object or record not there
+  yet) answers `timeout` with `details.installing` and HTTP 503: tried again, it gets its real
+  answer. A pack that is not installed is still refused; no permission or audience changes.
+- **Not decided here:** installing a client's packs when the operator adds or imports it, and
+  bringing every client's up to date in `cos fleet upgrade`, so no person's request finds work to
+  do. The operator's Worker binds no runner and the runner's `callAs` answers only cos-app, so
+  that needs a new caller of the runner and is left to its own change.

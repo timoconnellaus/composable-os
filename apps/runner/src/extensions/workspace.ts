@@ -236,9 +236,10 @@ export class ExtensionWorkspace extends ClientDurableObject(DurableObject<Env>) 
   }
 
   /**
-   * Every new cos-app isolate calls this (through installShipped) on its first request. When the
-   * bundled source is the one already committed and the repository's HEAD is still that commit,
-   * it returns at once.
+   * Called by installShipped when its record of the last install no longer matches (a new
+   * release, changed packs, an admin's change: shipped-stamp.ts), and by `extension.install` of a
+   * shipped extension. When the bundled source is the one already committed and the repository's
+   * HEAD is still that commit, it returns at once.
    */
   async commitShipped(id: string): Promise<{ commit: string; changed: boolean }> {
     const shipped = (await shippedExtensions(this.env)).find((s) => s.id === id);

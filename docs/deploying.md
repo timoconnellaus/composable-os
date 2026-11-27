@@ -282,7 +282,10 @@ of anything.
 `crm-runner`'s only secrets are the AI ones ([In-app AI](#in-app-ai)). It runs extension code, which calls operations there, so set its
 `APPROVAL_FLOOR` var (in `apps/runner/wrangler.jsonc`) to the same value as crm-app's. Shipped
 extensions (packs, `packs/`) are installed through `extension.install` on the first request after a
-deploy. AI (model roles for `codemode:ai`, "Describe a widget", summaries and semantic search) is
+deploy. That request waits for it at most 2 s and then answers; the install carries on, and until it
+has finished a call to a pack's tool, object or record answers HTTP 503 (`timeout`,
+`details.installing`): try again in a few seconds. Once installed, a new isolate's check is one read
+(ADR 0040, amended 2026-11-28). AI (model roles for `codemode:ai`, "Describe a widget", summaries and semantic search) is
 described in [In-app AI](#in-app-ai) below.
 
 ### Automations
@@ -1246,7 +1249,10 @@ cos client remove gym-a $P                   # export kept 90 days, then erased;
   and adds nothing itself. An export carries the client's `COS_PACKS` and an import gives the new
   client the same, checked the same way; an export made before exports carried them needs
   `--setting COS_PACKS=…` on the import. A client whose setting is missing gets none. A pack
-  taken off a client's list later stays installed with its data: nothing is deleted.
+  taken off a client's list later stays installed with its data: nothing is deleted. The packs
+  are installed on the client's first staff or customer request, not by `cos client add`: that
+  request answers within a few seconds, and a call to a pack answers 503 ("still installing") until
+  the install has finished, a few seconds to some tens of seconds for five packs.
 - **Its product.** A deployment's state records the product whose release it runs: a command
   given another `--product` (with `--database` or not) is refused before anything is made or
   deleted. A deployment installed before this was recorded is the product whose database it is in

@@ -75,6 +75,7 @@ import { deploymentEnv as workerEnv } from "./deployment-env.ts";
 import { Executor, type ExecutorOptions } from "./executor/executor.ts";
 import { embedFromEvents } from "./extensions/embeddings.ts";
 import { packsProblem } from "./extensions/shipped-list.ts";
+import { recordInstall, stampedInstall } from "./extensions/shipped-stamp.ts";
 import type { HelloOutput } from "./hello-workflow.ts";
 import { fakeProviderFetch, seedInboxMessage } from "./integrations/fake.ts";
 import { runOrdersTick } from "./integrations/payments.ts";
@@ -241,13 +242,22 @@ export class ClientRunner implements RunnerRpc {
     return extensionHost(this.#env).describeChange(input);
   }
 
-  /** Installs or upgrades the shipped extensions bundled with this release (boot / deploy). */
+  /**
+   * Installs or upgrades the shipped extensions bundled with this release (boot / deploy). When
+   * the last install finished and nothing has changed since, one read answers it: no call to the
+   * workspace object, no install (shipped-stamp.ts, issue #558).
+   */
   async installShipped(): Promise<ShippedInstallResult[]> {
-    return installShippedExtensions({
-      db: createCrmDb(this.#env.DB),
+    const db = createCrmDb(this.#env.DB);
+    const stamped = await stampedInstall(db, this.#env);
+    if (stamped) return stamped;
+    const results = await installShippedExtensions({
+      db,
       host: extensionHost(this.#env),
       floor: parseFloor(this.#env.APPROVAL_FLOOR),
     });
+    await recordInstall(db, this.#env, results);
+    return results;
   }
 
   // Integrations (ADR 0050, ADR 0110): the IntegrationRuntime port for cos-app, one method.

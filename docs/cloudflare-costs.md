@@ -156,8 +156,11 @@ compacts just before expiry…", "never compacts below the floor…": no alarm i
 
 - **One object for the deployment** (`apps/runner/src/index.ts:100`,
   `executor/build-cache.ts:25`). Since ADR 0043 it is off the execution path. It wakes:
-  - when a cos-app isolate starts: 1 + N requests, one `commitShipped` per pack (`:232`), with no
-    writes when nothing changed;
+  - when a cos-app isolate starts and the client's record of its last shipped install no longer
+    matches (a new release, changed packs, an admin's install or rollback): 1 + N requests, one
+    `commitShipped` per pack, with no writes when nothing changed. While the record matches, an
+    isolate's start is one read of the client's database and no request here
+    (`extensions/shipped-stamp.ts`, issue #558);
   - when a tool or manifest worker starts cold and its build is not cached;
   - when an extension is authored, committed or proposed.
 - **No alarms, timers or sockets.** Its `#queue` is an in-memory promise chain (`:60`).
@@ -265,7 +268,7 @@ None is above Low in dollars.
 | L4 | `packages/gatekeeper-webhook/src/endpoint.ts:199`, `packages/gatekeeper-payments/src/events.ts:143` | `setAlarm(now)` on every accepted event, even when an alarm is already due. | 1 row written per event. | Skipping it needs care during a running alarm. |
 | L5 | `packages/gatekeeper-kit/src/hook-delivery-queue.ts:149-154` | Each finished delivery gets its own wake 24 h later, only to forget it. | 1 request and 1 row written per delivery. | Rounding up to the hour would cap it at 24 a day per object, but it relaxes the documented 24 h dedupe floor. Vendored kit. |
 | L6 | `packages/gatekeeper-email-send/src/worker.ts:600-614` | `#remember` lists the whole idempotency order prefix on every new key: up to 2,000 keys, or 20,000 for agreements. `#record` lists about 200 history rows to trim them. | About 20k rows read per agreement email. | Needs a stored count or batched pruning, plus migration of the existing keys. |
-| L7 | `apps/runner/src/extensions/workspace.ts:232`, `apps/app/src/server/operations.ts` | Each new cos-app isolate makes 1 + N calls to the one workspace object, one per pack. | 1 + N requests per isolate start. | A batched `commitShippedAll` would make it 1. Small at today's isolate churn. |
+| L7 | `apps/runner/src/extensions/workspace.ts`, `apps/app/src/server/operations.ts` | Each new cos-app isolate made 1 + N calls to the one workspace object, one per pack. **Fixed** (issue #558): a recorded install that still matches is one read of the client's database, and the workspace object is called only when something changed. | 1 + N requests per release or change, not per isolate start. | None. |
 | L8 | `packages/gatekeeper-microsoft/src/outlook-hooks.ts:289` (vendored) | A dead grant whose hooks were not dropped retries every 5 minutes, forever. | 288 alarm runs, 288 `UserAccount` requests and about 576 rows written a day per dead mailbox. | Vendored. An hour on `isCredentialsExpired` is the obvious change; recorded for upstream. |
 | L9 | `packages/gatekeeper-google/src/gmail-hooks.ts:414-417`, `chat-hooks.ts:302-305` (vendored, V2) | The hook drivers ask `UserAccount` for a token on every Google call, with no `AccessTokenCache`. | About 2–3 extra requests per sync. | Vendored. Upstream. |
 | L10 | `packages/gatekeeper-google/src/google-api.ts:3250-3255` (vendored, V1) | The Gmail watch has no label filter, so every mailbox change pushes. | 2 requests per push, plus a sync. | Label hooks need the union of their labels, not INBOX alone. |
