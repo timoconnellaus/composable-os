@@ -405,6 +405,10 @@ export async function destroyInstance(s: Services, instance: InstanceRow): Promi
   };
   if (state) {
     const scripts = scriptsApi(s.cf, state);
+    // Cloudflare deletes neither a Worker that consumes a queue (10064) nor a queue that has a
+    // consumer or is a consumer's dead-letter queue (11005): this deployment's queues lose their
+    // consumers first, then the Workers go, then the queues (the fleet staging check's first run).
+    await gone(() => s.cf.unconsumeQueues(s.accountId, Object.values(state.resourceNames ?? {})));
     if (state.dispatchNamespace) {
       await gone(() => scripts.deleteScriptsByTag(s.accountId, tenantTag(instance.id)));
     } else {
