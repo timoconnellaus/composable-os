@@ -146,7 +146,7 @@ here (CONTRIBUTING.md, Working in parallel).
 
 - **Step 1** — not built — needs: stage 66 — The serving spike: the first client's built web app under Worker Loader, measured
 
-- **Step 2** — built — PR #536 — The browser-only build: the client template's
+- **Step 2** — built — PRs #536, #542 — The browser-only build: the client template's
   `pnpm build:browser` (static files, hash routes, `build.json` written only after a successful
   build, `COS_HOST_URL` required), its screens behind a ScreenHost (cookie or tokens), the token
   sign-in (one device session per tab, a duplicated tab starting signed out; a `token_expired`
