@@ -1229,9 +1229,11 @@ cos client remove gym-a                      # export kept 90 days, then erased;
 - **The operator's Worker** (`<prefix>operator`) is how `cos` reaches clients' databases. Each
   command sets it a fresh random token and replaces it at the end; it answers nobody else. One
   command at a time uses it: a second command that needs it (`add`, `export`, `import`, `remove`,
-  `fleet upgrade`) is refused, before it changes anything, while another runs. `list`, `pause`,
-  `resume` and `secret` do not use it and are safe to run beside one. A command that was killed
-  holds it for 30 minutes; `--take-over` takes it sooner, when you know nothing else is running.
+  `fleet upgrade`) is refused, before it changes anything, while another runs. `list`, `secret` and
+  `sender` do not use it and are safe to run beside one; `pause` and `resume` are refused while an
+  update is unfinished (the update resumes every client it paused at its end). A running command
+  keeps its hold alive however long it takes; one that was killed holds it for 30 minutes, and
+  `--take-over` takes it sooner, when you know nothing else is running.
 - **Every command that removes or overwrites** asks for the client's id (or `--yes`); every command
   takes `--dry-run`; every command that stops part-way is carried on (or, for an update, finished or
   undone) by running it again: `cos client list` shows what is part-way.

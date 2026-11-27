@@ -275,6 +275,47 @@ describe("a sender domain handed to another client (issue #529, F1; registry mig
   });
 });
 
+describe("a sender domain renamed (the second review of #526, N4; registry migration 0798)", () => {
+  it("starts unverified: a rename, an UPDATE OR REPLACE onto another's domain and an upsert cannot carry the verification", async () => {
+    await insertDomain("a.example", "gym-a", 1);
+    await insertDomain("b.example", "gym-b", 0);
+    await expect(
+      registry
+        .prepare(
+          "UPDATE OR REPLACE registry_sender_domains SET domain = 'b.example' WHERE domain = 'a.example'",
+        )
+        .run(),
+    ).rejects.toThrow(/renamed starts unverified/);
+    await expect(
+      registry
+        .prepare(
+          "UPDATE registry_sender_domains SET domain = 'never-checked.example' WHERE domain = 'a.example'",
+        )
+        .run(),
+    ).rejects.toThrow(/renamed starts unverified/);
+    await expect(
+      registry
+        .prepare(
+          "INSERT INTO registry_sender_domains (domain, client, verified, verified_at) VALUES ('a.example', 'gym-a', 1, 'now') ON CONFLICT (domain) DO UPDATE SET domain = 'c.example'",
+        )
+        .run(),
+    ).rejects.toThrow(/renamed starts unverified/);
+    expect(
+      (await listSenderDomains(registry)).map((d) => `${d.domain}:${d.client}:${d.verified}`),
+    ).toEqual(["a.example:gym-a:true", "b.example:gym-b:false"]);
+    // Renamed and left unverified: allowed.
+    await registry
+      .prepare(
+        "UPDATE registry_sender_domains SET domain = 'a2.example', verified = 0, verified_at = NULL WHERE domain = 'a.example'",
+      )
+      .run();
+    expect((await listSenderDomains(registry, "gym-a"))[0]).toMatchObject({
+      domain: "a2.example",
+      verified: false,
+    });
+  });
+});
+
 describe("what no client may send as (issue #529, F2)", () => {
   it("refuses a shared suffix, a shared mail domain or one under it, and the fleet's own domain", async () => {
     for (const domain of ["co.uk", "com.au", "github.io", "gmail.com", "mail.outlook.com"]) {

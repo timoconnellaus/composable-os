@@ -124,7 +124,10 @@ export async function hostHealthResponse(env: {
     await readRegistryStamp(env.REGISTRY);
     registry = { ok: true };
   } catch (error) {
-    registry = { ok: false, error: message(error) };
+    // Logged for the operator; the caller, whom nothing signs in, gets a fixed answer, never the
+    // database's own text (review of #526, follow-up F1).
+    console.error("host health: the registry did not answer", message(error));
+    registry = { ok: false, error: "the registry did not answer" };
   }
   const status = registry.ok ? "ok" : "degraded";
   return Response.json(

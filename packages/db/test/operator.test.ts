@@ -9,7 +9,7 @@ import { type OperatorEnv, operatorFetch } from "../src/operator.ts";
 import type { ClientId } from "../src/registry.ts";
 import { newHostKeys } from "../src/registry-sealing.ts";
 import { addClientRows, readClient } from "../src/registry-writes.ts";
-import { type ExportPart, importedExtensionObjects } from "../src/sql-export.ts";
+import { type ExportPart, importedExtensionObjects, namesIn } from "../src/sql-export.ts";
 import { emptyRegistry, migrateRegistry } from "./registry-fixtures.ts";
 
 const real = env as unknown as {
@@ -76,9 +76,27 @@ const call = async (
       body: JSON.stringify(body),
     }),
     operatorEnv(over),
+    { rebuildRecordViews: coreViewsOnly },
   );
   return { status: response.status, body: (await response.json()) as Record<string, unknown> };
 };
+
+/**
+ * packages/core's `rebuildRecordViews` stands in here as its first half (the core views the
+ * host's migrations make): packages/db cannot import packages/core; the record views themselves
+ * are tested there (core `record-views.test.ts`).
+ */
+async function coreViewsOnly(db: D1Database, coreViews: { name: string; sql: string }[]) {
+  const { results } = await db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'view'")
+    .all<{ name: string }>();
+  const statements = [
+    ...results.map((r) => `DROP VIEW IF EXISTS "${r.name}"`),
+    ...coreViews.map((v) => v.sql),
+  ];
+  if (statements.length) await db.batch(statements.map((sql) => db.prepare(sql)));
+  return { views: coreViews.length, formulaErrors: 0 };
+}
 const raw = (path: string, init: RequestInit = {}) =>
   operatorFetch(
     new Request(`https://operator.example${path}`, {
@@ -277,32 +295,137 @@ describe("what an import accepts beside the core schema (review of #526, S4)", (
     tbl_name,
     sql: `-- ${type} ${name}`,
   });
-  it("takes an extension's tables, indexes, triggers and views, and nothing on core tables", () => {
+  it("takes an extension's tables and indexes, its triggers only when they name nothing but its tables, and no view", () => {
     const core = [
       row("table", "core_settings", "core_settings"),
       row("view", "rec_person", "rec_person"),
     ];
+    const trigger = (name: string, body: string) => ({
+      type: "trigger",
+      name,
+      tbl_name: "x_shop_item",
+      sql: `CREATE TRIGGER ${name} AFTER INSERT ON x_shop_item BEGIN ${body}; END`,
+    });
     const actual = [
       ...core,
       row("table", "x_shop_item", "x_shop_item"),
+      row("table", "x_shop_line", "x_shop_line"),
       row("index", "x_shop_item_name", "x_shop_item"),
-      row("trigger", "x_shop_item_ai", "x_shop_item"),
+      trigger("x_shop_item_ai", "UPDATE x_shop_line SET n = n + 1 WHERE item = NEW.id"),
+      // Each of these reaches a core table, however it is written (review of #526, N3).
+      trigger("x_t1", "UPDATE core_user SET role = 'admin'"),
+      trigger("x_t2", "UPDATE \"Core_User\" SET role = 'admin'"),
+      trigger("x_t3", "UPDATE/*c*/[core_user] SET role = 'admin'"),
+      trigger("x_t4", "INSERT INTO `CORE_SETTINGS` VALUES ('k', 'v', 'now', NULL)"),
+      trigger("x_t5", "DELETE FROM rec_person"),
+      // A string naming a core table is not a reference.
+      trigger("x_t6", "UPDATE x_shop_line SET note = 'core_user'"),
       row("view", "rec_shop_item", "rec_shop_item"),
-      row("view", "rec_person", "rec_person"),
-      // Named like an extension's, attached to a core table: not taken.
+      row("view", "x_v", "x_v"),
       row("trigger", "x_hook", "core_settings"),
       row("index", "x_idx", "core_settings"),
       row("table", "core_settings", "core_settings"),
       row("table", "other", "other"),
     ];
     expect(importedExtensionObjects(actual, core).map((r) => `${r.type} ${r.name}`)).toEqual([
-      "view rec_person",
       "table x_shop_item",
+      "table x_shop_line",
       "index x_shop_item_name",
       "trigger x_shop_item_ai",
-      "view rec_shop_item",
-      "view rec_person",
+      "trigger x_t6",
     ]);
+    expect([
+      ...namesIn('SELECT "A""b", [C d], `e` FROM t -- core_x\n /* core_y */ WHERE s = \'core_z\''),
+    ]).toEqual(["select", 'a"b', "c d", "e", "from", "t", "where", "s"]);
+  });
+
+  /** An export of a client whose database also holds `extra`, imported into a new client. */
+  async function importWith(src: string, dst: string, extra: string[]) {
+    await newClient(src);
+    await newClient(dst);
+    await call({ action: "migrate", client: src, migrations: real.TEST_MIGRATIONS });
+    await real.CLIENT_DB.get(real.CLIENT_DB.idFromName(src)).query(
+      extra.map((sql) => ({ sql, params: [] })),
+      crypto.randomUUID(),
+    );
+    const record = await readClient(real.REGISTRY, src as ClientId);
+    const exportKey = `${src}/${record?.secretGeneration}/20261128T010203Z`;
+    let cursor: unknown = null;
+    const paths: string[] = [];
+    do {
+      const step = await call({ action: "export-db-part", client: src, exportKey, cursor });
+      paths.push(step.body.path as string);
+      cursor = step.body.next;
+    } while (cursor);
+    let refused = "";
+    for (const path of paths) {
+      const part = JSON.parse(await ((await real.EXPORTS.get(path)) as R2ObjectBody).text());
+      const step = await call({
+        action: "import-db-part",
+        client: dst,
+        part,
+        migrations: real.TEST_MIGRATIONS,
+      });
+      if (step.status !== 200) refused = String(step.body.error);
+    }
+    return refused;
+  }
+  const views = async (client: string) =>
+    (
+      await call({
+        action: "query",
+        client,
+        sql: "SELECT name, sql FROM sqlite_master WHERE type = 'view' ORDER BY name",
+      })
+    ).body.results as { name: string; sql: string }[];
+
+  it("refuses an extension's trigger that writes a core table, and an INSTEAD OF trigger (the reviewer's probes 1 and 2)", async () => {
+    const one = await importWith("op-n3-a", "op-n3-a2", [
+      "CREATE TABLE x_t (id TEXT PRIMARY KEY)",
+      "CREATE TRIGGER evil AFTER INSERT ON x_t BEGIN UPDATE core_settings SET value = 'x'; END",
+    ]);
+    expect(one).toMatch(/refused and the database emptied/);
+    const two = await importWith("op-n3-b", "op-n3-b2", [
+      "CREATE TABLE x_t (id TEXT PRIMARY KEY)",
+      "CREATE VIEW x_v AS SELECT id FROM x_t",
+      "CREATE TRIGGER x_io INSTEAD OF INSERT ON x_v BEGIN UPDATE core_settings SET value = 'x'; END",
+    ]);
+    expect(two).toMatch(/INSTEAD OF/);
+    expect((await call({ action: "level", client: "op-n3-b2" })).body.applied).toBe(0);
+  });
+
+  it("takes no view from an export: a view over a core table, a new rec_ view and a replaced core one are made again from the host's own (probes 3 to 5)", async () => {
+    const refused = await importWith("op-n3-c", "op-n3-c2", [
+      "CREATE TABLE x_t (id TEXT PRIMARY KEY)",
+      "CREATE VIEW x_v AS SELECT * FROM core_settings",
+      "CREATE VIEW rec_other AS SELECT * FROM core_settings",
+      "DROP VIEW rec_person",
+      "CREATE VIEW rec_person AS SELECT 'replaced' AS id",
+    ]);
+    expect(refused).toBe("");
+    // Before the views are made again, the import holds none of the export's.
+    expect((await views("op-n3-c2")).map((v) => v.name)).toEqual([]);
+    const made = await call({
+      action: "rebuild-views",
+      client: "op-n3-c2",
+      migrations: real.TEST_MIGRATIONS,
+    });
+    expect(made.status, JSON.stringify(made.body)).toBe(200);
+    const after = await views("op-n3-c2");
+    const names = after.map((v) => v.name);
+    expect(names).not.toContain("x_v");
+    expect(names).not.toContain("rec_other");
+    // rec_person is the host's migrations' text, not the export's.
+    const reference = (await views("op-n3-c")).find((v) => v.name === "rec_person");
+    expect(reference?.sql).toContain("replaced");
+    expect(after.find((v) => v.name === "rec_person")?.sql).not.toContain("replaced");
+    // An x_ table the export brought is in.
+    const tables = await call({
+      action: "query",
+      client: "op-n3-c2",
+      sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'x_t'",
+    });
+    expect(tables.body.results).toEqual([{ name: "x_t" }]);
   });
 
   it("refuses, and empties the database, an export that hooks a core table with a trigger", async () => {

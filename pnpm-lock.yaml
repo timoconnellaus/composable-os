@@ -318,6 +318,9 @@ importers:
 
   apps/operator:
     dependencies:
+      '@composable-os/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@composable-os/db':
         specifier: workspace:*
         version: link:../../packages/db
