@@ -424,7 +424,8 @@ describe("once the operator unverifies gym-a's only sender domain", () => {
 
 // A client the operator pauses, then removes (ADR 0618, "A fleet's gatekeepers"; issue #529): its
 // integration host refuses every send and apply as soon as the registry's change is read, even
-// from an environment taken while it was served, and a send it queued before is never sent. A
+// from an environment taken while it was served; a send it queued before is not sent while it is
+// paused (once resumed it may be approved again) and never after it is removed. A
 // third client of this file's own, added and removed as `cos client add` and `cos client remove`
 // write the registry, so gym-a's and gym-b's rows stay as the other tests need them.
 describe("a client paused, then removed, by the operator", () => {

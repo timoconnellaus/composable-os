@@ -1263,10 +1263,25 @@ cos client remove gym-a                      # export kept 90 days, then erased;
 - **Email sending** is the one gatekeeper of a host of many clients: `cos fleet install` installs
   the email-send gatekeeper and `cos fleet upgrade` keeps it (a fleet installed without it gains it
   at its next upgrade); there is no flag for it (ADR 0618, "A fleet's gatekeepers"). It needs no
-  secret: Cloudflare Email Service is a binding in the fleet's own account. For each client, onboard
-  its domain to Email Sending in that account (Email Sending in the dashboard; every record it adds
-  must show valid), then `cos client sender add` and `verify`. A client sends only from its own
-  verified domains, never another client's or the fleet's own, and nothing while paused or once
+  secret: Cloudflare Email Service is a binding in the fleet's own account. Its `INTERNAL_DOMAINS`
+  is always empty on a fleet. **A client's sign-in mail**, in order:
+  1. The operator onboards the client's sending domain to Email Sending in the fleet's account
+     (Email → Email Sending in the dashboard); every record it adds must show valid. **The domain
+     must be exactly the domain of the From address**: verifying `gym.example` does not allow
+     `hello@mail.gym.example`; register `mail.gym.example` itself for that.
+  2. The operator runs `cos client sender add <id> <domain>`, then `cos client sender verify <id>
+     <domain>`.
+  3. The client's human admin, in the app: Settings → Integrations, turn on email sending and
+     create the org connection; bind a sender address on the verified domain (`hello@<domain>`);
+     then Settings → Users, choose that connection as "The host's mail" and turn on "Send sign-in
+     codes without review". This needs the Balanced approval policy and an `APPROVAL_FLOOR` that
+     does not review the host's sends ("Customer sign-in" above).
+
+  Until all three are done, a sign-in code request answers 503 `sign_in_not_set_up` and no code is
+  made. A client sends only from its own verified domains, never another client's or the fleet's
+  own. A pause, an unverify or a removal reaches a running host within 10 seconds (its registry
+  check, `REGISTRY_REFRESH_MS`); from then nothing is sent for that client while it is paused (a
+  send queued before may still be approved once it is resumed), and nothing ever after it is
   removed.
 - **Payments, text, inbound webhooks and email receiving** are off for every client of a host of
   many clients until their gatekeepers are made per client (ADR 0616). A client's Stripe keys can
@@ -1492,8 +1507,11 @@ no zone says first which steps are not proved.
    (the same status and error code), and whose password at the other's is the wrong-password
    answer, 401; the host's health on the callback hostname; a picture uploaded at alpha, which must
    succeed, for the export to carry.
-4. `cos client sender add`, `verify` and `unverify` for a made-up domain. **A send is not checked**
-   (4b, see below).
+4. `cos client sender add`, `verify` and `unverify` for a made-up domain. Then (4a) the fleet's
+   email-send gatekeeper, read from the account: `cosstg-<run id>-gatekeeper-email-send-staging` is
+   deployed with `SENDER_DOMAINS_PER_CLIENT=true`, and the runner binds it as
+   `GATEKEEPER_EMAIL_SEND`; checked again after the successful upgrade of step 5. **A send is not
+   checked** (4b, see below).
 5. `cos fleet upgrade` to `0.1.1` three times:
    - bravo's migration made to fail after alpha's migration has applied: the update must stop
      before any upload, name alpha and bravo restored, leave both at the schema and status they
@@ -1553,9 +1571,11 @@ replaces a record that exists). **Use a spare zone, not a live site's**: the cer
 hostnames stay in public certificate logs. Without one, steps 1, 3, 5, 6 and 8 are partial and the
 run is not proved; what can run still runs.
 
-**What it cannot check:** a send (4b). `cos fleet install` installs no gatekeeper (a fleet's state
-lists none), so no email-send Worker exists to send from or to refuse an unverified domain; the
-`sending_domain` input is recorded and not used until one can be installed on a fleet. A client's
+**What it cannot check:** a send (4b). The fleet's email-send gatekeeper is installed and checked
+(4a; its Worker and the Durable Object namespace it owns are deleted by the teardown with the run's
+other Workers), but a real send needs a domain onboarded to Email Sending in the account and a
+client's admin to connect it in the app, which this check does not do; the `sending_domain` input
+is recorded and not used. A client's
 web hostname (only recorded: its web app is step 8's). AI. A live fleet, a real client and the
 first client's own steps (step 9). Payments, texts and webhooks (off for every client of a fleet).
 Two endpoints are not proved against Cloudflare's own API before the first run: listing a bucket's

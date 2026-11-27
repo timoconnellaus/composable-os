@@ -49,9 +49,18 @@ the steps are in [docs/deploying.md](../deploying.md), "A host of many clients")
   `resume`, `secret`, `export`, `import` and `remove` follow it through its life.
 - **Email.** Every fleet gets the email-send gatekeeper from `cos fleet install`, kept by each
   upgrade; it is the only gatekeeper on a fleet. It needs no secret: it sends through Cloudflare
-  Email Service in the fleet's own account. For each client, the operator onboards the client's
-  domain to Email Sending in that account, then runs `cos client sender add <id> <domain>` and,
-  once every record shows valid, `cos client sender verify <id> <domain>`. A client sends only from
-  its own verified domains: never from another client's, the fleet's own or an unverified one, and
-  nothing while it is paused or after it is removed
+  Email Service in the fleet's own account. A client's sign-in mail takes three steps:
+  1. The operator onboards the client's domain to Email Sending in that account, with every record
+     valid. The domain must be exactly the From address's domain: `gym.example` does not cover
+     `hello@mail.gym.example`.
+  2. The operator runs `cos client sender add <id> <domain>`, then `cos client sender verify <id>
+     <domain>`.
+  3. The client's admin, in the app: on Settings → Integrations, turns on email sending and creates
+     the connection, and binds a sender address on that domain; on Settings → Users, chooses it as
+     "The host's mail" and turns on "Send sign-in codes without review".
+
+  Until then a sign-in code request answers 503 `sign_in_not_set_up`. A client sends only from its
+  own verified domains: never from another client's, the fleet's own or an unverified one. A pause,
+  an unverify or a removal takes effect within 10 seconds; nothing is sent while a client is
+  paused, and nothing after it is removed
   ([ADR 0616](../adr/0616-secrets-and-addresses-per-client.md), "Email sending per client").

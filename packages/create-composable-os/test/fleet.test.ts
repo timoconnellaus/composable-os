@@ -1186,6 +1186,56 @@ describe("a fleet's gatekeepers (ADR 0618, issue #529)", () => {
   });
 });
 
+describe("single-client commands on a fleet's deployment (review of #544, follow-up 2)", () => {
+  it("cos install and cos upgrade refuse a fleet's state before writing anything", async () => {
+    const { buildFixtureRelease } = await import("@composable-os/release/testing");
+    const { runIn, startWorld } = await import("./world.ts");
+    const world = await startWorld();
+    try {
+      for (const version of ["1.0.0", "1.1.0"]) {
+        await world.github.publish(
+          await buildFixtureRelease({ version, fleet: true, clientGatekeepers: true }),
+        );
+      }
+      const keysPath = join(mkdtempSync(join(tmpdir(), "s66-single-keys-")), "live.json");
+      expect((await runIn(world, "fleet", "keys", "--env", "live", "--out", keysPath)).code).toBe(
+        0,
+      );
+      const installed = await runIn(
+        world,
+        ...["fleet", "install", "--env", "live", "--keys-file", keysPath, "--version", "1.0.0"],
+        ...["--callback-hostname", "callback.fleet.example", "--domain", "fleet.example"],
+      );
+      expect(installed.code, installed.output).toBe(0);
+      const host = [...world.cf.d1.values()].find((d) => d.name === "demo");
+      const stateText = async () =>
+        String(
+          (
+            await host?.engine.query("SELECT value FROM core_install WHERE key = 'deployment'", [])
+          )?.[0]?.value,
+        );
+      const before = await stateText();
+      // Every call but a read (a D1 query is a POST; the state is compared above).
+      const uploads = () =>
+        world.cf.calls.filter((c) => c.method !== "GET" && !c.path.endsWith("/query")).length;
+      const writes = uploads();
+      for (const argv of [
+        ["install", "--yes", "--version", "1.0.0"],
+        ["upgrade", "--yes", "--version", "1.1.0"],
+      ]) {
+        const { code, output } = await runIn(world, ...argv);
+        expect(JSON.parse(await stateText()).fleet, output).toBeDefined();
+        expect(await stateText()).toBe(before);
+        expect(code, output).toBe(1);
+        expect(output).toContain("a host of many clients");
+      }
+      expect(uploads()).toBe(writes);
+    } finally {
+      world.server.close();
+    }
+  });
+});
+
 describe("cos fleet install for the staging check (fleet-staging-check.yml)", () => {
   it("installs with AI off and a location, chosen at the first install only", async () => {
     const { buildFixtureRelease } = await import("@composable-os/release/testing");
