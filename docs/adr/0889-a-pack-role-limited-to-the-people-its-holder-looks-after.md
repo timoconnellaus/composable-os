@@ -152,3 +152,9 @@ under the limit `record.delete` is held as `record.update` is (the stored record
 of the account's People, else not found) instead of refused. A delete is to the Trash and still
 passes the gate, so the approval policy may hold it. `record.count`, `createMany` and batches stay
 refused. Proof: `apps/runner/test/programs-coach.test.ts`.
+
+## Note, 2026-11-27 (stage 78, ADR 0980)
+
+The class types `useClassTypes` reads are Bookings' `bookings.classtype` now (ADR
+[0980](0980-general-and-domain-packs.md)); `my.list` serves them to every signed-in member as it
+served Programs' (`signedIn`, name and order). Nothing else here changes.

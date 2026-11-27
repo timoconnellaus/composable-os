@@ -225,3 +225,13 @@ past training had nowhere to go.
   per session and person that sends one save at a time, coalesces what changed meanwhile, never
   lets an answer or a read undo a newer change, retries what failed and keeps what the host
   refused with its reason. It decides nothing about what may be logged.
+
+## Amendment, 2026-11-27 (stage 78, ADR 0980): the class type is Bookings'
+
+`programs.classtype` is gone: the class type is Bookings' own `bookings.classtype` (ADR
+[0980](0980-general-and-domain-packs.md)), and Programs, a domain pack, **requires Bookings**.
+An assignment's and a session's `classType` relate to `bookings.classtype`; `assign` reads its name
+there (`permissions.read`); the hooks' `useClassTypes` lists Bookings' class types. Programs' own
+objects are now `exercise`, `program`, `assignment`, `session` and `log`. `cos programs import`
+still reads `classtypes.csv` and writes Bookings' class types. A plain move with no migration: no
+host held Programs data.
