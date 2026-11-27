@@ -458,3 +458,13 @@ Two kinds of routine email this ADR could not send, each narrow:
   own address while they have a live guardian, nor to an order's address, and goes by email only.
 
 Proof: ADR 0724's table; every test above passes unchanged.
+
+## Amended 2026-11-27 (stage 78, ADR 0980): a read-only relation never ties
+
+"Shares a relation to an own object with it" now leaves out a **read-only** relation, a value the
+host copies (a booking's `classType`, copied from its class). The class type became Bookings' own
+object (ADR [0980](0980-general-and-domain-packs.md)), so without this a run about one booking could
+have sent mail about another member's booking that only shares its class type. The class still ties
+(another booking of the same class: the place-free mail), proved in
+`apps/runner/test/routine-mail.test.ts`. A later step (stage 78 step 13) makes the tie explicit, the
+kind naming its relation, since Forms' `form` and Ticketing's `event` and `tickettype` are as broad.
