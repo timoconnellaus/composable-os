@@ -398,19 +398,27 @@ describe("native apps: tokens (ADR 0419, criterion 4)", () => {
     expect(mine.map((s: { deviceName: string }) => s.deviceName)).toContain("Admin's tablet");
   });
 
-  it("a refresh rotates the tokens; using the old refresh token again ends the session", async () => {
+  it("a refresh rotates the tokens; using an old refresh token again ends the session", async () => {
     const first = (await auth("token", { deviceName: "Phone" }, { cookie: customerCookie })).body
       .data;
     const second = await auth("refresh", { refreshToken: first.refreshToken });
     expect(second.status).toBe(200);
+    // The answer was lost: the token just rotated past, sent again before the answer is used,
+    // gets the same answer once (ADR 0419, amended 2026-11-27), never a second rotation.
+    const again = await auth("refresh", { refreshToken: first.refreshToken });
+    expect(again.status).toBe(200);
+    expect(again.body.data).toEqual(second.body.data);
     expect((await apiWith("me.get", {}, bearer(second.body.data.accessToken))).status).toBe(200);
+    const third = await auth("refresh", { refreshToken: second.body.data.refreshToken });
+    expect(third.status).toBe(200);
+    // Two rotations back is reuse: the session ends.
     const replay = await auth("refresh", { refreshToken: first.refreshToken });
     expect(replay).toMatchObject({
       status: 401,
       body: { error: { code: "forbidden", details: { reason: "refresh_reused" } } },
     });
     // The whole session is gone: the newest access token stops too.
-    const after = await apiWith("me.get", {}, bearer(second.body.data.accessToken));
+    const after = await apiWith("me.get", {}, bearer(third.body.data.accessToken));
     expect(after.status).toBe(401);
     expect(JSON.parse(after.body).error.details.reason).toBe("token_invalid");
   });

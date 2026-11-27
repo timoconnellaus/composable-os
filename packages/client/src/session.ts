@@ -16,7 +16,7 @@
 // Staff whose sign-in is browser-based (Google, Cloudflare Access) use `startBrowserSignIn` and
 // `finishBrowserSignIn` instead: the system browser signs them in, never a web view.
 import { ApiError, NetworkError } from "./errors.ts";
-import type { FetchLike } from "./types.ts";
+import type { FetchLike, RequestInitLike } from "./types.ts";
 
 export interface Tokens {
   accessToken: string;
@@ -46,7 +46,59 @@ export interface TokenSessionOptions {
   fetch?: FetchLike;
   /** Refresh this long before the access token runs out. Default 30 seconds. */
   refreshEarlyMs?: number;
+  /**
+   * Give up on a refresh that has not answered after this long, so a request left hanging (an
+   * app backgrounded mid-refresh, a network that changed) never holds up every call. Not a
+   * refusal: the session is kept and the next call tries again. Default 15 seconds.
+   */
+  refreshTimeoutMs?: number;
   now?: () => number;
+}
+
+interface Abortable {
+  abort(): void;
+  signal: unknown;
+}
+
+/**
+ * A fetch that gives up after `ms`: the request is aborted where the platform can (an
+ * `AbortController`, which browsers, Workers, Node and React Native have), and the wait ends
+ * either way, whether or not the platform honours the signal.
+ */
+function withTimeout(fetcher: FetchLike, ms: number): FetchLike {
+  return (url, init) => {
+    const Controller = (globalThis as { AbortController?: new () => Abortable }).AbortController;
+    const controller = Controller ? new Controller() : null;
+    let timer: unknown;
+    const timedOut = new Promise<never>((_, reject) => {
+      timer = (
+        globalThis as unknown as { setTimeout(fn: () => void, ms: number): unknown }
+      ).setTimeout(() => {
+        controller?.abort();
+        reject(new Error(`No answer from the host within ${ms} ms`));
+      }, ms);
+    });
+    // Read by the caller or not, a timeout is never an unhandled rejection.
+    timedOut.catch(() => {});
+    const stop = () =>
+      (globalThis as unknown as { clearTimeout(t: unknown): void }).clearTimeout(timer);
+    const sent = fetcher(url, {
+      ...init,
+      ...(controller ? { signal: controller.signal } : {}),
+    } as RequestInitLike);
+    // The same limit covers the answer's body, read after its headers (review of #554, F1).
+    return Promise.race([sent, timedOut]).then(
+      (response) => ({
+        status: response.status,
+        headers: response.headers,
+        text: () => Promise.race([response.text(), timedOut]).finally(stop),
+      }),
+      (error: unknown) => {
+        stop();
+        throw error;
+      },
+    );
+  };
 }
 
 async function post<T = Tokens>(
@@ -67,9 +119,16 @@ async function post<T = Tokens>(
   }
   // Something in front of the host (a proxy, a gateway) can answer with a page, not JSON: the
   // status still says what happened.
+  let text: string;
+  try {
+    text = await response.text();
+  } catch (error) {
+    // The answer started and never finished (or took too long): no answer, not a refusal.
+    throw new NetworkError("The host's answer did not arrive", error);
+  }
   let parsed: { data?: T; error?: { code: string; message: string; details?: unknown } } = {};
   try {
-    parsed = JSON.parse(await response.text()) as typeof parsed;
+    parsed = JSON.parse(text) as typeof parsed;
   } catch {}
   if (response.status === 200 && parsed.data) return parsed.data;
   throw new ApiError(
@@ -157,49 +216,72 @@ function refusalReason(text: string): string | null {
   }
 }
 
+/**
+ * What every session over one store shares (review of #548, F-c): the refresh in flight, so two
+ * sessions over one store never present one refresh token twice (which ends the session), and
+ * which session the store holds, so a sign-out through one is one for a refresh another began.
+ * Keyed by the store object a device app holds; the host never makes one.
+ */
+const byStore = new WeakMap<
+  TokenStore,
+  { refreshing: Promise<Tokens | null> | null; generation: number }
+>();
+
+function sharedOf(store: TokenStore) {
+  let shared = byStore.get(store);
+  if (!shared) {
+    shared = { refreshing: null, generation: 0 };
+    byStore.set(store, shared);
+  }
+  return shared;
+}
+
 export function tokenSession(options: TokenSessionOptions) {
   const base = options.baseUrl.replace(/\/+$/, "");
   const fetcher =
     options.fetch ?? ((globalThis as { fetch?: FetchLike }).fetch?.bind(globalThis) as FetchLike);
   const early = options.refreshEarlyMs ?? 30_000;
   const now = options.now ?? (() => Date.now());
+  const refresher = withTimeout(fetcher, options.refreshTimeoutMs ?? 15_000);
   // One refresh at a time: two at once would present one refresh token twice and end the session.
-  let refreshing: Promise<Tokens | null> | null = null;
-  // Which session the store holds: a sign-out or a sign-in moves it on, and a refresh begun
-  // before that keeps nothing it brings back (review of #542, F1).
-  let generation = 0;
+  // And which session the store holds: a sign-out or a sign-in moves it on, and a refresh begun
+  // before that keeps nothing it brings back (review of #542, F1). Both are the store's.
+  const shared = sharedOf(options.store);
 
   /** Saves `tokens` as a new session (a sign-in) or none (a sign-out): any refresh is stale. */
   async function replace(tokens: Tokens | null): Promise<void> {
-    generation += 1;
+    shared.generation += 1;
     await options.store.save(tokens);
   }
 
   async function refresh(tokens: Tokens): Promise<Tokens | null> {
-    const began = generation;
+    const began = shared.generation;
     try {
-      const next = await post(fetcher, `${base}/api/v1/auth/refresh`, {
+      const next = await post(refresher, `${base}/api/v1/auth/refresh`, {
         refreshToken: tokens.refreshToken,
       });
       // Signed out, or signed in afresh, meanwhile: that is the session now, not this one.
-      if (generation !== began) return options.store.load();
+      if (shared.generation !== began) return options.store.load();
       await options.store.save(next);
       return next;
     } catch (error) {
       // The host refused the token (signed out, unused too long, reused, not a token): the session
-      // is over, so forget it. A 5xx, a 429, a proxy's page or no answer says nothing about the
-      // session: the tokens are kept for the next try.
-      if (sessionRefused(error) && generation === began) await options.store.save(null);
+      // is over, so forget it. A 5xx, a 429, a proxy's page, no answer or none in time says
+      // nothing about the session: the tokens are kept for the next try.
+      if (sessionRefused(error) && shared.generation === began) await options.store.save(null);
       throw error;
     }
   }
 
   /** One refresh at a time, shared by every call waiting on it. */
   function refreshOnce(tokens: Tokens): Promise<Tokens | null> {
-    refreshing ??= refresh(tokens).finally(() => {
-      refreshing = null;
-    });
-    return refreshing;
+    const running =
+      shared.refreshing ??
+      refresh(tokens).finally(() => {
+        if (shared.refreshing === running) shared.refreshing = null;
+      });
+    shared.refreshing = running;
+    return running;
   }
 
   /**
@@ -207,7 +289,7 @@ export function tokenSession(options: TokenSessionOptions) {
    * refresh already in flight, or just finished, gives; else one refresh, shared.
    */
   async function renewedAfter(used: Tokens): Promise<Tokens | null> {
-    if (refreshing) return refreshing;
+    if (shared.refreshing) return shared.refreshing;
     const now = await options.store.load();
     if (!now) return null;
     if (now.accessToken !== used.accessToken) return now;
@@ -223,7 +305,7 @@ export function tokenSession(options: TokenSessionOptions) {
   async function current(): Promise<Tokens | null> {
     // A refresh the host refused has forgotten the session (none); one that failed otherwise has
     // kept it, and a call with it is refused as expired and tries again.
-    if (refreshing) return refreshing.catch(() => options.store.load());
+    if (shared.refreshing) return shared.refreshing.catch(() => options.store.load());
     const tokens = await options.store.load();
     if (!tokens) return null;
     if (Date.parse(tokens.accessExpiresAt) - early <= now()) return refreshOnce(tokens);
@@ -342,9 +424,17 @@ export function tokenSession(options: TokenSessionOptions) {
       const text = await first.text();
       const again = replayed(first, text);
       // A refresh in flight, or one that landed while this call was out: the session's token now.
-      if (refreshing) await refreshing.catch(() => null);
+      if (shared.refreshing) await shared.refreshing.catch(() => null);
       const stored = await options.store.load();
-      if (stored && stored.accessToken !== used.accessToken) return send(stored);
+      // The same session with a new token (a refresh keeps the session's id): sent again. Never
+      // another session's (a sign-out and a new sign-in meanwhile): the call is not theirs.
+      if (
+        stored &&
+        stored.sessionId === used.sessionId &&
+        stored.accessToken !== used.accessToken
+      ) {
+        return send(stored);
+      }
       if (refusalReason(text) !== "token_expired") return again;
       let next: Tokens | null;
       try {
@@ -354,7 +444,8 @@ export function tokenSession(options: TokenSessionOptions) {
         if (!(await options.store.load())) return again;
         throw error;
       }
-      return next ? send(next) : again;
+      // Only ever as the session the call was made in.
+      return next && next.sessionId === used.sessionId ? send(next) : again;
     }) as FetchLike,
     /**
      * Ends this device's session on the host (ADR 0455) with its refresh token, which any account

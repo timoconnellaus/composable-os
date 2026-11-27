@@ -1012,6 +1012,13 @@ export interface CoreDeviceSessionTable {
   used_refresh_hashes: Defaulted<string>;
   created_at: string;
   last_used_at: string;
+  /** The refresh token just rotated past, hashed (migration 1505: the lost answer's grace). */
+  previous_refresh_hash: Defaulted<string | null>;
+  previous_rotated_at: Defaulted<string | null>;
+  /** That rotation's answer, sealed under a key only the previous refresh token gives. */
+  successor_sealed: Defaulted<string | null>;
+  /** When the session last had an answer again (at most once in 24 hours). */
+  grace_answered_at: Defaulted<string | null>;
 }
 
 /** A staff invite (migration 0490, ADR 0455). */

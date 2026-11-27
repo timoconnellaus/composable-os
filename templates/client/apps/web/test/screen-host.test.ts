@@ -222,6 +222,43 @@ describe("the browser build's token store, with Web Locks (review of #542, S2)",
     expect(await reloaded.load()).toMatchObject({ refreshToken: "refresh-1" });
   });
 
+  it("gives a reload longer for its old page to let go, and keeps it signed in (review of #548, F-d)", async () => {
+    const origin = fakeLocks();
+    const before = origin.tab(1);
+    const storage = memoryStorage();
+    await sessionTokenStore(storage, fakePage(), { locks: before.locks, waitMs: WAIT }).save(
+      tokens(1),
+    );
+    // The old document lets go after the usual wait, inside a reload's longer one.
+    setTimeout(before.kill, WAIT * 3);
+    const reloaded = sessionTokenStore(carried(storage), fakePage(), {
+      locks: origin.tab(2).locks,
+      waitMs: WAIT,
+      reloaded: true,
+      reloadWaitMs: 1_000,
+    });
+    expect(await reloaded.load()).toMatchObject({ refreshToken: "refresh-1" });
+    expect(origin.holder("ses_1")).toBe(2);
+  });
+
+  it("does not trust the navigation type alone: a 'reload' whose session another live tab holds is a copy (review of #554, S2)", async () => {
+    const origin = fakeLocks();
+    const storage = memoryStorage();
+    await sessionTokenStore(storage, fakePage(), { locks: origin.tab(1).locks, waitMs: WAIT }).save(
+      tokens(1),
+    );
+    const copy = carried(storage);
+    const copied = sessionTokenStore(copy, fakePage(), {
+      locks: origin.tab(2).locks,
+      waitMs: WAIT,
+      reloaded: true,
+      reloadWaitMs: WAIT * 2,
+    });
+    expect(await copied.load()).toBeNull();
+    expect(copy.items.has(SESSION_KEY)).toBe(false);
+    expect(origin.holder("ses_1")).toBe(1);
+  });
+
   it("keeps the session through the back-forward cache: the page and its lock are kept", async () => {
     const origin = fakeLocks();
     const page = fakePage();
@@ -535,6 +572,34 @@ describe("the browser build's ScreenHost", () => {
     expect(await screens.me()).toMatchObject({ displayName: "Ada Lovelace" });
     expect(host.sent.some((s) => s.url.endsWith("/api/v1/auth/sign-out"))).toBe(false);
     expect(await store.load()).toMatchObject({ refreshToken: "refresh-3" });
+  });
+
+  it("never signs out a session other than the one refused, even when it gives up (review of #548, F-a)", async () => {
+    const store = noLocks(memoryStorage());
+    await store.save(tokens(1));
+    const host = fakeHost((path) =>
+      path === "/api/v1/auth/sign-out"
+        ? [200, { data: { ok: true } }]
+        : [
+            401,
+            { error: { code: "forbidden", message: "No", details: { reason: "session_idle" } } },
+          ],
+    );
+    // Each refusal arrives just as the tab has taken yet another session.
+    let next = 3;
+    const fetch = async (url: string, init?: RequestInit) => {
+      const answer = await host.fetch(url, init);
+      if (answer.status === 401) {
+        await store.save({ ...tokens(next), sessionId: `ses_${next}` });
+        next += 1;
+      }
+      return answer;
+    };
+    const screens = tokenScreenHost({ hostUrl: HOST, store, fetch });
+    expect(await screens.me()).toBeNull();
+    // The sessions the tab took meanwhile are not ended by a refusal of an earlier one.
+    expect(host.sent.filter((s) => s.url.endsWith("/api/v1/auth/sign-out"))).toEqual([]);
+    expect(await store.load()).toMatchObject({ sessionId: "ses_4" });
   });
 
   it("signs out on the host, and forgets, a session the host no longer takes", async () => {

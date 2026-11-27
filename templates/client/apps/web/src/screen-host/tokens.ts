@@ -93,6 +93,14 @@ export interface TabLike {
    * is reloading lets go as it is unloaded; a live tab never does. Default 1000.
    */
   waitMs?: number;
+  /**
+   * The page was loaded by a reload (`performance` navigation type "reload"). Not trusted alone
+   * (no source says what a browser reports for a duplicated or restored tab): it only makes the
+   * tab wait longer, `reloadWaitMs`, for its old document to let the lock go.
+   */
+  reloaded?: boolean;
+  /** How long a reloaded page waits for the lock, in ms. Default 5000. */
+  reloadWaitMs?: number;
 }
 
 /** The lock a tab holds while it uses a session. */
@@ -131,29 +139,28 @@ export function sessionTokenStore(
   const locks = tab.locks === undefined ? defaultLocks() : tab.locks;
   const discarded = tab.wasDiscarded ?? defaultWasDiscarded();
   const waitMs = tab.waitMs ?? 1000;
+  const reloaded = tab.reloaded ?? defaultReloaded();
+  const reloadWaitMs = tab.reloadWaitMs ?? 5000;
   const here = storage ? pageState(storage) : { marked: false, holds: new Set<string>() };
   let held: Tokens | null = null;
   let holding: { sessionId: string; letGo: () => void } | null = null;
 
-  /** Takes the session's lock for this page, waiting a while for another to let it go. */
-  async function claim(sessionId: string): Promise<boolean> {
+  /** Takes the session's lock for this page, waiting `wait` ms for another to let it go. */
+  async function claim(sessionId: string, wait: number = waitMs): Promise<boolean> {
     if (!locks || here.holds.has(sessionId)) return true;
     let letGo = () => {};
     const kept = new Promise<void>((resolve) => {
       letGo = resolve;
     });
     const timeout = (AbortSignal as { timeout?: (ms: number) => AbortSignal }).timeout;
+    const options = timeout ? { signal: timeout(wait) } : { ifAvailable: true };
     const got = await new Promise<boolean>((resolve) => {
       locks
-        .request(
-          lockName(sessionId),
-          timeout ? { signal: timeout(waitMs) } : { ifAvailable: true },
-          (lock) => {
-            resolve(lock !== null);
-            // Held for as long as this page uses the session.
-            return lock === null ? undefined : kept;
-          },
-        )
+        .request(lockName(sessionId), options, (lock) => {
+          resolve(lock !== null);
+          // Held for as long as this page uses the session.
+          return lock === null ? undefined : kept;
+        })
         .catch(() => resolve(false));
     });
     if (!got) return false;
@@ -182,7 +189,10 @@ export function sessionTokenStore(
 
   /** Whether the session found at start is another live tab's (this tab is its copy). */
   async function copied(stored: Tokens): Promise<boolean> {
-    if (locks) return !(await claim(stored.sessionId));
+    // A reload's old document may be slow to let the lock go (F-d): such a page waits longer.
+    // Still a copy if another tab holds the lock after that: the navigation type alone is not
+    // trusted (review of #554, S2).
+    if (locks) return !(await claim(stored.sessionId, reloaded ? reloadWaitMs : waitMs));
     if (discarded || here.marked) return false;
     return quietly(() => storage?.getItem(LIVE_KEY)) != null;
   }
@@ -234,6 +244,15 @@ function defaultPage(): PageLike | null {
 
 function defaultLocks(): LocksLike | null {
   return (globalThis as { navigator?: { locks?: LocksLike } }).navigator?.locks ?? null;
+}
+
+function defaultReloaded(): boolean {
+  const timing = (
+    globalThis as {
+      performance?: { getEntriesByType?: (type: string) => { type?: string }[] };
+    }
+  ).performance;
+  return quietly(() => timing?.getEntriesByType?.("navigation")[0]?.type === "reload") === true;
 }
 
 function defaultWasDiscarded(): boolean {
