@@ -6,7 +6,8 @@ and blocks, "Screens in the admin"; Extensions; Trust boundaries), [`CONTEXT.md`
 [0960](../adr/0960-screens-as-published-versions-and-one-desktop-app.md) (and its note of
 2026-11-27), [0660](../adr/0660-pack-screens-in-the-admin.md),
 [0424](../adr/0424-blocks-as-built.md), [0043](../adr/0043-extension-executor-and-stable-loader-ids.md),
-[0404](../adr/0404-behaviours-over-hooks.md) and [0405](../adr/0405-skills-and-no-shortcuts.md);
+[0404](../adr/0404-behaviours-are-the-vocabulary.md) and
+[0405](../adr/0405-skills-ship-with-the-platform.md);
 stages [47](47-pack-screens.md), [75](75-screen-versions.md) and [76](76-desktop-app.md); code:
 `packages/sdk/src/contract.ts` (`ScreenSpec`, `recordAction`), `apps/app/screens-plugin.ts`,
 `apps/app/src/components/screens/screens.tsx`, `apps/app/src/lib/staff-client.ts`,
@@ -15,8 +16,10 @@ stages [47](47-pack-screens.md), [75](75-screen-versions.md) and [76](76-desktop
 may not declare), `apps/runner/src/extensions/` (the working copy, builds and checks).
 
 Status: **spec proposed (2026-11-27)**. Its direction was agreed by the owner the same day, in
-stage 75's interview and chat, and is recorded below. It is not built until its own interview
-settles the questions at its end. First written as steps 8 to 11 of stage 75, and moved here so
+stage 75's interview and chat, and is recorded below. Steps 9 and 10 (the admin without the
+server, and as a version) were agreed in that interview as stage 75's step 8, so they and
+stage 76 do not wait on this stage's interview. Every other step is not built until this
+stage's own interview settles the questions at its end. First written as steps 8 to 11 of stage 75, and moved here so
 that stage 75 is screen versions alone.
 
 ## Goal
@@ -240,8 +243,8 @@ independent of all of them.
 - **`screen.publish` is a write a person makes.** An assistant asks.
 - **A screen made only of standard blocks and declared fills is shown in the desktop app** from
   the start: it holds none of the organisation's code. A custom block is not shown there until
-  it is proved that a frame cannot reach Electrobun's bridge (the spike saw a frame's messages
-  dropped, and that is not documented) or the bridge can be switched off for a view (ADR 0960).
+  Electrobun's internal bridge can be switched off for a view, by an option of its own or a
+  fork we keep (ADR 0960).
 - **Where a database is placed is its location, never its region,** so the two words do not
   meet.
 
@@ -262,24 +265,24 @@ independent of all of them.
 Spec proposed (2026-11-27). No build step is built yet. Each build step changes its own line
 here (CONTRIBUTING.md, Working in parallel).
 
-- **Step 1** — not built — needs: an owner decision — The region contract and the first regions
+- **Step 1** — not built — needs: the owner's agreement on the spec — The region contract and the first regions
 
-- **Step 2** — not built — needs: step 1 — The screen record
+- **Step 2** — not built — needs: step 1, the owner's agreement on the spec — The screen record
 
-- **Step 3** — not built — needs: step 2 — Declared fills
+- **Step 3** — not built — needs: step 2, the owner's agreement on the spec — Declared fills
 
-- **Step 4** — not built — needs: step 2 — The selection
+- **Step 4** — not built — needs: step 2, the owner's agreement on the spec — The selection
 
-- **Step 5** — not built — needs: step 2 — The release check
+- **Step 5** — not built — needs: step 2, the owner's agreement on the spec — The release check
 
-- **Step 6** — not built — The build service's spike
+- **Step 6** — not built — needs: the owner's agreement on the spec — The build service's spike
 
-- **Step 7** — not built — needs: step 2, step 6, stage 75 step 3 — Custom blocks
+- **Step 7** — not built — needs: step 2, step 6, stage 75 step 3, the owner's agreement on the spec — Custom blocks
 
-- **Step 8** — not built — needs: step 3 — Edit mode
+- **Step 8** — not built — needs: step 3, the owner's agreement on the spec — Edit mode
 
 - **Step 9** — not built — The admin without the server
 
 - **Step 10** — not built — needs: step 9, stage 75 step 4 — The admin as a version
 
-- **Step 11** — not built — needs: step 8, step 10 — Docs, the skills and the ADRs
+- **Step 11** — not built — needs: step 8, step 10, the owner's agreement on the spec — Docs, the skills and the ADRs
