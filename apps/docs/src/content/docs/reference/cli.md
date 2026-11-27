@@ -34,9 +34,11 @@ installing a product with no repository.
   cos upgrade [--version X.Y.Z]          in a client repo: move product.ts to a newer platform
                                          version, regenerate the client, replace skills/, report type
                                          errors; deploys nothing
-  cos add <block>, cos diff <block> [--accept]
+  cos add <block> [--replace], cos diff <block> [--accept]
                                          copy a block from the release; show its upstream changes
-                                         (--accept: record them as merged by hand)
+                                         (--replace: the release's copy in place of yours, --yes
+                                         when you edited it;
+                                         --accept: record them as merged by hand)
                                          (cos add with no block lists them, with their skins)
   cos client generate                    in a client repo: each app's typed client, again (and
                                          the mobile app's brand.ts from product.ts)
@@ -114,10 +116,12 @@ installing a product with no repository.
                                          the deployment's keys, written only to <file> (mode
                                          0600, refused inside a git working tree), never printed
   cos fleet install --env <e> --keys-file <f> --callback-hostname <h> --domain <d>
-                    [--location <hint>] [--ai on|off]
-                                         the host, its registry, cos-client-db and the operator's
-                                         Worker, with every binding a fleet needs (--location
-                                         and --ai at the first install only)
+                    [--location <hint>] [--ai on|off] [--zone z] [--attach custom-domains|wildcard]
+                                         the host, its registry, cos-client-db, the operator's
+                                         Worker and cos-front, with every binding a fleet needs
+                                         (--location and --ai at the first install only); learns
+                                         the domain's zone and attaches the callback hostname
+                                         and the CNAME target of clients' own domains
   cos fleet upgrade --env <e> --keys-file <f> [--version x.y.z] [--dry-run] [--yes]
                                          every client paused, bookmarked and migrated, the Workers
                                          uploaded once, smoke checked, resumed; a client whose
@@ -125,8 +129,13 @@ installing a product with no repository.
                                          only after staging (--skip-staging, deliberately)
   cos client add <id> [--env e] [--tier t] [--location oc] [--setting NAME=VALUE]… [--dry-run]
                                          a client: its registry rows, its database made and
-                                         migrated, its staff hostname (a web one only with
-                                         --web-hostname, on its own domain); no upload
+                                         migrated, its staff hostname attached (a desk one with
+                                         --desk; a web one, on its own domain and unverified,
+                                         with --web-hostname); no upload
+  cos client hostname add|verify|remove <id> <hostname>, cos client hostname list <id>
+                                         a client's own web domain: added unverified with the
+                                         DNS records it needs, verified once Cloudflare reports
+                                         it active, then served by cos-front
   cos client pause|resume <id>, cos client list
   cos client secret set|remove <id> <NAME> [--value-file f]
                                          a client's given secret, sealed (this command cannot

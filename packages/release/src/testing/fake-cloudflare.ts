@@ -111,7 +111,43 @@ export class FakeCloudflare {
    * real API, user Workers have no versions, deployments, schedules or workers.dev.
    */
   readonly namespaces = new Map<string, Map<string, FakeScript>>();
-  readonly customHostnames: { id: string; hostname: string; status: string }[] = [];
+  readonly customHostnames: {
+    id: string;
+    hostname: string;
+    status: string;
+    ssl?: { method?: string; status: string; validation_records?: unknown[] };
+    ownership_verification?: { type: string; name: string; value: string };
+    /** The zone it was made on (the control plane's tests make some without). */
+    zone_id?: string;
+  }[] = [];
+  /**
+   * Whether a custom hostname turns active on its next read (the control plane's tests, ADR
+   * 0210). Off: it stays pending until `activateCustomHostname`, as a real one does until its
+   * owner's DNS proves it (stage 66 step 8).
+   */
+  autoActivateCustomHostnames = true;
+  /** Each zone's Cloudflare for SaaS fallback origin. */
+  readonly fallbackOrigins = new Map<string, string>();
+  /**
+   * Zones (by id) where Cloudflare for SaaS is not enabled: their custom hostnames answer 403 with
+   * 1404 and their fallback origin 401 with 1456, as the fleet's real Free zone did (2026-11-27).
+   */
+  readonly saasOff = new Set<string>();
+  /** Workers routes on zones. */
+  readonly routes: { id: string; zone_id: string; pattern: string; script: string }[] = [];
+  /**
+   * DNS records on zones. A Workers Custom Domain's own record is `readOnly`: made and removed
+   * with the Custom Domain, refused when deleted on its own.
+   */
+  readonly dnsRecords: {
+    id: string;
+    zone_id: string;
+    type: string;
+    name: string;
+    content: string;
+    proxied: boolean;
+    readOnly?: boolean;
+  }[] = [];
   /** AI Gateway logs per gateway id, for metering tests (`addGatewayLog`). */
   readonly gatewayLogs = new Map<string, FakeGatewayLog[]>();
   readonly domains: { id?: string; hostname: string; service: string; zone_id: string }[] = [];
@@ -155,6 +191,28 @@ export class FakeCloudflare {
   private id(prefix: string) {
     this.counter += 1;
     return `${prefix}-${this.counter.toString().padStart(6, "0")}`;
+  }
+
+  /** A Worker of the account, deployed with no code, for a test that routes to it. */
+  addScript(name: string) {
+    if (this.scripts.has(name)) return;
+    this.scripts.set(name, {
+      name,
+      versions: [{ id: `v-${name}`, metadata: { bindings: [] }, modules: [], sources: {} }],
+      current: `v-${name}`,
+      secrets: new Map(),
+      schedules: [],
+      workersDev: false,
+      bindings: [],
+    });
+  }
+
+  /** What the client's DNS would do: its custom hostname proved, ownership and certificate. */
+  activateCustomHostname(hostname: string) {
+    const found = this.customHostnames.find((h) => h.hostname === hostname);
+    if (!found) throw new Error(`no custom hostname ${hostname}`);
+    found.status = "active";
+    found.ssl = { ...(found.ssl ?? {}), status: "active" };
   }
 
   /** The deployed version's metadata of a script (what is live). */
@@ -254,20 +312,205 @@ export class FakeCloudflare {
     if (path.startsWith("/accounts/") && !path.startsWith(a))
       return fail(403, 9109, "no access to account");
     if (path === "/zones") return ok(this.options.zones ?? [], { page: 1, total_pages: 1 });
-    // Cloudflare for SaaS: a new custom hostname is pending until its owner's DNS verifies it;
-    // the fake verifies it on the next read.
+    // Cloudflare for SaaS: a new custom hostname is pending until its owner's DNS verifies it.
+    // On a zone without it (`saasOff`), every call answers as the real zone did (2026-11-27).
+    const saasZone = /^\/zones\/([^/]+)\/custom_hostnames(?:\/|$)/.exec(path)?.[1];
+    const fallback = /^\/zones\/([^/]+)\/custom_hostnames\/fallback_origin$/.exec(path);
+    if (saasZone && this.saasOff.has(saasZone)) {
+      return fallback
+        ? fail(
+            401,
+            1456,
+            "Access to configure this resource has not been granted for this zone. This feature is available with SSL for SaaS.",
+          )
+        : fail(
+            403,
+            1404,
+            "No quota has been allocated for this zone or for this account. Please contact sales.",
+          );
+    }
+    if (fallback && method === "PUT") {
+      const zone = fallback[1] as string;
+      const origin = String(b.origin);
+      // "Create a proxied A, AAAA, or CNAME record pointing to your origin" first (the docs).
+      if (!this.dnsRecords.some((r) => r.zone_id === zone && r.name === origin && r.proxied)) {
+        return fail(
+          400,
+          1550,
+          `The fallback origin ${origin} has no proxied DNS record on this zone`,
+        );
+      }
+      this.fallbackOrigins.set(zone, origin);
+      return ok({ origin, status: "pending_deployment" });
+    }
+    if (fallback && method === "GET") {
+      const origin = this.fallbackOrigins.get(fallback[1] as string);
+      return origin ? ok({ origin, status: "active" }) : fail(404, 1551, "no fallback origin");
+    }
+    if (fallback && method === "DELETE") {
+      if (!this.fallbackOrigins.delete(fallback[1] as string)) {
+        return fail(404, 1551, "no fallback origin");
+      }
+      return ok({ id: fallback[1] });
+    }
+    const chOne = /^\/zones\/([^/]+)\/custom_hostnames\/([^/]+)$/.exec(path);
+    if (chOne && method === "DELETE") {
+      const at = this.customHostnames.findIndex(
+        (h) => h.id === chOne[2] && (h.zone_id ?? chOne[1]) === chOne[1],
+      );
+      if (at === -1) return fail(404, 1436, "custom hostname not found");
+      this.customHostnames.splice(at, 1);
+      return ok({ id: chOne[2] });
+    }
     const ch = /^\/zones\/([^/]+)\/custom_hostnames$/.exec(path);
     if (ch) {
+      const zone = ch[1] as string;
       if (method === "POST") {
-        const entry = { id: this.id("ch"), hostname: String(b.hostname), status: "pending" };
+        const hostname = String(b.hostname);
+        if (this.customHostnames.some((h) => h.hostname === hostname)) {
+          return fail(409, 1406, "Duplicate custom hostname found.");
+        }
+        const ssl = (b.ssl ?? {}) as { method?: string };
+        const token = this.id("tok");
+        const entry = {
+          id: this.id("ch"),
+          zone_id: zone,
+          hostname,
+          status: "pending",
+          ssl: {
+            method: ssl.method ?? "http",
+            status: "pending_validation",
+            ...(ssl.method === "txt"
+              ? {
+                  validation_records: [
+                    { txt_name: `_acme-challenge.${hostname}`, txt_value: `acme-${token}` },
+                  ],
+                }
+              : {}),
+          },
+          ownership_verification: {
+            type: "txt",
+            name: `_cf-custom-hostname.${hostname}`,
+            value: `own-${token}`,
+          },
+        };
         this.customHostnames.push(entry);
         return ok(entry);
       }
+      // `hostname` matches as a part of the name, and the list comes a page at a time (20 by
+      // default), as the documented API's does: a caller wanting one hostname reads every page.
       const wanted = url.searchParams.get("hostname");
-      const found = this.customHostnames.filter((h) => !wanted || h.hostname === wanted);
-      const shown = found.map((h) => ({ ...h }));
-      for (const h of found) h.status = "active";
-      return ok(shown);
+      const found = this.customHostnames.filter(
+        (h) => (h.zone_id ?? zone) === zone && (!wanted || h.hostname.includes(wanted)),
+      );
+      const perPage = Math.max(1, Number(url.searchParams.get("per_page") ?? 20));
+      const page = Math.max(1, Number(url.searchParams.get("page") ?? 1));
+      const slice = found.slice((page - 1) * perPage, page * perPage);
+      const shown = slice.map((h) => ({ ...h }));
+      if (this.autoActivateCustomHostnames) for (const h of slice) h.status = "active";
+      return ok(shown, {
+        page,
+        per_page: perPage,
+        total_count: found.length,
+        total_pages: Math.max(1, Math.ceil(found.length / perPage)),
+      });
+    }
+    // Workers routes on a zone (stage 66 step 8). A route names a Worker of the account and a
+    // hostname of the zone (one under its name, or one of its custom hostnames).
+    const routeProblem = (zone: string, pattern: string, script: string): Response | null => {
+      if (!this.scripts.has(script)) {
+        return fail(400, 10007, `workers.api.error.script_not_found: ${script}`);
+      }
+      const host = pattern.replace(/\/.*$/, "").replace(/^\*\./, "x.");
+      const zoneName = (this.options.zones ?? []).find((z) => z.id === zone)?.name;
+      const onZone = zoneName !== undefined && (host === zoneName || host.endsWith(`.${zoneName}`));
+      const custom = this.customHostnames.some(
+        (h) => (h.zone_id ?? zone) === zone && h.hostname === host,
+      );
+      if (!onZone && !custom) {
+        return fail(400, 10022, `The route's hostname ${host} is not on this zone`);
+      }
+      return null;
+    };
+    const routes = /^\/zones\/([^/]+)\/workers\/routes$/.exec(path);
+    if (routes) {
+      const zone = routes[1] as string;
+      if (method === "POST") {
+        const pattern = String(b.pattern);
+        if (this.routes.some((r) => r.zone_id === zone && r.pattern === pattern)) {
+          return fail(409, 10020, "A route with the same pattern already exists");
+        }
+        const problem = routeProblem(zone, pattern, String(b.script));
+        if (problem) return problem;
+        const entry = { id: this.id("route"), zone_id: zone, pattern, script: String(b.script) };
+        this.routes.push(entry);
+        return ok(entry);
+      }
+      return ok(this.routes.filter((r) => r.zone_id === zone));
+    }
+    const route = /^\/zones\/([^/]+)\/workers\/routes\/([^/]+)$/.exec(path);
+    if (route) {
+      const at = this.routes.findIndex((r) => r.zone_id === route[1] && r.id === route[2]);
+      if (at === -1) return fail(404, 10019, "route not found");
+      const found = this.routes[at] as (typeof this.routes)[number];
+      if (method === "DELETE") {
+        this.routes.splice(at, 1);
+        return ok({ id: route[2] });
+      }
+      if (method === "PUT") {
+        const problem = routeProblem(route[1] as string, String(b.pattern), String(b.script));
+        if (problem) return problem;
+        found.pattern = String(b.pattern);
+        found.script = String(b.script);
+        return ok(found);
+      }
+    }
+    // DNS records on a zone (stage 66 step 8: the fleet's placeholders).
+    const dns = /^\/zones\/([^/]+)\/dns_records$/.exec(path);
+    if (dns) {
+      const zone = dns[1] as string;
+      if (method === "POST") {
+        const name = String(b.name);
+        const type = String(b.type);
+        const addressing = (t: string) => t === "A" || t === "AAAA" || t === "CNAME";
+        const clash = this.dnsRecords.find(
+          (r) =>
+            r.zone_id === zone &&
+            r.name === name &&
+            addressing(type) &&
+            addressing(r.type) &&
+            (type === "CNAME" || r.type === "CNAME" || r.readOnly),
+        );
+        if (clash) {
+          return fail(400, 81053, "An A, AAAA, or CNAME record with that host already exists.");
+        }
+        const entry = {
+          id: this.id("dns"),
+          zone_id: zone,
+          type,
+          name,
+          content: String(b.content),
+          proxied: Boolean(b.proxied),
+        };
+        this.dnsRecords.push(entry);
+        return ok(entry);
+      }
+      const name = url.searchParams.get("name");
+      return ok(this.dnsRecords.filter((r) => r.zone_id === zone && (!name || r.name === name)));
+    }
+    const dnsOne = /^\/zones\/([^/]+)\/dns_records\/([^/]+)$/.exec(path);
+    if (dnsOne && method === "DELETE") {
+      const at = this.dnsRecords.findIndex((r) => r.zone_id === dnsOne[1] && r.id === dnsOne[2]);
+      if (at === -1) return fail(404, 81044, "record not found");
+      if (this.dnsRecords[at]?.readOnly) {
+        return fail(
+          400,
+          1061,
+          "This record is managed by a Workers Custom Domain and is read-only",
+        );
+      }
+      this.dnsRecords.splice(at, 1);
+      return ok({ id: dnsOne[2] });
     }
     if (path === `${a}/workers/subdomain`) {
       if (method === "PUT") {
@@ -670,9 +913,27 @@ export class FakeCloudflare {
       const existing = this.domains.find((d) => d.hostname === b.hostname);
       if (existing) Object.assign(existing, b);
       else {
+        // "You cannot create a Custom Domain on a hostname with an existing CNAME DNS record."
+        if (
+          this.dnsRecords.some(
+            (r) => r.zone_id === b.zone_id && r.name === b.hostname && r.type === "CNAME",
+          )
+        ) {
+          return fail(409, 100117, "Hostname already has an existing CNAME DNS record");
+        }
         this.domains.push({
           ...(b as { hostname: string; service: string; zone_id: string }),
           id: this.id("dom"),
+        });
+        // Cloudflare makes the Custom Domain's DNS record itself, read-only, gone with it.
+        this.dnsRecords.push({
+          id: this.id("dns"),
+          zone_id: String(b.zone_id),
+          type: "AAAA",
+          name: String(b.hostname),
+          content: "100::",
+          proxied: true,
+          readOnly: true,
         });
       }
       return ok(b);
@@ -688,7 +949,11 @@ export class FakeCloudflare {
       const id = m[1] as string;
       const at = this.domains.findIndex((d) => d.id === id);
       if (at === -1) return fail(404, 100114, "domain not found");
-      this.domains.splice(at, 1);
+      const [gone] = this.domains.splice(at, 1);
+      const record = this.dnsRecords.findIndex(
+        (r) => r.readOnly && r.name === gone?.hostname && r.zone_id === gone?.zone_id,
+      );
+      if (record !== -1) this.dnsRecords.splice(record, 1);
       return ok(null);
     }
     // The Durable Object namespaces: one per class a Worker of the account defines (a binding

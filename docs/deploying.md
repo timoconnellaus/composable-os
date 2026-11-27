@@ -1197,10 +1197,10 @@ Releases are built by `.github/workflows/release.yml` on a `vX.Y.Z` / `vX.Y.Z-be
 bundle and manifest for every product in `products/index.ts` and one `SHA256SUMS`; see
 [`scripts/release/README.md`](../scripts/release/README.md).
 
-## A host of many clients (stage 66 step 7)
+## A host of many clients (stage 66 steps 7 and 8)
 
 One deployment of the host serving many clients, each with a database of its own (stage 66, ADRs
-0613 to 0618). Live and staging are two deployments, each with its own Workers, registry, queues,
+0613 to 0619). Live and staging are two deployments, each with its own Workers, registry, queues,
 cos-client-db and keys. Nothing here changes a single-client install. Not yet run on Cloudflare:
 every command below is proved locally and against the fake API only, until the staging check
 ([Proving a host of many clients on Cloudflare](#proving-a-host-of-many-clients-on-cloudflare-stage-66))
@@ -1210,8 +1210,8 @@ A fleet is installed as **the hosted product** (`products/composable/product.ts`
 not the CRM: every `cos fleet` and `cos client` command below takes `--product composable`. It
 installs from that product's bundle in a published, attested release
 (`composable-os-composable-<version>.tar.gz`, beside the CRM's), so the fleet's Workers are
-`composable-app`, `composable-runner`, `composable-client-db`, `composable-operator` and
-`composable-gatekeeper-email-send` (staging adds `-staging`). A command without `--product`
+`composable-app`, `composable-runner`, `composable-client-db`, `composable-operator`,
+`composable-front` and `composable-gatekeeper-email-send` (staging adds `-staging`). A command without `--product`
 looks for the CRM's fleet, finds none, and changes nothing.
 
 ```sh
@@ -1219,13 +1219,17 @@ looks for the CRM's fleet, finds none, and changes nothing.
 P="--product composable"
 # Once per environment: the deployment's keys, into a file outside any repository (mode 0600).
 cos fleet keys --env staging --out ~/fleet-keys/staging.json
-# The host, its registry (migrated), the client-db and operator Workers, every fleet binding.
+# The host, its registry (migrated), cos-client-db, the operator's Worker, cos-front, every fleet
+# binding; the zone the domain is on, the callback hostname and clients.<domain> attached.
 # --location <hint> and --ai off are chosen here, at the first install only.
 cos fleet install $P --env staging --keys-file ~/fleet-keys/staging.json \
-  --callback-hostname callback-staging.<fleet domain> --domain <fleet domain> --location oc
-# A client: its registry rows, its database made and migrated, its hostnames. No upload.
-cos client add gym-a $P --env staging --location oc --web-hostname staging.gym-a.example \
+  --callback-hostname callback.staging.<fleet domain> --domain staging.<fleet domain> --location oc
+# A client: its registry rows, its database made and migrated, its staff (and desk) hostnames
+# attached. No upload. Its own domain is recorded unverified, and the DNS records it needs printed.
+cos client add gym-a $P --env staging --location oc --desk --web-hostname staging.gym-a.example \
   --setting COS_PACKS=bookings,content,courses,programs,ticketing   # its packs, required
+# Once the client has added them: verified and served by cos-front (refused until Cloudflare says so).
+cos client hostname verify gym-a staging.gym-a.example $P --env staging
 cos client secret set gym-a GOOGLE_CLIENT_SECRET $P --env staging   # asked for, hidden; sealed
 # Its sender domain: added unverified; verify once it is onboarded to Email Sending in this account.
 cos client sender add gym-a gym-a.example $P --env staging
@@ -1311,9 +1315,45 @@ cos client remove gym-a $P                   # export kept 90 days, then erased;
   import refuses them.
   `secrets.json` is **unencrypted** JSON (mode 0600) holding the client's session keys and given
   secrets: keep it as a password, and delete it once imported.
-- **A client's web app is on its own domain**, never under the fleet's domain beside the staff
-  hostnames: `cos client add` names a web hostname only with `--web-hostname`, and refuses one
-  anywhere under the fleet domain's registrable domain (it has no Public Suffix listing).
+- **The fleet's own hostnames** (stage 66 step 8, ADR 0619). `cos fleet install` finds the zone of
+  the account that holds `--domain` (or `--zone <name>`); without one it attaches nothing and says
+  so. With `--attach custom-domains` (the default) each staff, desk and callback hostname is a
+  Workers Custom Domain of the app, put by `cos client add` and removed by `cos client remove`
+  (at most 100 a zone). With `--attach wildcard` one `*.<domain>` record and route serve them all and
+  nothing is attached per client; only when `--domain` is the zone's apex, on a zone used for
+  nothing else. `cos client pause` leaves a client's hostnames attached: they answer "being
+  updated". A new hostname can take minutes to answer (its DNS and certificate reach Cloudflare's
+  edges one by one: about 155 s for the staging check's callback hostname). `cos client add`,
+  `import` and `hostname verify` wait until each answers over HTTPS three times running, up to
+  15 minutes, and say if one still does not (the command has still succeeded); `--no-wait` skips
+  the wait.
+- **A client's own domain** (its web hostname) is never under the fleet's registrable domain (no
+  Public Suffix listing; client code runs only on the client's own domain). `cos client hostname
+  add <id> <hostname>` (or `cos client add --web-hostname`) records it unverified, makes it a
+  Cloudflare for SaaS custom hostname on the fleet's zone and prints what the client adds at its
+  DNS provider: a CNAME `<hostname>` to `clients.<fleet domain>`, **DNS only (grey cloud)**, and a
+  TXT `_cos-client.<hostname>` saying `cos-client=<environment>:<id>` (`cos-client=live:gym-a`). It must be a subdomain (`www.<domain>`):
+  a bare domain is refused, and the client redirects it to the subdomain in its own DNS. `cos
+  client hostname verify` serves it (a route to cos-front) only once Cloudflare reports the
+  hostname and its certificate active (real-time validation, once the CNAME exists; this works for
+  a client whose own zone is on Cloudflare, in another account) and the TXT names that client;
+  `remove` takes it away. A hostname, and a domain, is one client's. 100 custom hostnames a zone are
+  included, then $0.10 a month each. A deployment acts only on the custom hostnames and routes it
+  made itself, so a staging fleet on the live fleet's zone never touches live's.
+- **Clients' own domains need Cloudflare for SaaS on the fleet's zone**, which is enabled in the
+  dashboard only (the zone's Custom Hostnames page, **Enable**; a payment method on file for a
+  non-enterprise zone). Without it `cos fleet install` still installs the fleet and attaches its own
+  hostnames, says Cloudflare for SaaS is not enabled, and `cos client hostname add` refuses until it
+  is. After enabling it, run `cos fleet install` again to set up `clients.<fleet domain>`.
+- **The token's zone permissions** (on the fleet's zone), besides the account's own: Zone Read, DNS
+  Write, Workers Routes Edit, and SSL and Certificates Edit (custom hostnames and the fallback
+  origin). Workers Custom Domains also need the account's Workers Scripts Edit.
+- **cos-front** (`<prefix>front`) answers clients' own domains: today a holding page for a verified
+  one, a 404 for anything else. Serving the client's published web app is stage 75.
+- **On a host of many clients** a change (any POST, PUT, PATCH or DELETE) is made only from the
+  hostname's own pages: a request from another origin is refused, a sibling client's hostname
+  included, except a token call, a customer-facing call from the client's own web address or its
+  `API_ALLOWED_ORIGINS`, and gatekeeper callbacks. Only `__Host-` cookies are read.
 - **Email sending** is the one gatekeeper of a host of many clients: `cos fleet install` installs
   the email-send gatekeeper and `cos fleet upgrade` keeps it (a fleet installed without it gains it
   at its next upgrade); there is no flag for it (ADR 0618, "A fleet's gatekeepers"). It needs no
@@ -1557,11 +1597,18 @@ no zone says first which steps are not proved.
    one was given, every kind of resource listable, and nothing with the run's prefix there yet.
 1. `cos fleet keys` (the keys file in the runner's temp folder, mode 0600, never printed), then
    `cos fleet install --env staging` of `0.1.0` with `--location <location>` and `--ai off`. The app
-   Worker's deployed bindings must name `0.1.0`, and the runner's two Workflows must be listed in the account. The callback hostname is attached to the app
-   Worker as a Workers Custom Domain, and the host's health is awaited there.
-2. `cos client add alpha --web-hostname cosstg-<run id>-alpha.example` (a made-up domain, accepted
-   without DNS: `cos` records a web hostname and attaches none), then `cos client add bravo`: both
-   listed active, and the time each add takes, as `cos` reports it and for the whole command.
+   Worker's deployed bindings must name `0.1.0`, and the runner's two Workflows must be listed in the account. With `--zone`, `cos` attaches the callback
+   hostname to the app Worker as a Workers Custom Domain (the check confirms it), and the host's
+   health is awaited there.
+2. `cos client add alpha`, then `cos client add bravo`: both listed active, each staff hostname a
+   Custom Domain `cos` attached, and the time each add takes, as `cos` reports it and for the whole
+   command.
+3b. cos-front: `https://clients.<fleet domain>/` (no client's) answers 404 with cos-front's policy;
+   a POST to alpha's staff hostname from bravo's origin is refused, 403. With `client_zone` (a
+   second spare zone), `cos client hostname add alpha www.cosstg-<run id>.<client zone>`, the TXT
+   and CNAME records it prints written into that zone, `cos client hostname verify` until
+   Cloudflare proves it, the holding page served there, and `cos client hostname remove`. Without
+   one, 3b is partial.
 3. Requests: the app's `workers.dev` address (it answers the unknown hostname's 404: a client is
    decided only by its hostname); each client's staff sign-in page; a staff account signed up at
    each, whose session works at its own address and is answered at the other's as no session is
@@ -1626,13 +1673,15 @@ creates or changes the account's custom AI provider, which is shared by every de
 account; no teardown deletes the one or puts the other back. The workflow has no `ai` input, and
 the script refuses `--ai on`.
 
-**The zone.** `cos` attaches no hostname to the host: a client's hostnames are recorded in the
-registry, and routing them is stage 66's step 8 (`cos-front`). The app decides a client only by
-the hostname a request reached, so on `workers.dev` alone no client can be reached. With `zone`
-set to an active zone of the account on which the token has Zone Read, Workers Routes, DNS and SSL,
-the check attaches the callback hostname and each staff hostname as Workers Custom Domains
-(Cloudflare makes their DNS records and certificates, and removes them with the domain; it never
-replaces a record that exists). **Use a spare zone, not a live site's**: the certificates'
+**The zone.** The app decides a client only by the hostname a request reached, so on
+`workers.dev` alone no client can be reached. With `zone` set to an active zone of the account on
+which the token has Zone Read, Workers Routes Edit, DNS Write, and SSL and Certificates Edit, `cos` (stage 66 step
+8) attaches the callback hostname and each staff hostname as Workers Custom Domains (Cloudflare
+makes their DNS records and certificates, and removes them with the domain; it never replaces a
+record that exists), and, when the zone has Cloudflare for SaaS, makes `clients.<fleet domain>` (a placeholder record, a route to
+cos-front, and the zone's fallback origin unless it has another that is in use; step 3b is partial without it). The
+teardown deletes the run's routes, DNS records and custom hostnames on that zone and the client
+zone, by a hostname label exactly the prefix, and resets the fallback origin when it is the run's. **Use a spare zone, not a live site's**: the certificates'
 hostnames stay in public certificate logs. Without one, steps 1, 3, 5, 6 and 8 are partial and the
 run is not proved; what can run still runs.
 
@@ -1640,8 +1689,8 @@ run is not proved; what can run still runs.
 (4a; its Worker and the Durable Object namespace it owns are deleted by the teardown with the run's
 other Workers), but a real send needs a domain onboarded to Email Sending in the account and a
 client's admin to connect it in the app, which this check does not do; the `sending_domain` input
-is recorded and not used. A client's
-web hostname (only recorded: its web app is step 8's). AI. A live fleet, a real client and the
+is recorded and not used. A client's own web app (cos-front serves a holding page until stage
+75). AI. A live fleet, a real client and the
 first client's own steps (step 9). Payments, texts and webhooks (off for every client of a fleet).
 Two endpoints are not proved against Cloudflare's own API before the first run: listing a bucket's
 objects (`GET …/r2/buckets/<bucket>/objects`) and listing Workflows; if either is refused, the

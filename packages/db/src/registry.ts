@@ -244,6 +244,44 @@ export function canonicalHostname(host: string | null | undefined): string | nul
   return name;
 }
 
+/**
+ * Second-level labels under which a country's names are registered (`example.co.uk`), so the
+ * registrable domain there is three labels. A short list, not the Public Suffix List; where it
+ * misses one, `registrableDomain` gives two labels, which refuses more, never less.
+ */
+const COUNTRY_SECOND_LEVELS = new Set([
+  "co",
+  "com",
+  "net",
+  "org",
+  "gov",
+  "edu",
+  "ac",
+  "id",
+  "or",
+  "ne",
+  "go",
+]);
+
+/**
+ * The registrable domain of a canonical hostname, as near as this can tell without the Public
+ * Suffix List (stage 66: the fleet's domain is not on it, and will not be, ADR 0616 "Cookies"):
+ * two labels, three under a country's `co`, `com`, `org` and the like. Where the rules of a cookie
+ * matter (a client's web hostname kept off the fleet's domain), it errs towards the larger domain.
+ */
+export function registrableDomain(hostname: string): string {
+  const labels = hostname.split(".");
+  const tld = labels.at(-1) ?? "";
+  const second = labels.at(-2) ?? "";
+  const take = tld.length === 2 && COUNTRY_SECOND_LEVELS.has(second) && labels.length >= 3 ? 3 : 2;
+  return labels.slice(-take).join(".");
+}
+
+/** Whether `hostname` is `domain` or a name under it. */
+export function isUnder(hostname: string, domain: string): boolean {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
 // --- Settings ------------------------------------------------------------------------------
 
 /** What a client with no row for a setting gets. */

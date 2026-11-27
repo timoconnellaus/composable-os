@@ -181,7 +181,6 @@ describe("a hostname the host does not serve (criterion 8)", () => {
       "nobody.test",
       NOT_STAFF_HOSTNAMES.unverified,
       NOT_STAFF_HOSTNAMES.web,
-      NOT_STAFF_HOSTNAMES.desk,
       "127.0.0.1",
       "gym-a",
       `x.${a.hostname}`,
@@ -205,6 +204,24 @@ describe("a hostname the host does not serve (criterion 8)", () => {
   it("is refused with a credential of a client too: the token is never read", async () => {
     const response = await op("nobody.test", "person.list", {}, A.staffToken);
     expect(response.status).toBe(404);
+  });
+});
+
+describe("a client's desk hostname (stage 66 step 8)", () => {
+  it("serves that client's desk pages and nothing else, and no staff hostname serves the desk", async () => {
+    const desk = NOT_STAFF_HOSTNAMES.desk;
+    const page = await fetchAt(desk, "/desk", { headers: { accept: "text/html" } });
+    expect(page.status, await page.clone().text()).toBe(200);
+    expect(await page.text()).toBe(`start for ${a.id}`);
+    // Not the staff app, not the API: the desk origin serves its own paths only.
+    for (const path of ["/", "/api/v1/op/person.list", "/mcp"]) {
+      const other = await fetchAt(desk, path, { headers: { accept: "text/html" } });
+      expect(other.status, path).not.toBe(200);
+    }
+    // A staff hostname never serves the desk's paths, whichever client's.
+    for (const hostname of [a.hostname, b.hostname]) {
+      expect((await fetchAt(hostname, "/desk")).status, hostname).toBe(404);
+    }
   });
 });
 

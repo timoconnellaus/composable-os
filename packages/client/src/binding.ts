@@ -116,15 +116,25 @@ export interface KeepSignedInOptions {
  */
 export async function keepCustomerSignedIn(options: KeepSignedInOptions): Promise<string[]> {
   const pairs = cookiePairs(options.cookieHeader);
-  const session = pairs.find(
-    ([name]) => unprefixed(name) === `${CUSTOMER_COOKIE_PREFIX}.session_token`,
-  );
+  const sessionName = `${CUSTOMER_COOKIE_PREFIX}.session_token`;
+  // A host of many clients sets only `__Host-` names (stage 66, ADR 0616): when the browser holds
+  // one, it is the session, and an unprefixed one (which a sibling could plant on a parent
+  // domain) is never read or set back (stage 66 step 8, ADR 0619).
+  const session =
+    pairs.find(([name]) => name === `__Host-${sessionName}`) ??
+    pairs.find(([name]) => unprefixed(name) === sessionName);
   if (!session) return [];
-  const now = (options.now ?? new Date()).getTime();
-  const checked = Number(pairs.find(([name]) => name === SESSION_CHECKED_COOKIE)?.[1]);
-  if (checked > 0 && now - checked >= 0 && now - checked < SESSION_CHECK_INTERVAL_MS) return [];
   const [name, value] = session;
-  const attributes = `; Path=/; HttpOnly; SameSite=Lax${name.startsWith("__Secure-") ? "; Secure" : ""}`;
+  const hostOnly = name.startsWith("__Host-");
+  // The web app's own marker follows the session's rules: `__Host-` beside a `__Host-` session.
+  const marker = hostOnly ? `__Host-${SESSION_CHECKED_COOKIE}` : SESSION_CHECKED_COOKIE;
+  const now = (options.now ?? new Date()).getTime();
+  const checked = Number(pairs.find(([n]) => n === marker)?.[1]);
+  if (checked > 0 && now - checked >= 0 && now - checked < SESSION_CHECK_INTERVAL_MS) return [];
+  // A `__Host-` cookie is refused by the browser unless it is Secure with `Path=/` and no Domain;
+  // a `__Secure-` one unless it is Secure. Neither ever names a Domain here.
+  const secure = hostOnly || name.startsWith("__Secure-");
+  const attributes = `; Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`;
   let response: Awaited<ReturnType<FetchLike>>;
   try {
     response = await options.fetch(
@@ -145,14 +155,11 @@ export async function keepCustomerSignedIn(options: KeepSignedInOptions): Promis
     } catch {}
   }
   if (!(expiresAt > now)) {
-    return [
-      `${name}=${attributes}; Max-Age=0`,
-      `${SESSION_CHECKED_COOKIE}=${attributes}; Max-Age=0`,
-    ];
+    return [`${name}=${attributes}; Max-Age=0`, `${marker}=${attributes}; Max-Age=0`];
   }
   const maxAge = Math.floor((expiresAt - now) / 1000);
   return [
     `${name}=${value}${attributes}; Max-Age=${maxAge}`,
-    `${SESSION_CHECKED_COOKIE}=${now}${attributes}; Max-Age=${maxAge}`,
+    `${marker}=${now}${attributes}; Max-Age=${maxAge}`,
   ];
 }

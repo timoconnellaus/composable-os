@@ -36,7 +36,10 @@ on:
         default: oc
         options: [oc, apac, wnam, enam, weur, eeur]
       zone:
-        description: A spare active zone of the account (not a live site's); the fleet's hostnames go under cosstg-<run id>.<zone> as Workers Custom Domains. Empty, no client hostname is reachable, those steps are partial and the run is not proved
+        description: A spare active zone of the account (not a live site's); the fleet's hostnames go under cosstg-<run id>.<zone>, attached by cos as Workers Custom Domains. Empty, no client hostname is reachable, those steps are partial and the run is not proved
+        default: ""
+      client_zone:
+        description: A second spare zone of the account, for a client's own domain (www.cosstg-<run id>.<client zone>, a Cloudflare for SaaS custom hostname on the first zone); empty, step 3b is partial
         default: ""
       sending_domain:
         description: A sending domain already onboarded to Email Sending in the account, for a real send (empty skips it; see the summary)
@@ -87,6 +90,7 @@ jobs:
           MODE: ${{ inputs.mode }}
           LOCATION: ${{ inputs.location }}
           ZONE: ${{ inputs.zone }}
+          CLIENT_ZONE: ${{ inputs.client_zone }}
           SENDING_DOMAIN: ${{ inputs.sending_domain }}
           TARGET: ${{ inputs.target }}
         run: |
@@ -94,6 +98,7 @@ jobs:
           case "$MODE" in check|remove) ;; *) echo "::error::mode must be check or remove"; exit 1 ;; esac
           case "$LOCATION" in oc|apac|wnam|enam|weur|eeur) ;; *) echo "::error::location is not a location hint"; exit 1 ;; esac
           if [ -n "$ZONE" ] && ! [[ "$ZONE" =~ $domain ]]; then echo "::error::zone must be a domain name"; exit 1; fi
+          if [ -n "$CLIENT_ZONE" ] && ! [[ "$CLIENT_ZONE" =~ $domain ]]; then echo "::error::client_zone must be a domain name"; exit 1; fi
           if [ -n "$SENDING_DOMAIN" ] && ! [[ "$SENDING_DOMAIN" =~ $domain ]]; then echo "::error::sending_domain must be a domain name"; exit 1; fi
           if [ "$MODE" = remove ] && ! [[ "$TARGET" =~ ^(cosstg-)?[0-9]{1,20}$ ]]; then
             echo "::error::mode remove needs target: a run id, or cosstg-<run id>"; exit 1
@@ -140,10 +145,11 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.FLEET_CLOUDFLARE_ACCOUNT_ID }}
           LOCATION: ${{ inputs.location }}
           ZONE: ${{ inputs.zone }}
+          CLIENT_ZONE: ${{ inputs.client_zone }}
           SENDING_DOMAIN: ${{ inputs.sending_domain }}
         run: |
           node scripts/fleet-staging-check.mjs check --run "$RUN" --location "$LOCATION" \
-            --zone "$ZONE" --sending-domain "$SENDING_DOMAIN"
+            --zone "$ZONE" --client-zone "$CLIENT_ZONE" --sending-domain "$SENDING_DOMAIN"
       # Step 9, whatever happened before (a failure, a timeout, a cancel): everything named
       # cosstg-<run id> is deleted, what was and what could not be is listed, and the job fails if
       # anything is left or a kind could not be listed. Then the run's local folder (the keys file, the exports) is deleted.
@@ -187,4 +193,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.FLEET_CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.FLEET_CLOUDFLARE_ACCOUNT_ID }}
           TARGET: ${{ inputs.target }}
-        run: node scripts/fleet-staging-check.mjs remove --target "$TARGET"
+          ZONE: ${{ inputs.zone }}
+          CLIENT_ZONE: ${{ inputs.client_zone }}
+        run: |
+          node scripts/fleet-staging-check.mjs remove --target "$TARGET" \
+            --zone "$ZONE" --client-zone "$CLIENT_ZONE"
