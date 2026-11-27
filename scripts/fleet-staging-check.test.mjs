@@ -407,6 +407,36 @@ test("a delete answered 404 is gone only if the listing after agrees", async () 
   }
 });
 
+test("a delete that failed, then answered not found, names its first answer too", async () => {
+  const { cf, api } = world();
+  await seed(cf, api);
+  const domain = cf.domains.find((d) => d.hostname.startsWith(`alpha-admin.${PREFIX}.`));
+  let calls = 0;
+  cf.failOn = (method, path) => {
+    if (method !== "DELETE" || !path.endsWith(`/workers/domains/${domain.id}`)) return undefined;
+    calls += 1;
+    // The first delete is done and answered with an error; the second finds nothing.
+    if (calls === 1) {
+      cf.domains.splice(cf.domains.indexOf(domain), 1);
+      return refuse(10013, "An unknown error has occurred", 500);
+    }
+    return refuse(100114, `Origin '${domain.id}' not found.`, 404);
+  };
+  let report = "";
+  const code = await teardownCommand(PREFIX, {
+    api,
+    accountId: ACCOUNT,
+    dir: null,
+    secrets: [TOKEN, ACCOUNT],
+    log: () => {},
+    writeSummary: (t) => {
+      report += t;
+    },
+  });
+  assert.equal(code, 0, report);
+  assert.match(report, /domain `alpha-admin[^`]*` \(first: .*An unknown error has occurred\)/);
+});
+
 test("a namespace that outlives its Worker's deletion is what is left, and the command fails", async () => {
   const { cf, api } = world();
   await seed(cf, api);

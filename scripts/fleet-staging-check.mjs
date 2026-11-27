@@ -463,14 +463,13 @@ export async function teardown(api, accountId, prefix, recorded = []) {
       } catch (error) {
         // Not found: gone already (the run's callback domain went so). The listing below is
         // what says so: one still listed is what is left, and fails the teardown.
-        if (error.status === 404) gone.push({ kind: item.kind, name: item.name });
-        else
-          failing.push({
-            item,
-            kind: item.kind,
-            name: item.name,
-            error: firstError(error.message),
-          });
+        const said = firstError(error.message);
+        // The first pass's answer, kept: the first real run showed only the last one's.
+        const before =
+          item.firstError && item.firstError !== said ? ` (first: ${item.firstError})` : "";
+        if (error.status === 404) gone.push({ kind: item.kind, name: item.name, before });
+        else failing.push({ item, kind: item.kind, name: item.name, error: `${said}${before}` });
+        item.firstError ??= said;
       }
     }
     todo = failing.map((f) => f.item);
@@ -509,7 +508,7 @@ export function teardownReport(result, prefix) {
   if (result.gone?.length) {
     lines.push(
       "",
-      `Gone before its delete (not found, and not listed after): ${result.gone.map((g) => `${g.kind} \`${g.name}\``).join(", ")}`,
+      `Gone before its delete (not found, and not listed after): ${result.gone.map((g) => `${g.kind} \`${g.name}\`${g.before ? md(g.before) : ""}`).join(", ")}`,
     );
   }
   if (result.failed.length) {
