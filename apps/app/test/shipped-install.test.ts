@@ -76,6 +76,24 @@ describe("a call and its client's shipped install", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("keeps the install alive past the request that started it (waitUntil)", async () => {
+    const { env: e, calls } = runnerStandIn();
+    const kept: Promise<unknown>[] = [];
+    await ensureShippedExtensions(e, { waitMs: 0, keepAlive: (work) => kept.push(work) });
+    expect(kept).toHaveLength(1);
+    // What is kept is the install itself: it settles when the runner answers.
+    let settled = false;
+    void kept[0]?.then(() => {
+      settled = true;
+    });
+    calls[0]?.resolve([]);
+    await kept[0];
+    expect(settled).toBe(true);
+    // A call that finds it already running keeps nothing more alive.
+    await ensureShippedExtensions(e, { waitMs: 0, keepAlive: (work) => kept.push(work) });
+    expect(kept).toHaveLength(1);
+  });
+
   it("tries a failed install again on the next call", async () => {
     const { env: e, calls } = runnerStandIn();
     const first = ensureShippedExtensions(e);
@@ -97,8 +115,24 @@ describe("a call and its client's shipped install", () => {
       ok: false,
       error: { code: "timeout", details: { installing: true, retryAfterSeconds: 5 } },
     });
-    // A core operation is not held up.
+    // So does a record operation on a pack's object.
+    expect(
+      await runOperation(e, admin, {
+        name: "record.count",
+        input: { object: "ticketing.event" },
+      }),
+    ).toMatchObject({ ok: false, error: { code: "timeout", details: { installing: true } } });
+    // A core operation is not held up, and its own refusals stay its own (review of #559, S1).
     expect((await runOperation(e, admin, { name: "person.list", input: {} })).ok).toBe(true);
+    expect(
+      await runOperation(e, admin, { name: "person.create", input: { emails: [{ email: 42 }] } }),
+    ).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    expect(
+      await runOperation(e, admin, {
+        name: "person.get",
+        input: { id: "per_01KA8ZQ7Y2V3N4M5P6R7S8T9W9" },
+      }),
+    ).toMatchObject({ ok: false, error: { code: "not_found" } });
     // Once the install has finished, a pack that is not installed is refused, as always.
     calls[0]?.resolve([]);
     await ensureShippedExtensions(e);

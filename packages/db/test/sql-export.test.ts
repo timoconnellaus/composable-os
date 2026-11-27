@@ -365,3 +365,37 @@ describe("tables an export must read from SQLite itself", () => {
     ).toEqual([[1]]);
   });
 });
+
+describe("what holds for one host only (issue #558, review of #559 M1)", () => {
+  it("the runner's record of its shipped install is not exported, and an import deletes it", async () => {
+    const source = clientDatabase(bindings.CLIENT_DB, "host-only-source");
+    await applyMigrations(source, bindings.TEST_MIGRATIONS);
+    await source
+      .prepare(
+        "INSERT INTO core_meta (key, value) VALUES ('shipped_install', '{}'), ('kept', 'yes')",
+      )
+      .run();
+    const parts = await collect(source, holdOf("host-only-source"));
+    const sql = parts.flatMap((p) => p.statements).join("\n");
+    expect(sql).toContain("kept");
+    expect(sql).not.toContain("shipped_install");
+
+    // An older export carried it: the import takes the rest and deletes the record.
+    const older = structuredClone(parts);
+    const last = older.at(-1) as ExportPart;
+    const kept = older.flatMap((p) => p.statements).find((s) => s.includes("'kept'"));
+    expect(kept).toBeDefined();
+    last.statements.push(
+      (kept as string).replace(/VALUES \(\d+, 'kept'/, "VALUES (999, 'shipped_install'"),
+    );
+    const counts = last.counts as Record<string, number>;
+    counts.core_meta = (counts.core_meta ?? 0) + 1;
+    const truth = clientDatabase(bindings.CLIENT_DB, "host-only-truth");
+    await applyMigrations(truth, bindings.TEST_MIGRATIONS);
+    const target = clientDatabase(bindings.CLIENT_DB, "host-only-target");
+    await importDatabase(target, older, expectedFrom(truth));
+    const keys = (await target.prepare("SELECT key FROM core_meta ORDER BY key").raw()).flat();
+    expect(keys).toContain("kept");
+    expect(keys).not.toContain("shipped_install");
+  }, 120_000);
+});

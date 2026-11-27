@@ -143,9 +143,13 @@ workspace object, each pack's row read twice). Decided:
 - **A record of the last install.** `installShipped` writes, in the client's own database
   (`core_meta`, key `shipped_install`), a hash of the shipped list it installed (each extension's
   id, version, optional flag and files, with the client's stamp) and of the extensions table's
-  rows (id, source, commit) once nothing failed. While both still match, it answers the recorded
-  outcomes from one query and calls neither the workspace object nor `extension.install`
-  (`apps/runner/src/extensions/shipped-stamp.ts`). A new release, a changed `COS_PACKS` or
+  rows (id, source, commit) once nothing failed. While both still match, and one call to the
+  workspace object says it holds each shipped extension's recorded commit (its storage, no git),
+  it answers the recorded outcomes and runs no `extension.install`
+  (`apps/runner/src/extensions/shipped-stamp.ts`). The workspace check is what keeps a copied
+  database honest: a database imported on another host arrives without that host's workspace,
+  and the source is committed there again. Exports also leave the record out and imports delete
+  it (`HOST_ONLY_META` in `packages/db/src/sql-export.ts`). A new release, a changed `COS_PACKS` or
   `COS_ORG_EXTENSIONS`, and an admin's install, rollback, eject or uninstall each change one of
   the hashes, so the full path runs as before; a failure writes no record, so the next isolate
   tries again. The check is still a call to cos-runner: only the runner knows the shipped list
@@ -153,12 +157,26 @@ workspace object, each pack's row read twice). Decided:
 - **A bounded wait.** cos-app waits for the check or install at most `SHIPPED_WAIT_MS` (2 s)
   after it started, then the call goes on; the install runs under the request that started it
   (`waitUntil`), so a request that ends or is cancelled does not stop it. One that fails is
-  started again by the next call, and so is one still unsettled after `SHIPPED_STALE_MS` (60 s,
-  past what `waitUntil` keeps alive), so no call waits on a promise that never settles.
-- **A retryable answer meanwhile.** While a client's install has not finished, a call refused as
-  `unknown_operation`, `invalid_input` or `not_found` (a pack's tool, object or record not there
-  yet) answers `timeout` with `details.installing` and HTTP 503: tried again, it gets its real
-  answer. A pack that is not installed is still refused; no permission or audience changes.
+  started again by the next call, and so is one still unsettled after `SHIPPED_STALE_MS` (65 s),
+  so no call waits on a promise that never settles.
+- **An install that converges, whatever its length.** The install runs in cos-runner, called from
+  cos-app's request. Cloudflare's documented limits: `waitUntil` keeps a request's work up to 30 s
+  after its response, then cancels it; an RPC callee is cancelled when its caller's context ends,
+  and may extend itself with its own `waitUntil` (30 s more). cos-runner does, so an install
+  lives up to about a minute past the response, then is cut off. Each extension's install is its
+  own operation, committed when it finishes, and a commit already made is found again by
+  `commitShipped`, so the next try leaves the finished ones `unchanged` and does the rest; the
+  record is written only by a try that finished. A client with many packs may take two or three
+  tries, each started by the next call after `SHIPPED_STALE_MS`; none starts over. Running the
+  install in a Durable Object's alarm (15 minutes) would make it one try, but ADR 0043 keeps code
+  out of the workspace object, so that is not done here.
+- **A retryable answer meanwhile.** While a client's install has not finished, a call that names
+  a pack's tool (`x.<extension>.<tool>`) or object (`<extension>.<object>`) and is refused as
+  `unknown_operation`, `invalid_input` or `not_found` answers `timeout` with `details.installing`
+  and HTTP 503 (`Retry-After`): tried again, it gets its real answer. Core operations' refusals
+  are their own. The staff UI asks a read refused so again every 5 s and the typed client when the
+  host says, each for up to 30 s; neither retries a write for it. A pack that is not installed is
+  still refused; no permission or audience changes.
 - **Not decided here:** installing a client's packs when the operator adds or imports it, and
   bringing every client's up to date in `cos fleet upgrade`, so no person's request finds work to
   do. The operator's Worker binds no runner and the runner's `callAs` answers only cos-app, so

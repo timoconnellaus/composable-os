@@ -7,12 +7,17 @@
 //
 // - what was installed: a hash of this deployment's shipped list (each extension's id, version,
 //   whether it is optional, and a hash of its files), with the client it was installed for
-//   (`clientStampOf`: a database exported to another client or host never matches);
+//   (`clientStampOf`: another client's record, copied into this client's database, never matches);
 // - what the extensions table held then: a hash of each row's id, source and commit;
 // - the outcomes, each `installed` written as `unchanged` (which it is now).
 //
-// The next run reads the record and the table in one query, and answers the outcomes again when
-// both still match, with no call to the workspace object and no install. Anything that changes
+// The next run reads the record and the table in one query and, when both still match, asks the
+// workspace object in one call whether it holds each shipped extension's recorded commit (its
+// storage, no git): then it answers the outcomes again, with no install. The workspace check is
+// what keeps a copied database honest: a client's database moved to another host (`cos client
+// import`, `cos install --import`) arrives without this host's workspace, and its packs' source
+// must be committed there again. Exports also leave the record out and imports delete it
+// (packages/db sql-export.ts, `HOST_ONLY_META`). Anything that changes
 // what a full run would do changes one of the two: a new release or a changed COS_PACKS or
 // COS_ORG_EXTENSIONS (the list), an admin's install, rollback, eject or uninstall (the table).
 // A run with a failure writes nothing, so the next isolate tries again, as before.
@@ -25,6 +30,9 @@ import { contentHash } from "../executor/worker-code.ts";
 import { type ShippedListEnv, shippedExtensions } from "./shipped-list.ts";
 
 export const SHIPPED_STAMP_KEY = "shipped_install";
+
+/** Whether the workspace object holds each shipped extension at its commit (one call). */
+export type HoldsShipped = (commits: { id: string; commit: string }[]) => Promise<boolean>;
 
 interface Stamp {
   list: string;
@@ -59,37 +67,43 @@ export function shippedListHash(env: ShippedListEnv): Promise<string> {
 }
 
 /** The stamp and a hash of the extensions table, in one query. */
-async function read(db: CrmDb): Promise<{ stamp: Stamp | null; rows: string }> {
+async function read(
+  db: CrmDb,
+): Promise<{ stamp: Stamp | null; rows: string; shipped: { id: string; commit: string }[] }> {
   const result = await sql<{ stamp: string | null; rows: string | null }>`
     SELECT
       (SELECT value FROM core_meta WHERE key = ${SHIPPED_STAMP_KEY}) AS stamp,
       (SELECT json_group_array(json_array(id, source, commit_oid)) FROM core_extensions) AS rows
   `.execute(db.query);
   const row = result.rows[0];
-  const rows = (JSON.parse(row?.rows ?? "[]") as [string, string, string][])
-    .map((r) => JSON.stringify(r))
-    .sort();
+  const parsed = JSON.parse(row?.rows ?? "[]") as [string, string, string][];
+  const rows = parsed.map((r) => JSON.stringify(r)).sort();
+  const shipped = parsed
+    .filter(([, source]) => source === "shipped")
+    .map(([id, , commit]) => ({ id, commit }));
   let stamp: Stamp | null = null;
   try {
     stamp = row?.stamp ? (JSON.parse(row.stamp) as Stamp) : null;
   } catch {
     stamp = null;
   }
-  return { stamp, rows: await sha256Hex(rows.join("\n")) };
+  return { stamp, rows: await sha256Hex(rows.join("\n")), shipped };
 }
 
 /**
- * The outcomes of the last install when nothing has changed since (one read), or null: then a
- * full install is needed.
+ * The outcomes of the last install when nothing has changed since (one read, one workspace
+ * call), or null: then a full install is needed.
  */
 export async function stampedInstall(
   db: CrmDb,
   env: ShippedListEnv,
+  holds: HoldsShipped,
 ): Promise<ShippedInstallResult[] | null> {
-  const [list, { stamp, rows }] = await Promise.all([shippedListHash(env), read(db)]);
+  const [list, { stamp, rows, shipped }] = await Promise.all([shippedListHash(env), read(db)]);
   if (!stamp || stamp.list !== list || stamp.rows !== rows || !Array.isArray(stamp.results)) {
     return null;
   }
+  if (shipped.length && !(await holds(shipped))) return null;
   return stamp.results;
 }
 

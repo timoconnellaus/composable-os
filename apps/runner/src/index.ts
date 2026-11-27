@@ -244,12 +244,15 @@ export class ClientRunner implements RunnerRpc {
 
   /**
    * Installs or upgrades the shipped extensions bundled with this release (boot / deploy). When
-   * the last install finished and nothing has changed since, one read answers it: no call to the
-   * workspace object, no install (shipped-stamp.ts, issue #558).
+   * the last install finished and nothing has changed since, one read and one workspace check
+   * answer it, with no install (shipped-stamp.ts, issue #558). Each extension's install commits on
+   * its own, so a run cut off part way leaves the ones it finished, and the next run does the rest.
    */
   async installShipped(): Promise<ShippedInstallResult[]> {
     const db = createCrmDb(this.#env.DB);
-    const stamped = await stampedInstall(db, this.#env);
+    const stamped = await stampedInstall(db, this.#env, (commits) =>
+      extensionWorkspace(this.#env).holdsShipped(commits),
+    );
     if (stamped) return stamped;
     const results = await installShippedExtensions({
       db,
@@ -378,7 +381,11 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
     const target = new ClientRunner(clientEnv, this.env);
     const run = (target as unknown as Record<string, (...a: unknown[]) => unknown>)[method];
     if (typeof run !== "function") throw new NoClientError(`${method} is not offered`);
-    return inClientScope(clientEnv, () => run.apply(target, Array.isArray(args) ? args : []));
+    const result = inClientScope(clientEnv, () =>
+      run.apply(target, Array.isArray(args) ? args : []),
+    );
+    if (method === "installShipped") this.#outlive(result);
+    return result;
   }
 
   /**
@@ -470,7 +477,18 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
     return this.#self().describeChange(input);
   }
   installShipped() {
-    return this.#self().installShipped();
+    const result = this.#self().installShipped();
+    this.#outlive(result);
+    return result;
+  }
+
+  /**
+   * An install outlives its caller by up to 30 s more (issue #558): RPC cancels the callee when
+   * the caller's context ends (cos-app's request, itself kept 30 s by its own waitUntil), and a
+   * pack whose install is under way then finishes and commits rather than being cut off.
+   */
+  #outlive(work: unknown): void {
+    if (work instanceof Promise) this.ctx.waitUntil(work.catch(() => {}));
   }
   integration<K extends keyof IntegrationRuntime>(
     method: K,

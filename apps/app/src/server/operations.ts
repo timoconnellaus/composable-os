@@ -212,10 +212,12 @@ export const SHIPPED_WAIT_MS = 2_000;
 
 /**
  * An install still running after this long is not waited on again: the next call starts another.
- * Longer than a request's `waitUntil` may keep the work alive (30 s after its response), so only
- * an install whose request was ended under it gets here.
+ * Longer than the work can live: cos-app's `waitUntil` keeps its request 30 s after the response,
+ * and cos-runner's own keeps the install 30 s after that (Cloudflare cancels what is still pending
+ * then). So only an install that was cut off gets here; the next one carries on from the packs
+ * it finished, each committed on its own.
  */
-export const SHIPPED_STALE_MS = 60_000;
+export const SHIPPED_STALE_MS = 65_000;
 
 interface ShippedInstall {
   done: Promise<void>;
@@ -240,6 +242,7 @@ function startShippedInstall(
   binding: Fetcher,
   key: object,
   packs: string | undefined,
+  keepAlive: (work: Promise<unknown>) => void,
 ): ShippedInstall {
   const held: ShippedInstall = { settled: false, startedAt: Date.now(), done: Promise.resolve() };
   held.done = runner({ RUNNER: binding })
@@ -263,7 +266,7 @@ function startShippedInstall(
       if (shippedInstalls.get(key) === held) shippedInstalls.delete(key);
     });
   shippedInstalls.set(key, held);
-  outlive(held.done);
+  keepAlive(held.done);
   return held;
 }
 
@@ -281,14 +284,20 @@ export async function ensureShippedExtensions(
   {
     waitMs = SHIPPED_WAIT_MS,
     staleMs = SHIPPED_STALE_MS,
-  }: { waitMs?: number; staleMs?: number } = {},
+    keepAlive = outlive,
+  }: {
+    waitMs?: number;
+    staleMs?: number;
+    /** What keeps the install alive past the request: `waitUntil` (tests watch it). */
+    keepAlive?: (work: Promise<unknown>) => void;
+  } = {},
 ): Promise<void> {
   if (!env.RUNNER) return;
   const key = clientKeyOf(env);
   let held = shippedInstalls.get(key);
   if (held?.settled) return;
   if (!held || Date.now() - held.startedAt >= staleMs) {
-    held = startShippedInstall(env.RUNNER, key, env.COS_PACKS);
+    held = startShippedInstall(env.RUNNER, key, env.COS_PACKS, keepAlive);
   }
   // Waited on only in the bound's first moments after it started: once it has run longer, calls
   // go on at once, rather than each adding the bound while a first install runs.
@@ -326,13 +335,30 @@ export function stillInstalling(): OperationError {
 }
 
 /**
- * While this client's packs are still being installed, a call refused because what it names is
- * not there yet (an extension tool, an object, a record of a pack) answers `stillInstalling`
- * instead: tried again once the install has finished, it gets its real answer. Every other error,
- * and every error once the install has finished, is the operation's own.
+ * Whether a call names something a pack owns: an extension tool (`x.<extension>.<tool>`) or an
+ * extension's object (`<extension>.<object>`; core's objects have no dot: person, organisation,
+ * activity, task), as a record operation's `object`.
  */
-export function duringShippedInstall(env: OperationsEnv, error: unknown): unknown {
-  if (!shippedInstallPending(env)) return error;
+export function namesPack(name: string, input: unknown): boolean {
+  if (name.startsWith("x.")) return true;
+  const object = (input as { object?: unknown } | null | undefined)?.object;
+  return typeof object === "string" && object.includes(".");
+}
+
+/**
+ * While this client's packs are still being installed, a call that names a pack's tool or object
+ * and is refused as not there (`unknown_operation`, `invalid_input`, `not_found`) answers
+ * `stillInstalling` instead: tried again once the install has finished, it gets its real answer.
+ * Every other call's errors, core operations' included, and every error once the install has
+ * finished, are the operation's own.
+ */
+export function duringShippedInstall(
+  env: OperationsEnv,
+  error: unknown,
+  name: string,
+  input?: unknown,
+): unknown {
+  if (!shippedInstallPending(env) || !namesPack(name, input)) return error;
   const code = (error as { code?: unknown } | null)?.code;
   if (code === "unknown_operation" || code === "invalid_input" || code === "not_found") {
     return stillInstalling();
@@ -437,7 +463,7 @@ export async function runOperation(
     }
     return toWire({ ok: true, data });
   } catch (error) {
-    const typed = toOperationError(duringShippedInstall(env, error));
+    const typed = toOperationError(duringShippedInstall(env, error, call.name, call.input));
     if (typed.code === "internal" || typed.code === "config") {
       // Log-safe: the error can quote record content (ADR 0320).
       console.error(`operation ${call.name} failed`, errorForLog(error));

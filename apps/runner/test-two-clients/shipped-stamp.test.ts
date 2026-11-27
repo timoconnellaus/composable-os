@@ -34,23 +34,27 @@ async function record(client: string): Promise<{ list: string } | null> {
 
 beforeAll(async () => {
   await setUpTwoClients(env);
-  // gym-a has the Ticketing pack (`cos client add … --setting COS_PACKS=ticketing`); gym-b none.
-  await (env as unknown as { REGISTRY: D1Database }).REGISTRY.prepare(
-    "INSERT INTO registry_settings (client, name, value) VALUES (?, 'COS_PACKS', 'ticketing')",
-  )
-    .bind(a.id)
-    .run();
+  // Both have the Ticketing pack (`cos client add … --setting COS_PACKS=ticketing`): the same
+  // list, so only the client tells their records apart (review of #559, S2).
+  for (const id of [a.id, b.id]) {
+    await (env as unknown as { REGISTRY: D1Database }).REGISTRY.prepare(
+      "INSERT INTO registry_settings (client, name, value) VALUES (?, 'COS_PACKS', 'ticketing')",
+    )
+      .bind(id)
+      .run();
+  }
 });
 
 describe("each client's record of its shipped install", () => {
   it("installs a client's packs once, then answers from its own record", async () => {
     expect(await installShipped(a.id)).toEqual([{ id: "ticketing", outcome: "installed" }]);
     expect(await installShipped(a.id)).toEqual([{ id: "ticketing", outcome: "unchanged" }]);
-    expect(await installShipped(b.id)).toEqual([]);
+    expect(await installShipped(b.id)).toEqual([{ id: "ticketing", outcome: "installed" }]);
     const [ofA, ofB] = [await record(a.id), await record(b.id)];
     expect(ofA).not.toBeNull();
     expect(ofB).not.toBeNull();
-    // Each names its own client: one copied into the other's database would not match.
+    // The same packs, the same release: each record still names its own client, so one copied
+    // into the other's database would not match.
     expect(ofA?.list).not.toBe(ofB?.list);
   });
 });

@@ -86,6 +86,58 @@ describe("calls", () => {
   });
 });
 
+describe("a host still installing its packs (issue #558)", () => {
+  const installing = {
+    status: 503,
+    body: {
+      error: {
+        code: "timeout",
+        message: "This host is still installing its packs: try again in a few seconds",
+        details: { installing: true, retryAfterSeconds: 5 },
+      },
+    },
+  };
+
+  it("a read is asked again when the host says, until it answers", async () => {
+    const h = host((_s, n) =>
+      n < 4 ? installing : { status: 200, body: { data: { id: "a", n: 1 } } },
+    );
+    const waits: number[] = [];
+    const api = createClient<Ops>(specs, {
+      baseUrl: "https://h",
+      fetch: h.fetch,
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+    });
+    expect(await api.call("thing.get", { id: "a" })).toEqual({ id: "a", n: 1 });
+    expect(waits).toEqual([5000, 5000, 5000]);
+  });
+
+  it("a read waits at most 30 s in all, then gets the refusal", async () => {
+    const h = host(() => installing);
+    let waited = 0;
+    const api = createClient<Ops>(specs, {
+      baseUrl: "https://h",
+      fetch: h.fetch,
+      sleep: async (ms) => {
+        waited += ms;
+      },
+    });
+    await expect(api.call("thing.get", { id: "a" })).rejects.toMatchObject({ code: "timeout" });
+    // Six waits of 5 s, and no more.
+    expect(waited).toBe(30_000);
+    expect(h.sent).toHaveLength(7);
+  });
+
+  it("a write is not asked again beyond the usual retries", async () => {
+    const h = host(() => installing);
+    const api = createClient<Ops>(specs, { baseUrl: "https://h", fetch: h.fetch, sleep: noWait });
+    await expect(api.call("thing.bump", { id: "a" })).rejects.toMatchObject({ code: "timeout" });
+    expect(h.sent).toHaveLength(3);
+  });
+});
+
 describe("idempotency keys", () => {
   it("a mutation sends one, and keeps it across the client's own retries", async () => {
     const h = host((_s, n) => (n < 3 ? "drop" : { status: 200, body: { data: { n: 7 } } }));

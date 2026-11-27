@@ -1,25 +1,47 @@
 // A new cos-app isolate's check of the shipped extensions (issue #558): when the last install
-// finished and nothing has changed since, `installShipped` is one read of the client's database,
-// with no call to the workspace object and no install (shipped-stamp.ts). The real runner, the
+// finished and nothing has changed since, `installShipped` is one read of the client's database
+// and one check that the workspace object holds the recorded commits, with no install
+// (shipped-stamp.ts). The real runner, the
 // real workspace object and Worker Loader, on a fresh database: a single-client deployment, whose
 // packs are still installed on first use.
+import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
+import { HOST_ONLY_META } from "@composable-os/db/sql-export";
 import { beforeAll, describe, expect, it } from "vitest";
 import { SHIPPED_STAMP_KEY } from "../src/extensions/shipped-stamp.ts";
-import { ClientRunner } from "../src/index.ts";
+import Runner, { ClientRunner } from "../src/index.ts";
 import { createAdmin } from "./helpers.ts";
 
-/** This deployment with no workspace object or Worker Loader: any install work throws. */
+/**
+ * This deployment with a workspace object that answers only `holdsShipped` (the fast path's one
+ * check) and no Worker Loader: any install work throws.
+ */
 const withoutWorkspace = (): Env => {
   const refuse = () => {
     throw new Error("the workspace object was called");
   };
+  const getByName = (name: string) => {
+    const real = env.EXTENSION_WORKSPACE.getByName(name);
+    return {
+      holdsShipped: (commits: { id: string; commit: string }[]) => real.holdsShipped(commits),
+      shipped: refuse,
+      commitShipped: refuse,
+    };
+  };
   return {
     ...env,
-    EXTENSION_WORKSPACE: { getByName: refuse, get: refuse, idFromName: refuse } as never,
+    EXTENSION_WORKSPACE: { getByName, get: refuse, idFromName: refuse } as never,
     LOADER: { get: refuse, load: refuse } as never,
   };
 };
+
+/** This deployment as another host sees it: the same database, a workspace object of its own. */
+const onAnotherHost = (): Env => ({
+  ...env,
+  EXTENSION_WORKSPACE: {
+    getByName: (name: string) => env.EXTENSION_WORKSPACE.getByName(`${name}-another-host`),
+  } as never,
+});
 
 const outcomes = (results: { id: string; outcome: string }[]) =>
   Object.fromEntries(results.map((r) => [r.id, r.outcome]));
@@ -89,5 +111,43 @@ describe("installShipped's record of the last install", () => {
       "the workspace object was called",
     );
     expect(outcomes(await new ClientRunner(env, env).installShipped())[id]).toBe("installed");
+  });
+
+  it("installs again where the workspace object does not hold the recorded commits (a copied database, review of #559 M1)", async () => {
+    await new ClientRunner(env, env).installShipped();
+    expect(await stamp()).not.toBeNull();
+    // The database on another host, its record with it (as an older export carried it).
+    const there = onAnotherHost();
+    const results = await new ClientRunner(there, env).installShipped();
+    expect(Object.values(outcomes(results))).toContain("installed");
+    // Every shipped pack's code is there at its installed commit.
+    const { results: rows } = await env.DB.prepare(
+      "SELECT id, commit_oid FROM core_extensions WHERE source = 'shipped'",
+    ).all<{ id: string; commit_oid: string }>();
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      const files = await there.EXTENSION_WORKSPACE.getByName("workspace").files(
+        row.id,
+        row.commit_oid,
+      );
+      expect(Object.keys(files).length, row.id).toBeGreaterThan(0);
+    }
+  });
+
+  it("keeps an install going after its caller has gone (the runner's own waitUntil)", async () => {
+    const ctx = createExecutionContext();
+    const kept: Promise<unknown>[] = [];
+    const waitUntil = ctx.waitUntil.bind(ctx);
+    ctx.waitUntil = (work: Promise<unknown>) => {
+      kept.push(work);
+      waitUntil(work);
+    };
+    await new Runner(ctx, env).installShipped();
+    expect(kept).toHaveLength(1);
+    await waitOnExecutionContext(ctx);
+  });
+
+  it("is a record exports leave out and imports delete", () => {
+    expect(HOST_ONLY_META).toContain(SHIPPED_STAMP_KEY);
   });
 });

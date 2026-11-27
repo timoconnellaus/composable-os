@@ -594,14 +594,15 @@ const surfaces = new WeakMap<object, ReturnType<typeof createHttpSurface>>();
  * (retryable, issue #558) rather than that what it names does not exist.
  */
 function installingInvoker(env: ApiEnv): typeof coreInvoker {
-  const told = <T>(call: () => Promise<T>): Promise<T> =>
+  const told = <T>(name: string, input: unknown, call: () => Promise<T>): Promise<T> =>
     call().catch((error: unknown) => {
-      throw duringShippedInstall(env, error);
+      throw duringShippedInstall(env, error, name, input);
     });
   return {
     ...coreInvoker,
-    invokeByName: (name, input, ctx) => told(() => coreInvoker.invokeByName(name, input, ctx)),
-    resolveFor: (name, ctx) => told(() => coreInvoker.resolveFor(name, ctx)),
+    invokeByName: (name, input, ctx) =>
+      told(name, input, () => coreInvoker.invokeByName(name, input, ctx)),
+    resolveFor: (name, ctx) => told(name, undefined, () => coreInvoker.resolveFor(name, ctx)),
   };
 }
 

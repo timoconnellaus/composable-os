@@ -265,6 +265,20 @@ export class ExtensionWorkspace extends ClientDurableObject(DurableObject<Env>) 
     });
   }
 
+  /**
+   * Whether this workspace committed each shipped extension at the commit given (issue #558): the
+   * record `commitShipped` keeps, read from storage, no git. False for a workspace that never
+   * did (a new host's, after a database was imported), so installShipped commits the source.
+   */
+  async holdsShipped(commits: { id: string; commit: string }[]): Promise<boolean> {
+    for (const { id, commit } of commits) {
+      assertExtensionId(id);
+      const known = await this.ctx.storage.get<{ hash: string; commit: string }>(`shipped:${id}`);
+      if (known?.commit !== commit) return false;
+    }
+    return true;
+  }
+
   async #head(id: string): Promise<string | null> {
     const dir = extensionDir(id);
     if (!(await this.#exists(`${dir}/.git`))) return null;
