@@ -12,10 +12,11 @@
 #   remove  deletes what a failed run left (by its run id or `cosstg-<run id>`), by the same rule
 #
 # Uses FLEET_CLOUDFLARE_API_TOKEN and FLEET_CLOUDFLARE_ACCOUNT_ID, given only to the steps that call
-# Cloudflare. Every job that reads them runs in the `fleet` environment, so they may be repository
-# secrets or the environment's own (docs/deploying.md says what the owner sets there: the secrets,
-# a branch policy and a reviewer). Without them nothing is made and the workflow passes with a
-# notice. The keys file, the exports (their
+# Cloudflare. Every job that reads them runs in the `fleet-check` environment, its own: never the
+# real staging fleet's `fleet`, which holds that fleet's keys and its clients' secrets. Each such
+# job first stops unless the environment secret FLEET_ENVIRONMENT is `check`, so repository
+# secrets, or an environment GitHub makes on the fly, are never used (review of #547, S6).
+# Without the secrets nothing is made and the workflow passes with a notice. The keys file, the exports (their
 # secrets.json) and the releases are in the runner's temp folder, outside the checkout, and deleted
 # at the end; nothing secret goes into an artifact or the summary (the script masks and cuts out
 # the token, the account id, its workers.dev subdomain, passwords and cookies).
@@ -58,8 +59,8 @@ jobs:
   configured:
     name: Fleet account configured?
     runs-on: ubuntu-latest
-    # In the environment, so it sees the secrets wherever they are kept (review of #541, F2).
-    environment: fleet
+    # In the check's own environment (review of #541, F2; of #547, S6).
+    environment: fleet-check
     outputs:
       enabled: ${{ steps.check.outputs.enabled }}
     steps:
@@ -67,7 +68,13 @@ jobs:
         env:
           TOKEN: ${{ secrets.FLEET_CLOUDFLARE_API_TOKEN }}
           ACCOUNT: ${{ secrets.FLEET_CLOUDFLARE_ACCOUNT_ID }}
+          MARKER: ${{ secrets.FLEET_ENVIRONMENT }}
         run: |
+          if [ -n "$TOKEN" ] && [ -n "$ACCOUNT" ] && [ "$MARKER" != "check" ]; then
+            # Secrets that are not the fleet-check environment's own: repository ones, or another's.
+            echo "::error::FLEET_ENVIRONMENT is not check: these secrets are not the fleet-check environment's own. Nothing was made."
+            exit 1
+          fi
           if [ -n "$TOKEN" ] && [ -n "$ACCOUNT" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
@@ -103,13 +110,23 @@ jobs:
     if: needs.configured.outputs.enabled == 'true' && inputs.mode == 'check'
     runs-on: ubuntu-latest
     timeout-minutes: 150
-    environment: fleet
+    environment: fleet-check
     env:
       RUN: ${{ github.run_id }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
+      # Before anything else: the secrets are the check's own environment's (review of #547, S6).
+      - name: In the check's own environment
+        id: marker
+        env:
+          MARKER: ${{ secrets.FLEET_ENVIRONMENT }}
+        run: |
+          if [ "$MARKER" != "check" ]; then
+            echo "::error::FLEET_ENVIRONMENT is not check: this run is not in the fleet-check environment. Nothing was made."
+            exit 1
+          fi
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -137,7 +154,8 @@ jobs:
       # cosstg-<run id> is deleted, what was and what could not be is listed, and the job fails if
       # anything is left or a kind could not be listed. Then the run's local folder (the keys file, the exports) is deleted.
       - name: Teardown
-        if: always()
+        # Whatever failed before, but never with secrets the marker step did not vouch for.
+        if: always() && steps.marker.outcome == 'success'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.FLEET_CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.FLEET_CLOUDFLARE_ACCOUNT_ID }}
@@ -151,11 +169,21 @@ jobs:
     needs: [configured, inputs]
     if: needs.configured.outputs.enabled == 'true' && inputs.mode == 'remove'
     runs-on: ubuntu-latest
-    environment: fleet
+    environment: fleet-check
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
+      # Before anything else: the secrets are the check's own environment's (review of #547, S6).
+      - name: In the check's own environment
+        id: marker
+        env:
+          MARKER: ${{ secrets.FLEET_ENVIRONMENT }}
+        run: |
+          if [ "$MARKER" != "check" ]; then
+            echo "::error::FLEET_ENVIRONMENT is not check: this run is not in the fleet-check environment. Nothing was made."
+            exit 1
+          fi
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version-file: .nvmrc
           cache: pnpm

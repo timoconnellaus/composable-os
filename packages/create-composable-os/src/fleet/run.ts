@@ -211,6 +211,31 @@ async function fleetKeys(flags: Flags, deps: Deps): Promise<number> {
   return 0;
 }
 
+/**
+ * A fleet that exists is installed again only as it is (a re-run to finish an install that
+ * stopped): another version would upload new code with no client's database migrated, and another
+ * domain or callback hostname would move what clients rely on (review of #547, M1).
+ */
+function refuseReinstall(
+  state: DeploymentState | null | undefined,
+  wanted: { version: string; domain: string; callbackHostname: string },
+): void {
+  const fleet = state?.fleet;
+  if (!state || !fleet) return;
+  const differs = [
+    wanted.version !== state.version &&
+      `version ${state.version} (an upgrade is cos fleet upgrade, which migrates every client)`,
+    wanted.domain !== fleet.domain && `domain ${fleet.domain}`,
+    wanted.callbackHostname !== fleet.callbackHostname &&
+      `callback hostname ${fleet.callbackHostname}`,
+  ].filter(Boolean);
+  if (differs.length) {
+    throw new CliError(
+      `This ${fleet.environment} fleet is already installed, with ${differs.join(", ")}: a re-run of cos fleet install names what is installed, and nothing was changed.`,
+    );
+  }
+}
+
 async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
   const environment = environmentOf(flags);
   const keys = await readKeys(flags, deps, environment);
@@ -236,6 +261,7 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
   }
   const version =
     str(flags, "version") ?? existing?.state?.version ?? (await latestVersion(s, "stable"));
+  refuseReinstall(existing?.state, { version, domain: fleetDomain, callbackHostname });
   const { bundle, digest } = await verified(s, version, deps);
   const manifest = bundle.manifest;
   const app = manifest.workers.find((w) => w.role === "app");
