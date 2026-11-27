@@ -426,7 +426,9 @@ converged, one hostname a run. Now:
   step finishes the job (tested: each delete failed, done with its answer lost, and gone already).
 - Lookups use the documented filters, `hostname.exact` for custom hostnames and `name.exact` for
   DNS records, every page read and only the exact name kept; the Custom Domain listing is kept
-  once per id, since its `page` parameter is not documented.
+  once per id, since its `page` parameter is not documented. Observed on the real API (staging run
+  46034389470, 2026-11-27): the install's lookups with `name.exact` and `hostname.exact` were
+  accepted and found what they looked for.
 - The fake Cloudflare API answers these calls as documented, or as observed where they differ,
   and ignores the undocumented plain filters.
 

@@ -686,7 +686,32 @@ export async function request(fetchImpl, url, init = {}, timeoutMs = 20000) {
     return { status: response.status, response, ms: Date.now() - started };
   } catch (error) {
     const ms = Date.now() - started;
-    return { status: 0, error: describeFetchError(error, ms), ms };
+    const code = error?.cause?.code;
+    return { status: 0, error: describeFetchError(error, ms), ms, ...(code ? { code } : {}) };
+  }
+}
+
+/**
+ * Waits until an address has stopped answering for its client: the host's 404 for a hostname it
+ * no longer serves, or the name no longer resolving (ENOTFOUND, twice running: since PR #561 a
+ * removed client's staff hostname has its Custom Domain, and with it its DNS record, detached).
+ * Anything else (a 2xx, the client's own sign-in page, an edge error) is waited out, and is the
+ * answer that fails it at the end. Returns `how` ("404" or "ENOTFOUND") when stopped.
+ */
+export async function waitUntilStopped(
+  fetchImpl,
+  url,
+  { timeoutMs = 300000, intervalMs = 5000, sleep } = {},
+) {
+  const until = Date.now() + timeoutMs;
+  let unresolved = 0;
+  for (;;) {
+    const last = await request(fetchImpl, url);
+    if (last.status === 404) return { ...last, ok: true, how: "404" };
+    unresolved = last.status === 0 && last.code === "ENOTFOUND" ? unresolved + 1 : 0;
+    if (unresolved >= 2) return { ...last, ok: true, how: "ENOTFOUND" };
+    if (Date.now() > until) return { ...last, ok: false };
+    await sleep(intervalMs);
   }
 }
 
@@ -1008,9 +1033,12 @@ export async function packsAnswer(ctx, id, when = "") {
 /**
  * How long a client's first staff operation may take: a fresh client's (step 3) and the first
  * after an upgrade (step 5). It no longer waits for the client's packs to install (issue #558):
- * at most 2 s for the check (cos-app's SHIPPED_WAIT_MS), the rest the call itself.
+ * at most 2 s for the check (cos-app's SHIPPED_WAIT_MS), the rest the call itself. Measured on
+ * real Cloudflare (staging run 46042041938): 3.9 s and 4.9 s on fresh clients, 3.7 s each after
+ * the upgrade; before #559 it was 15 to 19 s. 8 s catches that wait and leaves the measured
+ * figures room, so the check does not flake on them.
  */
-export const FIRST_OP_BOUND_MS = 5000;
+export const FIRST_OP_BOUND_MS = 8000;
 
 /** The first operations that answered 200 but took longer than the bound, in words. */
 export function slowFirsts(firsts) {
@@ -1106,8 +1134,25 @@ export function exportFacts(dir) {
     if (!existsSync(path)) problems.push(`file ${file.key} is missing`);
     else if (sha256(readFileSync(path)) !== file.sha256) problems.push(`file ${file.key} differs`);
   }
+  const rows = {};
+  for (const part of manifest.database?.parts ?? []) {
+    const path = join(dir, part.path);
+    if (!existsSync(path)) continue;
+    let statements;
+    try {
+      statements = JSON.parse(readFileSync(path, "utf8")).statements;
+    } catch {
+      problems.push(`part ${part.path} is not an export's part`);
+      continue;
+    }
+    for (const [table, unit] of rowUnits(statements ?? [])) {
+      rows[table] = [...(rows[table] ?? []), unit];
+    }
+  }
   return {
     counts: manifest.database?.counts ?? {},
+    // Every row the export's statements hold, by table (`rowUnits`).
+    rows,
     files: (manifest.files ?? []).map((f) => `${f.key} ${f.sha256}`).sort(),
     // The client's COS_PACKS (re-review of #553), absent from an export made before it was carried.
     packs: manifest.packs,
@@ -1115,12 +1160,464 @@ export function exportFacts(dir) {
   };
 }
 
-/** Rows counted in one export and not the other, or counted differently. */
+const SCRATCH = '"_cos_import_scratch"';
+const TABLE_OF = /^(?:INSERT INTO|UPDATE) ("(?:[^"]|"")+"|[A-Za-z_]\w*)/;
+const unquote = (ident) =>
+  ident.startsWith('"') ? ident.slice(1, -1).replaceAll('""', '"') : ident;
+
+/**
+ * An export's statements as one unit per row, by table: an INSERT (with the scratch statements a
+ * large row is built from before it) or a keyed UPDATE, as the export wrote it (packages/db
+ * sql-export.ts); the schema's statements under "(schema)"; `sqlite_sequence` under its name.
+ */
+export function rowUnits(statements) {
+  const out = [];
+  let pending = [];
+  for (const sql of statements) {
+    if (sql.startsWith(`INSERT INTO ${SCRATCH}`) || sql.startsWith(`UPDATE ${SCRATCH}`)) {
+      pending.push(sql);
+      continue;
+    }
+    if (sql.startsWith(`DELETE FROM ${SCRATCH}`)) continue;
+    const m = TABLE_OF.exec(sql);
+    if (!m) {
+      out.push(["(schema)", sql]);
+      continue;
+    }
+    out.push([unquote(m[1]), [...pending, sql].join("\n")]);
+    pending = [];
+  }
+  return out;
+}
+
+/** Splits `a, 'b, c', (d, e)` at its top-level commas, quotes and brackets respected. */
+function topLevel(list) {
+  const out = [];
+  let depth = 0;
+  let quote = null;
+  let start = 0;
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i];
+    if (quote) {
+      if (c === quote) {
+        if (list[i + 1] === quote) i += 1;
+        else quote = null;
+      }
+    } else if (c === "'" || c === '"') quote = c;
+    else if (c === "(") depth += 1;
+    else if (c === ")") depth -= 1;
+    else if (c === "," && depth === 0) {
+      out.push(list.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  out.push(list.slice(start).trim());
+  return out;
+}
+
+/** A text literal's value ('…' with '' doubled), or null for any other literal. */
+function textOf(literal) {
+  if (typeof literal !== "string") return null;
+  if (/^'(?:[^']|'')*'$/.test(literal)) return literal.slice(1, -1).replaceAll("''", "'");
+  const cast = /^CAST\(X'([0-9A-Fa-f]*)' AS TEXT\)$/.exec(literal);
+  return cast ? Buffer.from(cast[1], "hex").toString("utf8") : null;
+}
+
+/**
+ * A row's columns and their literals as the export wrote them (packages/db sql-export.ts:
+ * `INSERT INTO "t" (c1, c2) VALUES (v1, v2)`, the row's own statement last in its unit), or null.
+ */
+function rowOf(unit) {
+  const sql = unit.split("\n").at(-1);
+  const m = /^INSERT INTO (?:"(?:[^"]|"")+"|\w+) \((.*?)\) VALUES \((.*)\)$/s.exec(sql);
+  if (!m) return null;
+  const columns = topLevel(m[1]).map(unquote);
+  const values = topLevel(m[2]);
+  if (columns.length !== values.length) return null;
+  return Object.fromEntries(columns.map((c, i) => [c, values[i]]));
+}
+
+/** One column's text value in a row's INSERT, or null. */
+export function columnOf(unit, column) {
+  const row = rowOf(unit);
+  return row && Object.hasOwn(row, column) ? textOf(row[column]) : null;
+}
+
+/** The names of the columns two rows' INSERTs differ in (never their values). */
+function differing(before, after) {
+  const a = rowOf(before);
+  const b = rowOf(after);
+  if (!a || !b) return null;
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((c) => a[c] !== b[c]).sort();
+}
+
+/** Each table's primary key columns, from the export's CREATE TABLE statements. */
+function primaryKeys(schema) {
+  const keys = {};
+  for (const sql of schema) {
+    const m = /^CREATE TABLE (?:IF NOT EXISTS )?("(?:[^"]|"")+"|\w+)\s*\((.*)\)[^)]*$/s.exec(sql);
+    if (!m) continue;
+    const entries = topLevel(m[2]);
+    const table = /^PRIMARY KEY\s*\((.*)\)/i;
+    const whole = entries.map((e) => table.exec(e)).find(Boolean);
+    const cols = whole
+      ? topLevel(whole[1]).map((c) => unquote(c.split(/\s+/)[0]))
+      : entries
+          .filter((e) => /\bPRIMARY KEY\b/i.test(e) && !table.test(e))
+          .map((e) => unquote(/^("(?:[^"]|"")+"|\S+)/.exec(e)[1]));
+    if (cols.length) keys[unquote(m[1])] = cols;
+  }
+  return keys;
+}
+
+/** The core_settings keys the host's own crons write to a running client. */
+const CRON_SETTINGS = Object.freeze([
+  // The app's 10-minute tick, its embeddings catch-up (runEmbeddingCron → backfillEmbeddingQueue,
+  // packages/core/src/ai/embedding.ts): how far the backfill of core_search_docs has got, written
+  // only when the client has an embedding model. An import queues every embedded record again.
+  "embedding_backfill",
+  // The runner's minute tick, customer sign-up's watch (watchSubscriberSignup,
+  // packages/core/src/customers/subscriber-signup.ts): whether a plan is on sale, written only
+  // while "anyone starting a subscription" is on.
+  "customer_signup_subscribers_state",
+]);
+
+/**
+ * The core_audit operations the host's crons write to a running client by themselves. A shipped
+ * pack's `extension.install` is not here: it is allowed only with the reinstall it records
+ * (`REINSTALL`).
+ */
+const CRON_AUDITS = Object.freeze([
+  // The runner's minute tick, customer sign-up's watch (subscriber-signup.ts): a plan went on sale.
+  "customer.signupOpened",
+]);
+
+/**
+ * The tables the host writes to a running client by itself (a cron tick, its first operation),
+ * each with the narrowest difference allowed between an export and the re-export of its import:
+ * `name` picks the row's name in `by` (null: not the host's), `add`/`change`/`remove` what may
+ * happen to a row so named. Every other table, and every other row of these, must be in both
+ * exactly as it was, no more and no fewer (review of #562, S1).
+ */
+export const HOST_WRITTEN = Object.freeze({
+  // The runner's minute tick (runAutomationCron → onceFor, apps/runner/src/automations/
+  // schedule.ts) marks each day's and hour's scan done (`~dateRelative`, `~dateRelativeZoned`);
+  // retention (packages/core/src/retention.ts) deletes the markers of hours gone by.
+  core_automation_counters: {
+    by: "automation_id",
+    name: (unit) => {
+      const id = columnOf(unit, "automation_id");
+      return id?.startsWith("~") ? id : null;
+    },
+    add: true,
+    remove: true,
+  },
+  core_audit: {
+    by: "operation",
+    name: (unit) => {
+      const operation = columnOf(unit, "operation");
+      return CRON_AUDITS.includes(operation) ? operation : null;
+    },
+    add: true,
+  },
+  core_settings: {
+    by: "key",
+    name: (unit) => {
+      const key = columnOf(unit, "key");
+      return CRON_SETTINGS.includes(key) ? key : null;
+    },
+    add: true,
+    change: true,
+  },
+  // The runner's stamp of its last shipped-pack install (PR #559, apps/runner/src/extensions/
+  // shipped-stamp.ts): an export leaves it out and an import deletes it (`HOST_ONLY_META`), so the
+  // imported client gains it again after its first operation.
+  core_meta: {
+    by: "key",
+    name: (unit) => (columnOf(unit, "key") === "shipped_install" ? "shipped_install" : null),
+    add: true,
+    change: true,
+  },
+});
+
+/**
+ * A shipped pack installed again on this host (review of #562): an imported client's extension
+ * workspace is this host's own, new, and a commit's id carries its time, so `commitShipped` gives
+ * a new commit and `installOne` (packages/core/src/extensions/shipped.ts) installs the unchanged
+ * pack again through `extension.install` (`installExtension`, packages/core/src/extensions/
+ * install.ts). That runs on the client's first staff or outside operation, its assistant or its
+ * MCP (`ensureShippedExtensions`, apps/app/src/server/operations.ts and http/api.ts): no cron and
+ * no page reaches it. For a pack whose manifest and schema are unchanged it writes exactly:
+ * - `core_extensions`: its row updated in place, only `commit_oid` (the new commit) and
+ *   `updated_at` (the on-conflict update; `manifest`, `version`, `status` are the same values);
+ * - `core_extension_versions`: one row added, the pack and the new commit (`installed_at`,
+ *   `installed_by` with it);
+ * - `core_automations`: each of its automations' rows updated in place, only `commit_oid` and
+ *   `updated_at` (`automationSyncStatements`, packages/core/src/automations/registry.ts);
+ * - `core_audit`: one `extension.install` row, its input naming the pack.
+ * No `x_*` table or view changes (its reconcile plan is empty), and its routine-mail notice is
+ * deduplicated. A pack may be reinstalled only if it is one of the client's own (`COS_PACKS`:
+ * no pack is always shipped, `shippedExtensions` lists exactly those).
+ */
+export const REINSTALL = Object.freeze({
+  core_extensions: ["commit_oid", "updated_at"],
+  core_automations: ["commit_oid", "updated_at"],
+});
+
+const multiset = (units) => {
+  const m = new Map();
+  for (const u of units) m.set(u, (m.get(u) ?? 0) + 1);
+  return m;
+};
+/** Units of `a` not in `b`, as a multiset difference. */
+const minus = (a, b) => {
+  const left = multiset(b);
+  const out = [];
+  for (const u of a) {
+    const n = left.get(u) ?? 0;
+    if (n > 0) left.set(u, n - 1);
+    else out.push(u);
+  }
+  return out;
+};
+const tally = (names) => {
+  const m = new Map();
+  for (const n of names) m.set(n, (m.get(n) ?? 0) + 1);
+  return [...m].map(([n, k]) => (k > 1 ? `${n} ×${k}` : n)).join(", ");
+};
+const embeddingKey = (unit) => `${columnOf(unit, "object_type")}:${columnOf(unit, "record_id")}`;
+const without = (list, gone) => {
+  const drop = new Set(gone);
+  return list.filter((u) => !drop.has(u));
+};
+const auditInputId = (unit) => {
+  try {
+    return JSON.parse(columnOf(unit, "input") ?? "null")?.id ?? null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Finds the shipped packs installed again on this host (`REINSTALL`), each with every write that
+ * install makes and nothing else, and takes those writes out of `diff`. Returns the packs.
+ */
+function takeReinstalls(diff, packs) {
+  const reinstalled = [];
+  const ext = diff.core_extensions;
+  if (!ext) return reinstalled;
+  const of = (d, column, id) =>
+    d ? [d.missing, d.extra].map((l) => l.filter((u) => columnOf(u, column) === id)) : [[], []];
+  for (const id of packs) {
+    const [before, after] = of(ext, "id", id);
+    if (before.length !== 1 || after.length !== 1) continue;
+    const changed = differing(before[0], after[0]);
+    if (!changed?.every((c) => REINSTALL.core_extensions.includes(c))) continue;
+    const commit = columnOf(after[0], "commit_oid");
+    const audits = (diff.core_audit?.extra ?? []).filter(
+      (u) => columnOf(u, "operation") === "extension.install" && auditInputId(u) === id,
+    );
+    const [versionsGone, versionsAdded] = of(diff.core_extension_versions, "extension_id", id);
+    if (audits.length !== 1 || versionsGone.length !== 0) continue;
+    if (versionsAdded.length !== 1 || columnOf(versionsAdded[0], "commit_oid") !== commit) continue;
+    const [autosBefore, autosAfter] = of(diff.core_automations, "extension_id", id);
+    const paired = autosBefore.map((u) =>
+      autosAfter.find((v) => columnOf(v, "id") === columnOf(u, "id")),
+    );
+    const autosOk =
+      autosBefore.length === autosAfter.length &&
+      paired.every(
+        (v, n) =>
+          v &&
+          columnOf(v, "commit_oid") === commit &&
+          (differing(autosBefore[n], v) ?? ["?"]).every((c) =>
+            REINSTALL.core_automations.includes(c),
+          ),
+      );
+    if (!autosOk) continue;
+    ext.missing = without(ext.missing, before);
+    ext.extra = without(ext.extra, after);
+    diff.core_audit.extra = without(diff.core_audit.extra, audits);
+    diff.core_extension_versions.extra = without(diff.core_extension_versions.extra, versionsAdded);
+    if (diff.core_automations) {
+      diff.core_automations.missing = without(diff.core_automations.missing, autosBefore);
+      diff.core_automations.extra = without(diff.core_automations.extra, autosAfter);
+    }
+    reinstalled.push(id);
+  }
+  return reinstalled;
+}
+
+/**
+ * What an import must preserve (review of #562, S1): every table exactly as it was, row for row,
+ * no more and no fewer, except the host's own writes: `HOST_WRITTEN`, each in its narrowest way;
+ * a shipped pack installed again on this host (`REINSTALL`), with exactly the writes it makes;
+ * and the search index, which an import queues again (`requeue-embeddings`): each record of the
+ * export's `core_embedding` must be in the re-export's `core_embedding` or its queue. An
+ * AUTOINCREMENT table's next id may only grow. `allowed` names each allowed difference (tables,
+ * counts, packs, and the settings keys, audit operations and markers). A failure names a changed
+ * row by its key and the columns that differ, never a value. Files and packs are compared as
+ * before.
+ */
 export function compareExports(a, b) {
   const problems = [];
+  const allowed = [];
+  const rowsKnown = Boolean(a.rows && b.rows);
   for (const table of new Set([...Object.keys(a.counts), ...Object.keys(b.counts)])) {
-    if ((a.counts[table] ?? 0) !== (b.counts[table] ?? 0)) {
+    // Rows the export's statements show are compared one by one below; a table they do not show
+    // (no statement read for it) is held to its count.
+    const shown = rowsKnown && ((a.rows[table] ?? []).length || (b.rows[table] ?? []).length);
+    if (!shown && (a.counts[table] ?? 0) !== (b.counts[table] ?? 0)) {
       problems.push(`${table}: ${a.counts[table] ?? 0} rows, then ${b.counts[table] ?? 0}`);
+    }
+  }
+  if (rowsKnown) {
+    const keys = primaryKeys([...(a.rows["(schema)"] ?? []), ...(b.rows["(schema)"] ?? [])]);
+    const diff = {};
+    for (const table of new Set([...Object.keys(a.rows), ...Object.keys(b.rows)])) {
+      if (table === "sqlite_sequence") continue;
+      const before = a.rows[table] ?? [];
+      const after = b.rows[table] ?? [];
+      diff[table] = { before, missing: minus(before, after), extra: minus(after, before) };
+    }
+    // The search index: queued again by the import, or embedded again by the tick since.
+    const embedded = new Set([
+      ...(b.rows.core_embedding ?? []).map(embeddingKey),
+      ...(b.rows.core_embedding_queue ?? []).map(embeddingKey),
+    ]);
+    const wasIndexed = new Set([
+      ...(a.rows.core_embedding ?? []).map(embeddingKey),
+      ...(a.rows.core_embedding_queue ?? []).map(embeddingKey),
+    ]);
+    for (const table of ["core_embedding", "core_embedding_queue"]) {
+      const d = diff[table];
+      if (!d) continue;
+      const lost = d.missing.filter((u) => !embedded.has(embeddingKey(u)));
+      const stray = d.extra.filter((u) => !wasIndexed.has(embeddingKey(u)));
+      if (d.missing.length - lost.length || d.extra.length - stray.length) {
+        allowed.push(
+          `${table}: ${d.extra.length - stray.length} added, ${d.missing.length - lost.length} gone (requeued by the import or embedded again)`,
+        );
+      }
+      d.missing = lost;
+      d.extra = stray;
+    }
+    // Shipped packs installed again on this host, each with exactly its writes.
+    const packs = String(a.packs ?? "")
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    const reinstalled = takeReinstalls(diff, packs);
+    if (reinstalled.length) {
+      allowed.push(
+        `shipped packs installed again on this host: ${reinstalled.join(", ")} (each: core_extensions commit_oid and updated_at, its core_automations the same, one core_extension_versions row, one extension.install audit row)`,
+      );
+    }
+    for (const [table, d] of Object.entries(diff)) {
+      let { missing, extra } = d;
+      const rule = HOST_WRITTEN[table];
+      if (rule) {
+        const addedNames = [];
+        const goneNames = [];
+        const changedNames = [];
+        const extraNames = new Map();
+        for (const u of extra) {
+          const n = rule.name(u);
+          if (n !== null) extraNames.set(n, [...(extraNames.get(n) ?? []), u]);
+        }
+        const consumed = [];
+        missing = missing.filter((u) => {
+          const n = rule.name(u);
+          if (n === null) return true;
+          if (rule.change && extraNames.get(n)?.length) {
+            consumed.push(extraNames.get(n).pop());
+            changedNames.push(n);
+            return false;
+          }
+          if (rule.remove) {
+            goneNames.push(n);
+            return false;
+          }
+          return true;
+        });
+        extra = without(extra, consumed).filter((u) => {
+          const n = rule.name(u);
+          if (n !== null && rule.add) {
+            addedNames.push(n);
+            return false;
+          }
+          return true;
+        });
+        const parts = [
+          addedNames.length ? `+${addedNames.length} (${rule.by} ${tally(addedNames)})` : "",
+          changedNames.length
+            ? `${changedNames.length} changed (${rule.by} ${tally(changedNames)})`
+            : "",
+          goneNames.length ? `−${goneNames.length} (${rule.by} ${tally(goneNames)})` : "",
+        ].filter(Boolean);
+        if (parts.length) allowed.push(`${table}: ${parts.join(", ")}`);
+      }
+      if (table === "(schema)") {
+        if (missing.length) {
+          problems.push(
+            `${missing.length} of the export's schema statements are not in the import as they were`,
+          );
+        }
+        if (extra.length) {
+          problems.push(`${extra.length} schema statements in the import were not in the export`);
+        }
+        continue;
+      }
+      // A row is named by its key: the rule's, the table's primary key, or its id. A row lost and
+      // one added under the same key is a changed row, named with the columns that differ.
+      const keyColumns = rule ? [rule.by] : (keys[table] ?? ["id"]);
+      const keyOf = (u) => {
+        const parts = keyColumns.map((c) => columnOf(u, c) ?? rowOf(u)?.[c] ?? null);
+        return parts.every((p) => p !== null && p !== undefined) ? parts.join("/") : null;
+      };
+      const changed = [];
+      const pairedExtra = [];
+      missing = missing.filter((u) => {
+        const k = keyOf(u);
+        const match =
+          k === null ? undefined : extra.find((v) => !pairedExtra.includes(v) && keyOf(v) === k);
+        if (!match) return true;
+        pairedExtra.push(match);
+        changed.push(`${k} (columns ${(differing(u, match) ?? ["?"]).join(", ")})`);
+        return false;
+      });
+      extra = without(extra, pairedExtra);
+      const named = (units) => {
+        const ks = units.map(keyOf).filter((k) => k !== null);
+        return ks.length ? ` (${keyColumns.join("/")} ${tally(ks)})` : "";
+      };
+      if (changed.length) {
+        problems.push(
+          `${table}: ${changed.length} rows changed by ${keyColumns.join("/")}: ${changed.join("; ")}`,
+        );
+      }
+      if (missing.length) {
+        problems.push(
+          `${table}: ${missing.length} of the export's ${d.before.length} rows not in the import${named(missing)}`,
+        );
+      }
+      if (extra.length) {
+        problems.push(
+          `${table}: ${extra.length} rows in the import that were not in the export${named(extra)}`,
+        );
+      }
+    }
+    const seq = (rows) =>
+      new Map(
+        (rows.sqlite_sequence ?? []).flatMap((u) => {
+          const m = /VALUES \('((?:[^']|'')*)', (\d+)\)$/.exec(u);
+          return m ? [[m[1], Number(m[2])]] : [];
+        }),
+      );
+    const seqB = seq(b.rows);
+    for (const [name, n] of seq(a.rows)) {
+      if ((seqB.get(name) ?? 0) < n)
+        problems.push(`${name}'s next id went back: ${n}, then ${seqB.get(name) ?? 0}`);
     }
   }
   const fa = new Set(a.files);
@@ -1134,6 +1631,8 @@ export function compareExports(a, b) {
       `packs: COS_PACKS=${a.packs ?? "(none carried)"}, then ${b.packs ?? "(none carried)"}`,
     );
   }
+  // The differences allowed, beside the problems (not one of them).
+  Object.defineProperty(problems, "allowed", { value: allowed });
   return problems;
 }
 
@@ -1681,10 +2180,11 @@ export function checkSteps() {
         await must(ctx, ["client", "export", imported, "--out", ctx.reexportDir, "--yes"]);
         const first = exportFacts(ctx.exportDir);
         const again = exportFacts(ctx.reexportDir);
+        const compared = compareExports(first, again);
         const problems = [
           ...first.problems.map((p) => `${a}'s export: ${p}`),
           ...again.problems.map((p) => `${imported}'s export: ${p}`),
-          ...compareExports(first, again),
+          ...compared,
         ];
         const rows = Object.values(first.counts).reduce((x, y) => x + y, 0);
         if (!Object.keys(first.counts).length || rows === 0)
@@ -1701,7 +2201,7 @@ export function checkSteps() {
             `the export or the import is not as it should be: ${problems.slice(0, 5).join("; ")}`,
           );
         const notes = [
-          `${a} exported (${Object.keys(first.counts).length} tables, ${rows} rows, ${first.files.length} files, every hash recomputed from the bytes), imported as ${imported}, exported again: the same row counts, file hashes and packs (COS_PACKS=${first.packs})`,
+          `${a} exported (${Object.keys(first.counts).length} tables, ${rows} rows, ${first.files.length} files, every hash recomputed from the bytes), imported as ${imported}, exported again: every row of the export in it as it was and nothing else but the host's own writes, the same file hashes and packs (COS_PACKS=${first.packs})${compared.allowed.length ? `; what the host wrote to ${imported} since: ${compared.allowed.join("; ")}` : ""}`,
         ];
         if (!ctx.zoneId) {
           return {
@@ -1767,13 +2267,13 @@ export function checkSteps() {
         if (list[a]) fail(`${a} is still listed after the remove`);
         if (list[b]?.status !== "active") fail(`${b} is ${list[b]?.status} after ${a} was removed`);
         if (!ctx.zoneId) return { status: "partial", note: `${a} removed, ${b} active; ${noZone}` };
-        // The host serves the change within its registry refresh (10 s).
-        const gone = await waitFor(
-          ctx.fetch,
-          `https://${ctx.hosts.staff[a]}/sign-in`,
-          (x) => x.status === 404,
-          { timeoutMs: 120000, sleep: ctx.sleep },
-        );
+        // The host serves the change within its registry refresh (10 s); the staff hostname's
+        // Custom Domain is detached by the remove (PR #561), so its name may stop resolving
+        // instead, once DNS caches let go.
+        const gone = await waitUntilStopped(ctx.fetch, `https://${ctx.hosts.staff[a]}/sign-in`, {
+          sleep: ctx.sleep,
+          ...(ctx.stoppedWaitMs !== undefined ? { timeoutMs: ctx.stoppedWaitMs } : {}),
+        });
         if (!gone.ok) fail(`${a}'s address still answers ${said(gone)}`);
         const answer = await request(ctx.fetch, `https://${ctx.hosts.staff[b]}/sign-in`);
         if (answer.status !== 200) fail(`${b}'s sign-in page answers ${said(answer)}`);
@@ -1781,7 +2281,7 @@ export function checkSteps() {
         const own = await staffOp(ctx, ctx.hosts.staff[b], ctx.staff[b].cookie, "person.list");
         if (own.status !== 200) fail(`${b}'s staff session answers ${opFailed(own)}`);
         return {
-          note: `${a}'s address answers the unknown hostname's 404; ${b} answers and its staff stay signed in`,
+          note: `${a}'s address ${gone.how === "404" ? "answers the unknown hostname's 404" : "no longer resolves (ENOTFOUND, twice running: its Custom Domain detached)"}; ${b} answers and its staff stay signed in`,
         };
       },
     },

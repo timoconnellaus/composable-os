@@ -16,6 +16,7 @@ import {
   check,
   checkOptions,
   checkSteps,
+  columnOf,
   compareExports,
   cosRunner,
   describeFetchError,
@@ -31,6 +32,7 @@ import {
   parseClientList,
   prefixOf,
   productDefinition,
+  rowUnits,
   runSteps,
   STAGING_MIGRATION,
   sanitize,
@@ -42,6 +44,7 @@ import {
   teardownReport,
   VERSIONS,
   verdict,
+  waitUntilStopped,
   workflowProblems,
 } from "./fleet-staging-check.mjs";
 
@@ -1380,7 +1383,7 @@ test("a client's packs must answer within PACKS_BOUND_MS: at once, after 503s st
 });
 
 test("a client's first operation must answer within FIRST_OP_BOUND_MS: a fresh client's (step 3) and the first after an upgrade (step 5), issue #558", async () => {
-  assert.equal(FIRST_OP_BOUND_MS, 5000);
+  assert.equal(FIRST_OP_BOUND_MS, 8000);
   const host = (url) => new URL(url).hostname.split("-admin.")[0];
   /** Every call answers as it should; `slow`'s first person.list takes `ms` (a clock moved on). */
   const fetchWith =
@@ -1420,7 +1423,7 @@ test("a client's first operation must answer within FIRST_OP_BOUND_MS: a fresh c
     // Staging run 46007691132: a fresh client's first person.list answered in 18.3 s.
     await assert.rejects(
       requests(18_300),
-      /bravo's first person\.list took 200 in 18\.3 s: more than 5 s for a first operation/,
+      /bravo's first person\.list took 200 in 18\.3 s: more than 8 s for a first operation/,
     );
     await assert.doesNotReject(requests(FIRST_OP_BOUND_MS - 1000));
 
@@ -1441,7 +1444,7 @@ test("a client's first operation must answer within FIRST_OP_BOUND_MS: a fresh c
     };
     await assert.rejects(
       upgrade(19_300),
-      /after the upgrade alpha's first person\.list took 200 in 19\.3 s: more than 5 s/,
+      /after the upgrade alpha's first person\.list took 200 in 19\.3 s: more than 8 s/,
     );
     const ok = await upgrade(1000);
     assert.match(ok.note, /alpha's first person\.list after the upgrade answered 200 in 1\.0 s/);
@@ -1678,4 +1681,314 @@ test("each client's first admin is named at add with only its token's hash: no l
     },
   });
   assert.deepEqual(signedUp, ctx.setupTokens);
+});
+
+// --- staging run 46034389470: steps 6 and 8 ----------------------------------------------------
+
+/** An export folder whose one part holds these statements (counts by table, as cos writes them). */
+function exportWithRows(statements, packs = "deals,leads") {
+  const dir = mkdtempSync(join(tmpdir(), "s66-rows-"));
+  mkdirSync(join(dir, "database"));
+  const part = JSON.stringify({ statements });
+  writeFileSync(join(dir, "database", "000000.json"), part);
+  const counts = {};
+  for (const [table] of rowUnits(statements)) {
+    if (table !== "(schema)" && table !== "sqlite_sequence")
+      counts[table] = (counts[table] ?? 0) + 1;
+  }
+  const sha = (b) => createHash("sha256").update(b).digest("hex");
+  writeFileSync(
+    join(dir, "manifest.json"),
+    JSON.stringify({
+      database: { parts: [{ path: "database/000000.json", sha256: sha(part) }], counts },
+      files: [],
+      packs,
+    }),
+  );
+  return dir;
+}
+
+const setting = (key, value) =>
+  `INSERT INTO "core_settings" ("key", "value", "updated_at") VALUES ('${key}', '${value}', '2026-11-27')`;
+const audit = (id, operation, input = "{}") =>
+  `INSERT INTO "core_audit" ("id", "at", "operation", "input") VALUES ('${id}', '2026-11-27', '${operation}', '${input}')`;
+const install = (id, pack) => audit(id, "extension.install", `{"id":"${pack}","shipped":true}`);
+const counter = (id, hour) =>
+  `INSERT INTO "core_automation_counters" ("automation_id", "hour", "runs") VALUES ('${id}', '${hour}', 1)`;
+const person = (id, name) => `INSERT INTO "core_person" ("id", "name") VALUES ('${id}', '${name}')`;
+const embedding = (table, id) =>
+  `INSERT INTO "${table}" ("object_type", "record_id", "queued_at") VALUES ('person', '${id}', '2026-11-27')`;
+const extension = (id, commit, at, version = "1.0.0") =>
+  `INSERT INTO "core_extensions" ("id", "source", "status", "version", "commit_oid", "manifest", "installed_at", "updated_at") VALUES ('${id}', 'shipped', 'active', '${version}', '${commit}', '{}', '2026-11-27T16:30', '${at}')`;
+const extensionVersion = (id, commit) =>
+  `INSERT INTO "core_extension_versions" ("extension_id", "commit_oid", "version", "installed_at") VALUES ('${id}', '${commit}', '1.0.0', '2026-11-27')`;
+const automation = (id, pack, commit, at, label = "Follow up") =>
+  `INSERT INTO "core_automations" ("id", "extension_id", "label", "commit_oid", "updated_at") VALUES ('${id}', '${pack}', '${label}', '${commit}', '${at}')`;
+const ALPHA = [
+  'CREATE TABLE "core_settings" (key TEXT PRIMARY KEY, value TEXT)',
+  'CREATE TABLE "core_person" ("id" TEXT NOT NULL, "name" TEXT, PRIMARY KEY ("id"))',
+  setting("org_name", "Staging check"),
+  setting("embedding_backfill", '{"after":"10"}'),
+  audit("1", "person.create"),
+  counter("~dateRelative", "2026-11-26"),
+  person("p1", "Ada"),
+  extension("deals", "aaa", "2026-11-27T16:30"),
+  extensionVersion("deals", "aaa"),
+  automation("deals.followUp", "deals", "aaa", "2026-11-27T16:30"),
+  "INSERT INTO sqlite_sequence (name, seq) VALUES ('core_audit', 3)",
+];
+/** Charlie's first operation on this host: deals installed again, as installExtension writes it. */
+const REINSTALLED = [
+  ...ALPHA.filter(
+    (s) =>
+      s !== extension("deals", "aaa", "2026-11-27T16:30") &&
+      s !== automation("deals.followUp", "deals", "aaa", "2026-11-27T16:30"),
+  ),
+  extension("deals", "bbb", "2026-11-27T16:50"),
+  extensionVersion("deals", "bbb"),
+  automation("deals.followUp", "deals", "bbb", "2026-11-27T16:50"),
+  install("9", "deals"),
+];
+const facts = (statements) => exportFacts(exportWithRows(statements));
+const first = facts(ALPHA);
+const problemsOf = (statements) => [...compareExports(first, facts(statements))];
+
+test("an import keeps every table exactly, the host's own writes only as named (staging run 46034389470, step 6; review of #562, S1)", async () => {
+  // A large row: its scratch statements are one unit with its INSERT.
+  assert.deepEqual(
+    rowUnits([
+      `INSERT INTO "_cos_import_scratch" (k, v) VALUES (1, 'ab')`,
+      `UPDATE "_cos_import_scratch" SET v = v || 'cd' WHERE k = 1`,
+      `INSERT INTO "core_note" (id, body) VALUES ('n', (SELECT v FROM "_cos_import_scratch" WHERE k = 1))`,
+      `DELETE FROM "_cos_import_scratch"`,
+      `UPDATE "core_person" SET merged_into = 'p1' WHERE id = 'p2'`,
+    ]).map(([t]) => t),
+    ["core_note", "core_person"],
+  );
+  assert.equal(columnOf(audit("9", "extension.install"), "operation"), "extension.install");
+  assert.equal(columnOf(setting("a", "it''s, (x)"), "value"), "it's, (x)");
+  assert.deepEqual([...compareExports(first, first)], []);
+
+  // What the host writes to a live client: markers, a cron setting changing, its stamp. Allowed,
+  // and named by key and marker, never by value.
+  const live = compareExports(
+    first,
+    facts([
+      ...ALPHA.filter((s) => !s.includes("embedding_backfill") && !s.includes("~dateRelative")),
+      setting("embedding_backfill", '{"after":"11"}'),
+      counter("~dateRelativeZoned", "2026-11-27T16"),
+      `INSERT INTO "core_meta" ("key", "value") VALUES ('shipped_install', 'x')`,
+      "INSERT INTO sqlite_sequence (name, seq) VALUES ('core_audit', 5)",
+    ]),
+  );
+  assert.deepEqual([...live], []);
+  assert.deepEqual(live.allowed, [
+    "core_settings: 1 changed (key embedding_backfill)",
+    "core_automation_counters: +1 (automation_id ~dateRelativeZoned), −1 (automation_id ~dateRelative)",
+    "core_meta: +1 (key shipped_install)",
+  ]);
+
+  // Not the host's: an extra person, an audit row of any other operation, another setting added
+  // or changed, a counter that is no marker.
+  for (const [extra, why] of [
+    [
+      [person("p2", "Mallory")],
+      "core_person: 1 rows in the import that were not in the export (id p2)",
+    ],
+    [
+      [audit("4", "person.create")],
+      "core_audit: 1 rows in the import that were not in the export (operation person.create)",
+    ],
+    [
+      [setting("approval_floor", "autonomous")],
+      "core_settings: 1 rows in the import that were not in the export (key approval_floor)",
+    ],
+    [
+      [counter("automation-1", "2026-11-27T16")],
+      "core_automation_counters: 1 rows in the import that were not in the export (automation_id automation-1)",
+    ],
+  ]) {
+    assert.deepEqual(problemsOf([...ALPHA, ...extra]), [why]);
+  }
+  // A changed row is named by its key and the columns that differ, never their values.
+  const swap = (from, to) => ALPHA.map((s) => (s === from ? to : s));
+  assert.deepEqual(
+    problemsOf(swap(setting("org_name", "Staging check"), setting("org_name", "Other"))),
+    ["core_settings: 1 rows changed by key: org_name (columns value)"],
+  );
+  assert.deepEqual(problemsOf(swap(person("p1", "Ada"), person("p1", "Eve"))), [
+    "core_person: 1 rows changed by id: p1 (columns name)",
+  ]);
+  assert.deepEqual(problemsOf(ALPHA.filter((s) => !s.includes("Ada"))), [
+    "core_person: 1 of the export's 1 rows not in the import (id p1)",
+  ]);
+  // A cron key may change, never go.
+  assert.deepEqual(problemsOf(ALPHA.filter((s) => !s.includes("embedding_backfill"))), [
+    "core_settings: 1 of the export's 2 rows not in the import (key embedding_backfill)",
+  ]);
+  assert.deepEqual(
+    problemsOf(
+      swap(
+        "INSERT INTO sqlite_sequence (name, seq) VALUES ('core_audit', 3)",
+        "INSERT INTO sqlite_sequence (name, seq) VALUES ('core_audit', 2)",
+      ),
+    ),
+    ["core_audit's next id went back: 3, then 2"],
+  );
+  assert.deepEqual(problemsOf(ALPHA.slice(1)), [
+    "1 of the export's schema statements are not in the import as they were",
+  ]);
+
+  // The search index: each record of the export's core_embedding queued again, or embedded
+  // again since; one in neither fails.
+  const indexed = facts([...ALPHA, embedding("core_embedding", "p1")]);
+  const queued = compareExports(
+    indexed,
+    facts([...ALPHA, embedding("core_embedding_queue", "p1")]),
+  );
+  assert.deepEqual([...queued], []);
+  assert.match(queued.allowed.join("; "), /core_embedding: 0 added, 1 gone/);
+  assert.deepEqual(
+    [...compareExports(indexed, facts(ALPHA))],
+    ["core_embedding: 1 of the export's 1 rows not in the import"],
+  );
+  assert.deepEqual(
+    [...compareExports(indexed, facts([...ALPHA, embedding("core_embedding_queue", "p9")]))],
+    [
+      "core_embedding: 1 of the export's 1 rows not in the import",
+      "core_embedding_queue: 1 rows in the import that were not in the export",
+    ],
+  );
+});
+
+test("a shipped pack installed again on this host passes with exactly its writes, and is noted (review of #562)", async () => {
+  const reinstalled = compareExports(first, facts(REINSTALLED));
+  assert.deepEqual([...reinstalled], []);
+  assert.match(reinstalled.allowed.join("; "), /shipped packs installed again on this host: deals/);
+  // Another column of its row changed: fails, naming the row and the column.
+  const versioned = REINSTALLED.map((s) =>
+    s.startsWith(`INSERT INTO "core_extensions"`)
+      ? extension("deals", "bbb", "2026-11-27T16:50", "2.0.0")
+      : s,
+  );
+  assert.deepEqual(problemsOf(versioned).sort(), [
+    "core_audit: 1 rows in the import that were not in the export (operation extension.install)",
+    "core_automations: 1 rows changed by id: deals.followUp (columns commit_oid, updated_at)",
+    "core_extension_versions: 1 rows in the import that were not in the export",
+    "core_extensions: 1 rows changed by id: deals (columns commit_oid, updated_at, version)",
+  ]);
+  // Without its audit row: fails.
+  const silent = REINSTALLED.filter((s) => !s.includes("extension.install"));
+  assert.ok(
+    problemsOf(silent).some((p) =>
+      p.startsWith("core_extensions: 1 rows changed by id: deals (columns commit_oid, updated_at)"),
+    ),
+  );
+  // Without its new version's row: fails too.
+  const unversioned = REINSTALLED.filter((s) => s !== extensionVersion("deals", "bbb"));
+  assert.ok(
+    problemsOf(unversioned).some((p) =>
+      p.startsWith("core_extensions: 1 rows changed by id: deals (columns commit_oid, updated_at)"),
+    ),
+  );
+  // An install audit row with no pack changed: fails, named.
+  assert.deepEqual(problemsOf([...ALPHA, install("9", "deals")]), [
+    "core_audit: 1 rows in the import that were not in the export (operation extension.install)",
+  ]);
+  // A pack the client was not given: fails.
+  assert.ok(
+    [...compareExports(facts(ALPHA), exportFacts(exportWithRows(REINSTALLED, "deals,leads")))]
+      .length === 0,
+  );
+  const notGiven = compareExports(
+    exportFacts(exportWithRows(ALPHA, "leads")),
+    exportFacts(exportWithRows(REINSTALLED, "leads")),
+  );
+  assert.ok(
+    [...notGiven].some((p) => p.startsWith("core_extensions: 1 rows changed by id: deals")),
+  );
+  // An automation of the pack changed otherwise: fails.
+  const relabelled = REINSTALLED.map((s) =>
+    s.startsWith(`INSERT INTO "core_automations"`)
+      ? automation("deals.followUp", "deals", "bbb", "2026-11-27T16:50", "Other")
+      : s,
+  );
+  assert.ok(
+    problemsOf(relabelled).some((p) =>
+      p.includes("deals.followUp (columns commit_oid, label, updated_at)"),
+    ),
+  );
+
+  // The step: passes, naming the reinstall; fails on an extra person.
+  const ctx = (one, two) => ({
+    ...stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }), zone: false }),
+    exportDir: one,
+    reexportDir: two,
+  });
+  const passed = await step("export").run(ctx(exportWithRows(ALPHA), exportWithRows(REINSTALLED)));
+  assert.match(passed.note, /every row of the export in it as it was/);
+  assert.match(
+    passed.note,
+    /what the host wrote to charlie since: shipped packs installed again on this host: deals/,
+  );
+  await assert.rejects(
+    step("export").run(ctx(exportWithRows(ALPHA), exportWithRows([...ALPHA, person("p2", "M")]))),
+    /core_person: 1 rows in the import that were not in the export \(id p2\)/,
+  );
+});
+const unresolved = () => {
+  throw new TypeError("fetch failed", {
+    cause: Object.assign(new Error("getaddrinfo ENOTFOUND x"), { code: "ENOTFOUND" }),
+  });
+};
+
+test("a removed client's address has stopped answering when it answers 404 or no longer resolves (staging run 46034389470, step 8)", async () => {
+  const sleep = async () => {};
+  const seq = (answers) => {
+    let n = 0;
+    return async () => {
+      const next = answers[Math.min(n++, answers.length - 1)];
+      return typeof next === "function" ? next() : new Response("", { status: next });
+    };
+  };
+  const notFound = await waitUntilStopped(seq([200, 404]), "https://x/", { sleep, intervalMs: 0 });
+  assert.equal(notFound.how, "404");
+  const gone = await waitUntilStopped(seq([200, unresolved, unresolved]), "https://x/", {
+    sleep,
+    intervalMs: 0,
+  });
+  assert.equal(gone.how, "ENOTFOUND");
+  // One ENOTFOUND between answers is not enough; a page that keeps answering fails.
+  const flaky = await waitUntilStopped(seq([unresolved, 200, unresolved, 200]), "https://x/", {
+    sleep,
+    intervalMs: 0,
+    timeoutMs: 0,
+  });
+  assert.equal(flaky.ok, false);
+  for (const status of [200, 204, 302, 530]) {
+    const still = await waitUntilStopped(seq([status]), "https://x/", { sleep, timeoutMs: 0 });
+    assert.equal(still.ok, false, String(status));
+  }
+
+  // The step, as run 46034389470 saw it: alpha's name no longer resolves.
+  const { a, b } = CLIENTS;
+  const run = (alphaAnswers, stoppedWaitMs) => {
+    const alpha = seq(alphaAnswers);
+    const ctx = stepCtx({
+      answer: (args) =>
+        args[1] === "list"
+          ? { code: 0, out: listing({ [b]: ["active", "9000"] }), ms: 1 }
+          : { code: 0, out: "Removed alpha.", ms: 1 },
+      fetch: async (url, init) =>
+        url.includes(`${a}-admin.`) ? alpha(url, init) : new Response("{}", { status: 200 }),
+    });
+    ctx.staff[b] = { cookie: "__Host-cos.session_token=b" };
+    if (stoppedWaitMs !== undefined) ctx.stoppedWaitMs = stoppedWaitMs;
+    return step("remove").run(ctx);
+  };
+  assert.match((await run([unresolved])).note, /alpha's address no longer resolves \(ENOTFOUND/);
+  assert.match((await run([200, 404])).note, /alpha's address answers the unknown hostname's 404/);
+  // Its sign-in page still served, or a name that comes and goes: fails.
+  await assert.rejects(run([200], 0), /alpha's address still answers 200/);
+  await assert.rejects(run([unresolved, 200], 0), /alpha's address still answers 200/);
 });

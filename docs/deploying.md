@@ -1740,15 +1740,36 @@ no zone says first which steps are not proved.
    - a real one: both clients at schema 9000 and served, the app Worker and the host's health on
      `0.1.1`.
 6. `cos client export alpha --out`, `cos client import charlie` from it, and an export of charlie.
-   Each export's part and file hashes are recomputed from its bytes on disk; the two exports'
-   row counts and file hashes must be alike, the export must carry alpha's packs and the
-   import charlie the same (`COS_PACKS`), the export must count rows, carry the picture of
-   step 3 and, after a successful upgrade, the migration's row.
+   Each export's part and file hashes are recomputed from its bytes on disk. Every table must
+   be in the second export exactly as in the first, row for row, nothing more and nothing fewer
+   (an AUTOINCREMENT table's next id never lower), except what the host writes to a live client
+   by itself, each allowed in its narrowest way (`HOST_WRITTEN` in the script, with the code that
+   writes each): the runner's every-minute scan markers in `core_automation_counters` (`~…`, added
+   or, by retention, deleted); the `core_settings` keys its crons write (`embedding_backfill`,
+   `customer_signup_subscribers_state`: added or changed); `core_audit` rows of customer sign-up's
+   watch (`customer.signupOpened`); `core_meta`'s `shipped_install` stamp; and a shipped pack of
+   the client's `COS_PACKS` installed again on this host (`REINSTALL`: on an imported client's
+   first operation its workspace is new, so the unchanged pack gets a new commit), with exactly
+   what that install writes: its `core_extensions` row and its automations' rows changed in
+   `commit_oid` and `updated_at` only, one `core_extension_versions` row for the new commit and
+   one `extension.install` audit row naming the pack. A changed row that is not allowed is named
+   by its key (the rule's, the table's primary key, or its id) and the columns that differ. Each
+   record of the export's `core_embedding` must be in the re-export's `core_embedding` or its
+   queue (an import queues them again). The step's note names each allowed difference by table,
+   count and key, operation or marker, never a value; anything else fails, named the same way
+   (staging run 46034389470 added 2 settings, 2 markers and 3 audit rows after the app's 16:50
+   tick fell between the import and the re-export: the next run names them). The file hashes must
+   be alike, the export must carry alpha's packs and the import charlie the same (`COS_PACKS`),
+   the export must count rows, carry the picture of step 3 and, after a successful upgrade, the
+   migration's row.
 7. `cos client add delta`, and `cos client export bravo` started while the add holds the
    operator's Worker: the second is refused ("Another operator's command"), the first finishes. If
    the add finished before the export began, the two did not overlap and the step is partial.
-8. `cos client remove alpha`: alpha's address answers the unknown hostname's 404 within the
-   registry's refresh, bravo answers and its staff stay signed in.
+8. `cos client remove alpha`: alpha's address stops answering for it, within five minutes:
+   the host's 404 for a hostname it no longer serves, or, since the remove detaches the staff
+   hostname's Custom Domain and with it its DNS record (PR #561), the name no longer resolving
+   (`ENOTFOUND`, twice running). A 2xx, its sign-in page or any other answer fails. Bravo answers
+   and its staff stay signed in.
 9. **Teardown, always** (its own step, run after a failure, a timeout or a cancel too):
    - it lists the account under the prefix, every kind, the Durable Object namespaces of the
      run's Workers among them, and deletes what it finds by exact name (an id only as that listing
