@@ -493,6 +493,156 @@ describe("token sessions (ADR 0419)", () => {
       expect(store.peek()?.refreshToken).toBe("rt-9");
     });
 
+    it("never sends a call again as someone else: a new sign-in while it was out is another session (review of #548, S-a)", async () => {
+      const sent: string[] = [];
+      let answerFirst = () => {};
+      const firstHeld = new Promise<void>((resolve) => {
+        answerFirst = resolve;
+      });
+      const reply = (status: number, body: unknown) => ({
+        status,
+        headers: { get: () => null },
+        text: async () => JSON.stringify(body),
+      });
+      const fetch: FetchLike = async (url, init) => {
+        const path = url.replace("https://h", "");
+        if (path === "/api/v1/auth/sign-out") return reply(200, { data: { ok: true } });
+        if (path === "/api/v1/auth/customer/sign-in") {
+          return reply(200, { data: { ...tokens(9, 600_000, hostNow), sessionId: "dvs_9" } });
+        }
+        sent.push(`${path} ${init.headers.authorization}`);
+        if (init.headers.authorization === "Bearer at-1") {
+          // A's call is slow, and by the time it is answered A is signed out.
+          await firstHeld;
+          return reply(401, refusal("token_invalid").body);
+        }
+        return reply(200, { data: { n: 1 } });
+      };
+      const store = memoryStore(tokens(1, 600_000, deviceNow));
+      const session = tokenSession({ baseUrl: "https://h", store, fetch, now: () => deviceNow });
+      const api = createClient<Ops>(specs, {
+        baseUrl: "https://h",
+        fetch: session.fetch,
+        retries: 0,
+        sleep: noWait,
+      });
+      const asA = api.call("thing.bump", { id: "a" }).catch((e: unknown) => e);
+      await later();
+      await session.signOut();
+      await session.signInWithCode("bea@example.com", "123456", "Phone");
+      answerFirst();
+      expect(await asA).toMatchObject({ status: 401 });
+      // Bea's token never carried Ada's write.
+      expect(sent).toEqual(["/api/v1/op/thing.bump Bearer at-1"]);
+    });
+
+    it("never sends an expired call again as someone else either", async () => {
+      const sent: string[] = [];
+      let answerFirst = () => {};
+      const firstHeld = new Promise<void>((resolve) => {
+        answerFirst = resolve;
+      });
+      const reply = (status: number, body: unknown) => ({
+        status,
+        headers: { get: () => null },
+        text: async () => JSON.stringify(body),
+      });
+      const fetch: FetchLike = async (url, init) => {
+        const path = url.replace("https://h", "");
+        if (path === "/api/v1/auth/sign-out") return reply(200, { data: { ok: true } });
+        if (path === "/api/v1/auth/refresh") return reply(200, { data: tokens(2, 600_000, hostNow) });
+        if (path === "/api/v1/auth/customer/sign-in") {
+          return reply(200, { data: { ...tokens(9, 600_000, hostNow), sessionId: "dvs_9" } });
+        }
+        sent.push(`${path} ${init.headers.authorization}`);
+        if (init.headers.authorization === "Bearer at-1") {
+          await firstHeld;
+          return reply(401, refusal("token_expired").body);
+        }
+        return reply(200, { data: { n: 1 } });
+      };
+      const store = memoryStore(tokens(1, 600_000, deviceNow));
+      const session = tokenSession({ baseUrl: "https://h", store, fetch, now: () => deviceNow });
+      const api = createClient<Ops>(specs, {
+        baseUrl: "https://h",
+        fetch: session.fetch,
+        retries: 0,
+        sleep: noWait,
+      });
+      const asA = api.call("thing.bump", { id: "a" }).catch((e: unknown) => e);
+      await later();
+      await session.signOut();
+      await session.signInWithCode("bea@example.com", "123456", "Phone");
+      answerFirst();
+      expect(await asA).toMatchObject({ status: 401 });
+      expect(sent).toEqual(["/api/v1/op/thing.bump Bearer at-1"]);
+    });
+
+    it("gives up on a refresh that never answers, keeps the session, and tries again on the next call (S-b)", async () => {
+      let refreshes = 0;
+      const fetch: FetchLike = async (url) => {
+        if (url.endsWith("/api/v1/auth/refresh")) {
+          refreshes += 1;
+          return new Promise(() => {});
+        }
+        return {
+          status: 200,
+          headers: { get: () => null },
+          text: async () => JSON.stringify({ data: { id: "a", n: 1 } }),
+        };
+      };
+      // Due for a refresh by this device's clock.
+      const store = memoryStore(tokens(1, 10_000, deviceNow));
+      const session = tokenSession({
+        baseUrl: "https://h",
+        store,
+        fetch,
+        now: () => deviceNow,
+        refreshTimeoutMs: 30,
+      });
+      const api = createClient<Ops>(specs, {
+        baseUrl: "https://h",
+        fetch: session.fetch,
+        retries: 0,
+        sleep: noWait,
+      });
+      const waiting = [api.call("thing.get", { id: "a" }), api.call("thing.get", { id: "b" })];
+      for (const call of waiting) await expect(call).rejects.toBeInstanceOf(NetworkError);
+      expect(refreshes).toBe(1);
+      // Not a refusal: the session is kept.
+      expect(store.peek()?.refreshToken).toBe("rt-1");
+      await expect(api.call("thing.get", { id: "c" })).rejects.toBeInstanceOf(NetworkError);
+      expect(refreshes).toBe(2);
+    });
+
+    it("two sessions over one store share one refresh (F-c)", async () => {
+      let refreshes = 0;
+      const fetch: FetchLike = async (url) => {
+        if (url.endsWith("/api/v1/auth/refresh")) {
+          refreshes += 1;
+          await later();
+          return {
+            status: 200,
+            headers: { get: () => null },
+            text: async () => JSON.stringify({ data: tokens(2, 600_000, deviceNow) }),
+          };
+        }
+        return {
+          status: 200,
+          headers: { get: () => null },
+          text: async () => JSON.stringify({ data: { id: "a", n: 1 } }),
+        };
+      };
+      const store = memoryStore(tokens(1, 10_000, deviceNow));
+      const one = tokenSession({ baseUrl: "https://h", store, fetch, now: () => deviceNow });
+      const two = tokenSession({ baseUrl: "https://h", store, fetch, now: () => deviceNow });
+      await Promise.all([one.headers(), two.headers()]);
+      expect(refreshes).toBe(1);
+      // And a sign-out through one is a sign-out for a refresh the other started.
+      await one.signOut();
+      expect(store.peek()).toBeNull();
+    });
+
     it("hands back a 401 it has read as a real Response (review of #542, F2)", async () => {
       const h = host(() => refusal("session_idle"));
       const store = memoryStore(tokens(1, 600_000, deviceNow));

@@ -101,6 +101,10 @@ export const MODULE_STATE = {
   ],
 
   // --- packages/auth -------------------------------------------------------------------------
+  "packages/client/src/session.ts#byStore": [
+    "client",
+    "keyed by a device app's own token store object (one person's sessions on one device); the host never makes a tokenSession",
+  ],
   "packages/auth/src/better-auth.ts#isolateSecret": [
     "independent",
     "a random key for a host with no secret at all; a many-client host's client always has its derived CLIENT_ADDRESS_SECRET (ADR 0616), and its rate-limit keys carry the client",
