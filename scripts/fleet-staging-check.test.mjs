@@ -17,6 +17,7 @@ import {
   checkOptions,
   checkSteps,
   compareExports,
+  describeFetchError,
   explainFailure,
   exportFacts,
   hostnamesOf,
@@ -1010,6 +1011,66 @@ test("the requests step: B's password at A must be the wrong-password answer, no
   await assert.doesNotReject(run(401));
   await assert.rejects(run(429), /answered 429, not 401/);
   await assert.rejects(run(500), /answered 500, not 401/);
+
+  // Staging run 45994923824: the staff session's operation got no answer at all (status 0). The
+  // result says what the fetch threw, and what a repeat 5 s later answered; the step still fails.
+  for (const [repeat, says] of [
+    [200, "a repeat 5 s later answered 200"],
+    [
+      0,
+      "a repeat 5 s later answered 0 (no answer: TypeError: fetch failed (cause ECONNRESET: socket hang up)",
+    ],
+  ]) {
+    let ops = 0;
+    const slept = [];
+    const base = answerWith(401);
+    const throwing = async (url, init = {}) => {
+      if (url.includes("/api/v1/op/") && url.startsWith("https://alpha-admin")) {
+        ops += 1;
+        if (ops === 1 || repeat === 0) {
+          throw new TypeError("fetch failed", {
+            cause: Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }),
+          });
+        }
+      }
+      return base(url, init);
+    };
+    await assert.rejects(
+      step("requests").run({
+        ...stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }) }),
+        subdomain: "x",
+        fetch: throwing,
+        sleep: async (ms) => {
+          slept.push(ms);
+        },
+      }),
+      (error) => {
+        assert.match(
+          error.message,
+          /alpha's staff session at alpha answered 0 \(no answer: TypeError: fetch failed \(cause ECONNRESET: socket hang up\), after \d+\.\d s\)/,
+        );
+        assert.ok(error.message.includes(says), error.message);
+        return true;
+      },
+    );
+    assert.equal(ops, 2);
+    assert.ok(slept.includes(5000));
+  }
+});
+
+test("a fetch that threw is described by its name, message, cause and time, never its headers", () => {
+  const timeout = new DOMException("The operation was aborted due to timeout", "TimeoutError");
+  assert.equal(
+    describeFetchError(timeout, 20000),
+    "TimeoutError: The operation was aborted due to timeout, after 20.0 s",
+  );
+  const dns = new TypeError("fetch failed", {
+    cause: Object.assign(new Error("getaddrinfo ENOTFOUND x.example"), { code: "ENOTFOUND" }),
+  });
+  assert.equal(
+    describeFetchError(dns, 1234),
+    "TypeError: fetch failed (cause ENOTFOUND: getaddrinfo ENOTFOUND x.example), after 1.2 s",
+  );
 });
 
 /** An export folder as cos writes one, with one file. */
