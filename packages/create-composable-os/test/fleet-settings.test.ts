@@ -236,9 +236,14 @@ describe("COS_PACKS (G4)", () => {
       /only widen: ticketing would be taken out/,
     );
     await expect(set("COS_PACKS", "ticketing,Content")).rejects.toThrow(/pack ids/);
+    // Always an explicit list: never "*", the release product's packs.
+    await expect(set("COS_PACKS", "*")).rejects.toThrow(/never \*/);
+    expect(addSettingsProblems({ COS_PACKS: "*" }, release)[0]).toMatch(/never \*/);
+    // Empty is none: narrower than ticketing, so refused here.
+    await expect(set("COS_PACKS", "")).rejects.toThrow(/only widen/);
     await expect(
       settingCommand(ctx({ yes: true }), release, "unset", "gym-a", "COS_PACKS", undefined),
-    ).rejects.toThrow(/never unset/);
+    ).rejects.toThrow(/never unset: a client's packs are always an explicit list/);
     // Wider: replacing asks, then it is written; the host installs the new pack itself.
     expect(await set("COS_PACKS", "ticketing,content,programs,courses", { yes: true })).toBe(0);
     expect((await own("gym-a")).COS_PACKS).toBe("ticketing,content,programs,courses");

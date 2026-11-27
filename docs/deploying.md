@@ -1330,7 +1330,8 @@ cos client remove gym-a                      # export kept 90 days, then erased;
   (`COS_FIRST_ADMIN`; `COS_ORG_EXTENSIONS`, the client repository's deploy), or it is never right
   on a fleet (`AUTH_ALLOW_SIGNUP`). The registry's own write holds the same list. A change reaches
   a running host within 10 seconds (its registry refresh).
-  - **`COS_PACKS` only widens**: every pack must be one the installed release carries, with the
+  - **`COS_PACKS` is an explicit list and only widens**: never `*`, never unset (set a list,
+    empty for none); every pack must be one the installed release carries, with the
     packs it requires named too (Courses: Programs and Content), and none of the client's own list
     taken out (a pack taken out stays installed and is no longer updated by a release). The host
     installs a newly listed pack, its objects and migrations, at the client's next staff or API

@@ -365,11 +365,15 @@ export const OPERATOR_SETTINGS: Readonly<
   Record<string, { check: (value: string, context: SettingContext) => string | null; what: string }>
 > = {
   COS_PACKS: {
-    what: "the packs the client has, a comma-separated list of pack ids, only ever wider",
+    what: "the packs the client has, an explicit comma-separated list of pack ids, only ever wider",
     check: (value) => {
+      // Always an explicit list: "*" (the release product's packs) is never a client's, and ""
+      // is none (stage 66: every fleet client's packs are named).
+      if (value.trim() === "*") return "an explicit list of pack ids, never *";
+      if (value.trim() === "") return null;
       const ids = value.split(",").map((v) => v.trim());
-      if (ids.length === 0 || ids.some((id) => !PACK_ID.test(id))) {
-        return "a comma-separated list of pack ids (ticketing,content)";
+      if (ids.some((id) => !PACK_ID.test(id))) {
+        return "an explicit comma-separated list of pack ids (ticketing,content), or empty for none";
       }
       if (new Set(ids).size !== ids.length) return "a pack is named twice";
       return null;

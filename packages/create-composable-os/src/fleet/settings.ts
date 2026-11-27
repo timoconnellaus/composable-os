@@ -185,7 +185,7 @@ export async function settingCommand(
   if (name === "COS_PACKS") {
     if (next === null) {
       throw new FleetError(
-        "COS_PACKS is never unset: the deployment's packs may differ from the client's, and a pack taken out stays installed and is no longer updated. Set the list instead.",
+        "COS_PACKS is never unset: a client's packs are always an explicit list (what a client with none gets is the deployment's choice, and a pack taken out stays installed and is no longer updated). Set the list instead.",
       );
     }
     const packs = packsProblem(next, current, release);
@@ -211,7 +211,7 @@ export async function settingCommand(
     await confirmFor(
       ctx,
       id,
-      `${id} has had the deployment's packs until now: any of them already installed stays installed, and only the packs named are updated by a release from now on`,
+      `${id} has no pack list of its own until now: any pack already installed in its database stays installed, and only the packs named are updated by a release from now on`,
     );
   } else if (current !== null) {
     await confirmFor(ctx, id, `This will ${what}`);
