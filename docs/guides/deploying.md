@@ -34,3 +34,33 @@ failure.
 A first install may give a location hint for its database and buckets
 ([ADR 0580](../adr/0580-a-location-hint-on-new-installs.md)). Where a client's product is hosted
 is decided per client ([ADR 0610](../adr/0610-three-homes-for-a-client-hosted-by-default.md)).
+
+## A host of many clients
+
+One deployment can serve many clients, each with a database of its own
+([ADR 0611](../adr/0611-one-host-a-database-per-client.md)). The operator runs it with `cos fleet`
+and `cos client` ([ADR 0618](../adr/0618-the-operators-commands-for-a-host-of-many-clients.md);
+the steps are in [docs/deploying.md](../deploying.md), "A host of many clients"):
+
+- `cos fleet keys` makes the deployment's keys file once; `cos fleet install` installs the host,
+  its registry and the operator's Worker; `cos fleet upgrade` takes a release across every client,
+  staging first.
+- `cos client add` gives a client its database and hostnames with no Worker upload; `pause`,
+  `resume`, `secret`, `export`, `import` and `remove` follow it through its life.
+- **Email.** Every fleet gets the email-send gatekeeper from `cos fleet install`, kept by each
+  upgrade; it is the only gatekeeper on a fleet. It needs no secret: it sends through Cloudflare
+  Email Service in the fleet's own account. A client's sign-in mail takes three steps:
+  1. The operator onboards the client's domain to Email Sending in that account, with every record
+     valid. The domain must be exactly the From address's domain: `gym.example` does not cover
+     `hello@mail.gym.example`.
+  2. The operator runs `cos client sender add <id> <domain>`, then `cos client sender verify <id>
+     <domain>`.
+  3. The client's admin, in the app: on Settings → Integrations, turns on email sending and creates
+     the connection, and binds a sender address on that domain; on Settings → Users, chooses it as
+     "The host's mail" and turns on "Send sign-in codes without review".
+
+  Until then a sign-in code request answers 503 `sign_in_not_set_up`. A client sends only from its
+  own verified domains: never from another client's, the fleet's own or an unverified one. A pause,
+  an unverify or a removal takes effect within 10 seconds; nothing is sent while a client is
+  paused, and nothing after it is removed
+  ([ADR 0616](../adr/0616-secrets-and-addresses-per-client.md), "Email sending per client").

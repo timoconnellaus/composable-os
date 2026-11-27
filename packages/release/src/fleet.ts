@@ -355,15 +355,18 @@ export function fleetBindings(
     change = (b) => (b.type === "plain_text" && b.name === "BASE_URL" ? { ...b, text: base } : b);
     // Email sending takes each client's own sender domains, never the deployment's list (ADR
     // 0616, "Email sending per client"; issue #529).
+    // INTERNAL_DOMAINS is one list for the deployment: on a fleet it would make every client's mail
+    // to those domains the consent-free, auto-approvable `email.internal` kind, so it is always
+    // empty there, whatever a state var or the configuration says (ADR 0618).
     if (worker.shortName === "email-send") {
-      const flag: ManifestBinding = {
-        type: "plain_text",
-        name: "SENDER_DOMAINS_PER_CLIENT",
-        text: "true",
-      };
+      const forced: ManifestBinding[] = [
+        { type: "plain_text", name: "SENDER_DOMAINS_PER_CLIENT", text: "true" },
+        { type: "plain_text", name: "INTERNAL_DOMAINS", text: "" },
+      ];
       const before = change;
-      change = (b) => (b.type === "plain_text" && b.name === flag.name ? flag : before(b));
-      add.push(flag);
+      change = (b) =>
+        (b.type === "plain_text" && forced.find((f) => f.name === b.name)) || before(b);
+      add.push(...forced);
     }
   }
   return { add, change };

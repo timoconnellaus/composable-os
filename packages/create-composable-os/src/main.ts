@@ -727,11 +727,24 @@ function firstInstallNames(flags: Flags): {
   return { workers: parsed.workers ?? {}, resources: parsed.resources ?? {} };
 }
 
+/**
+ * Refuses a single-client command on a host of many clients' deployment (review of #544): it
+ * would write the state again without `fleet`, and the next upload would drop the registry, the
+ * client databases' bindings and the per-client email sending. Before anything is written.
+ */
+function refuseFleet(state: DeploymentState | null, command: "install" | "upgrade"): void {
+  if (!state?.fleet) return;
+  throw new CliError(
+    `This deployment is a host of many clients (${state.fleet.environment}): cos ${command} is for a single-client one and would undo it. Use cos fleet ${command} --env ${state.fleet.environment}.`,
+  );
+}
+
 export async function install(flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
   const s = await session(flags, deps);
   const existing = await locateDeployment(s.api, s.accountId, deploymentDatabase(flags, s));
   const found = existing?.state ?? null;
+  refuseFleet(found, "install");
   const names = found ? null : firstInstallNames(flags);
   const channelFlag = str(flags, "channel");
   if (channelFlag && !CHANNELS.includes(channelFlag as Channel))
@@ -1239,6 +1252,7 @@ export async function upgrade(flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
   const s = await session(flags, deps);
   const { databaseId, state: found } = await locate(s, flags);
+  refuseFleet(found, "upgrade");
   const locationFlag = locationChoice(flags);
   if (locationFlag !== undefined) {
     io.out(

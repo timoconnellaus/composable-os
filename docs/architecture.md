@@ -233,7 +233,9 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   the deployment's account), and only the verified ones reach its environment
   (`COS_SENDER_DOMAINS`). The client's integration host passes them to the email-send gatekeeper
   with every bind, send and apply; with `SENDER_DOMAINS_PER_CLIENT` set the gatekeeper never reads
-  `ALLOWED_SENDER_DOMAINS` and refuses any sender off them.
+  `ALLOWED_SENDER_DOMAINS` and refuses any sender off them. A fleet's gatekeepers are a fixed
+  list, today email sending alone, installed by `cos fleet install` and kept by `cos fleet upgrade`
+  (ADR 0618, "A fleet's gatekeepers"); it needs no secret, only each client's domain onboarded.
 
 - **Core schema** (`core_*` tables): our versioned migrations, applied on deploy or upgrade. It covers
   the minimal core objects (People, Organisations, Activities, Tasks), users, settings, the approval

@@ -272,6 +272,36 @@ describe("email sending on a fleet (issue #529)", () => {
   });
 });
 
+describe('INTERNAL_DOMAINS on a fleet (ADR 0618, "A fleet\'s gatekeepers")', () => {
+  it("is always empty on a fleet's email-send gatekeeper, whatever a state var says; a single client keeps its own", async () => {
+    const bundle = await openBundle(
+      (await buildFixtureRelease({ version: "1.0.0", fleet: true, clientGatekeepers: true }))
+        .bundle,
+    );
+    const over = {
+      gatekeepers: ["demo-gatekeeper-email-send", "demo-gatekeeper-test"],
+      vars: { "demo-gatekeeper-email-send": { INTERNAL_DOMAINS: "gym-a.example" } },
+    };
+    const fleetSide = await setup();
+    await installRelease({
+      api: fleetSide.api,
+      bundle,
+      state: state({ ...over, fleet: fleet("live") }),
+      secrets,
+      fleet: KEYS,
+    });
+    const onFleet = bindingsOf(fleetSide.cf, "demo-gatekeeper-email-send").filter(
+      (b) => b.name === "INTERNAL_DOMAINS",
+    );
+    expect(onFleet).toEqual([{ type: "plain_text", name: "INTERNAL_DOMAINS", text: "" }]);
+    const single = await setup();
+    await installRelease({ api: single.api, bundle, state: state(over), secrets });
+    expect(
+      named(bindingsOf(single.cf, "demo-gatekeeper-email-send"), "INTERNAL_DOMAINS")?.text,
+    ).toBe("gym-a.example");
+  });
+});
+
 describe("an imported client's videos", () => {
   it("are stamped with their creator; one the account does not hold answers false", async () => {
     const { cf, api } = await setup();
