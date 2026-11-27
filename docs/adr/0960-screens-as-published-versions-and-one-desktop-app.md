@@ -101,12 +101,12 @@ From the owner's answers to stages 75 and 76 the same day:
 - **The desktop app is for staff first,** on macOS first. So the admin's staff screens build as
   a browser-only app and are a published version too, not only a client's web app.
 - **An organisation can have its own admin screens.** A screen is a saved record of which block
-  fills each slot; a block has slots of its own, which a fill adds to or replaces. First answered
+  fills each region; a block has regions of its own, which a fill adds to or replaces. First answered
   as "a screen is code that we build", and reversed by the owner the same day.
-- **What fills a slot is a standard block or a custom one.** A standard block is named, not
+- **What fills a region is a standard block or a custom one.** A standard block is named, not
   copied, and is updated by a release. A custom block is the organisation's code, built by a
   build service of ours in a sandbox. A release checks every saved screen against the blocks'
-  slots, and one that no longer fits stops the update.
+  regions, and one that no longer fits stops the update.
 - **A person at the client with the publish permission may publish.**
 - A screen made only of standard blocks is shown in the desktop app from the start. A custom
   block stays out of it until the internal bridge can be closed for a view, as decided above for
