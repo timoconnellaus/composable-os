@@ -128,7 +128,8 @@ const inside = (parent: string, child: string) => {
 function appPath(root: string, app: string): string {
   const base = resolve(root);
   const path = resolve(base, app);
-  if (!inside(base, path)) {
+  // The repo itself is an app folder (`cos init --web .`: a site adopted in place).
+  if (path !== base && !inside(base, path)) {
     throw new CliError(
       `${LOCK} names the app folder ${app}, outside this repo. Nothing was changed.`,
     );
@@ -291,6 +292,8 @@ export function writeAccountSections(
   product: ClientProductDefinition,
   kit: ClientKit,
   lock: Readonly<Record<string, { app: string }>>,
+  /** Every check and refusal, and no file written (`cos add --replace`'s plan). */
+  check = false,
 ): SectionsWritten {
   const packs = [...product.packs, ...requiredPacks(kit, product.packs)];
   const missing: string[] = [];
@@ -322,6 +325,7 @@ export function writeAccountSections(
       }
     }
     const file = join(appPath(root, shell.app), "src", "blocks", ACCOUNT_SECTIONS_FILE);
+    if (check) continue;
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, accountSectionsSource(wired, skin));
   }
@@ -484,9 +488,12 @@ export function copyBlocks(
   };
   for (const name of names) visit(name, []);
   let written: SectionsWritten = { missing: [], unwired: [] };
-  if (!options.check && Object.values(ACCOUNT_SHELLS).some((shell) => lock[shell])) {
-    for (const block of writeAccountSections(root, product, kit, lock).missing) visit(block, []);
-    written = writeAccountSections(root, product, kit, lock);
+  if (Object.values(ACCOUNT_SHELLS).some((shell) => lock[shell])) {
+    // In a check, the section blocks still to copy are visited too (their refusals are the
+    // copy's), and no sections file is written.
+    const sections = writeAccountSections(root, product, kit, lock, options.check);
+    for (const block of sections.missing) visit(block, []);
+    written = writeAccountSections(root, product, kit, lock, options.check);
   }
   return { added, needs, apps, ...written };
 }
@@ -530,10 +537,13 @@ function planReplace(
       plan.missing.push(file);
       continue;
     }
-    if (lstatSync(path).isSymbolicLink()) {
-      throw new CliError(
-        `${file} of ${name} is a symbolic link: cos add --replace deletes only a block's own files. Nothing was changed.`,
-      );
+    // The file, and any folder between it and the block's folder, must not be a link.
+    for (let p = path; p !== dir; p = dirname(p)) {
+      if (lstatSync(p).isSymbolicLink()) {
+        throw new CliError(
+          `${relative(dir, p)} in ${name} is a symbolic link: cos add --replace deletes only a block's own files. Nothing was changed.`,
+        );
+      }
     }
     if (sha(readFileSync(path)) !== hash) plan.edited.push(file);
     plan.paths.push(path);
@@ -583,7 +593,19 @@ export async function add(argv: string[], flags: Flags, deps: Deps): Promise<num
     for (const path of replaced.paths) rmSync(path);
     delete lock[name];
   }
-  const { added, needs, apps, unwired } = copyBlocks(root, product, kit, version, [name], lock);
+  let copied: ReturnType<typeof copyBlocks>;
+  try {
+    copied = copyBlocks(root, product, kit, version, [name], lock);
+  } catch (error) {
+    // The plan refused everything it could foresee; what fails now (a disk error) fails after
+    // files were written: the lock records what was copied, and the message says so.
+    if (!replaced) throw error;
+    writeLock(root, lock);
+    throw new CliError(
+      `${name}'s old copy was already deleted${lock[name] ? ` and ${version}'s copied (${LOCK} records it)` : ""}, then: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const { added, needs, apps, unwired } = copied;
   writeLock(root, lock);
   if (replaced) {
     deps.io.out(

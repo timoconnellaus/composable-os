@@ -1327,6 +1327,63 @@ describe("blocks (criterion 10)", () => {
     expect(read(dir, "blocks.lock.json")).toBe(lockNow);
   });
 
+  it("a site adopted in place (its web app at the repo root) adds, diffs, replaces and wires My account", async () => {
+    await publish("1.0.0");
+    const dir = join(scratch(), "adopted-blocks");
+    cpSync(join(here, "fixtures", "adopt"), dir, { recursive: true });
+    cwd = dir;
+    expect((await cos("init", "--web", ".", "--mobile", "mobile", "--yes")).code).toBe(0);
+    expect((await cos("add", "greeting")).code).toBe(0);
+    expect(JSON.parse(read(dir, "blocks.lock.json")).greeting).toMatchObject({ app: "." });
+    const file = join(dir, "src", "blocks", "greeting", "greeting.tsx");
+    writeFileSync(file, readFileSync(file, "utf8").replace("<p>", '<p style={{ color: "teal" }}>'));
+    const diff = await cos("diff", "greeting");
+    expect(diff.code, diff.output).toBe(0);
+    expect(diff.output).toContain("greeting.tsx: edited here since it was copied");
+    await publish("1.1.0", (files) => {
+      files["blocks/greeting/greeting.tsx"] =
+        'export function Greeting({ name }: { name: string }) {\n  return <p className="greeting">Hello, {name}!</p>;\n}\n';
+    });
+    expect((await cos("upgrade", "--no-typecheck")).code).toBe(0);
+    const replaced = await cos("add", "greeting", "--replace", "--yes");
+    expect(replaced.code, replaced.output).toBe(0);
+    expect(readFileSync(file, "utf8")).toContain('className="greeting"');
+    // My account at the root: the sections file is written there, and another add still works.
+    setPacks(dir, ["bookings"]);
+    const account = await cos("add", "web-account");
+    expect(account.code, account.output).toBe(0);
+    expect(existsSync(join(dir, "src", "blocks", "account-sections.gen.ts"))).toBe(true);
+    const again = await cos("add", "greeting", "--replace");
+    expect(again.code, again.output).toBe(0);
+  });
+
+  it("cos add --replace refuses a section block of My account in the way before it changes anything", async () => {
+    await publish("1.0.0");
+    await publish("1.1.0", (files) => {
+      files["blocks/greeting/greeting.tsx"] =
+        'export function Greeting({ name }: { name: string }) {\n  return <p className="greeting">Hello, {name}!</p>;\n}\n';
+    });
+    const dir = await created();
+    setPacks(dir, ["bookings"]);
+    expect((await cos("add", "web-account")).code).toBe(0);
+    expect((await cos("add", "greeting")).code).toBe(0);
+    const blocks = join(dir, "apps", "web", "src", "blocks");
+    const file = join(blocks, "greeting", "greeting.tsx");
+    writeFileSync(file, readFileSync(file, "utf8").replace("<p>", '<p style={{ color: "teal" }}>'));
+    const edited = readFileSync(file, "utf8");
+    expect((await cos("upgrade", "--no-typecheck")).code).toBe(0);
+    // Memberships now listed, and the client's own file where its section block would go.
+    setPacks(dir, ["bookings", "memberships"]);
+    mkdirSync(join(blocks, "memberships-mine"), { recursive: true });
+    writeFileSync(join(blocks, "memberships-mine", "mine.tsx"), "export const mine = 1;\n");
+    const lock = read(dir, "blocks.lock.json");
+    const refused = await cos("add", "greeting", "--replace", "--yes");
+    expect(refused.code, refused.output).toBe(1);
+    expect(refused.output).toContain("memberships-mine/mine.tsx exists and is not a copied block");
+    expect(readFileSync(file, "utf8")).toBe(edited);
+    expect(read(dir, "blocks.lock.json")).toBe(lock);
+  });
+
   it("a path in blocks.lock.json outside the block's folder is refused: --replace deletes nothing, cos diff reads nothing", async () => {
     await publish("1.0.0");
     const dir = await created();

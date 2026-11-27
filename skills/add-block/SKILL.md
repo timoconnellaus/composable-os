@@ -143,7 +143,8 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    `cos add <name>` on a block already copied leaves your copy alone. To start again from the
    release's copy instead (your edits not worth merging), `pnpm cos add <name> --replace`. It checks
    everything first and changes nothing when it refuses (the release has no such block, its pack
-   or app is not in `product.ts`, a new file of the release would land on one of yours, or the lock
+   or app is not in `product.ts`, a new file of the release, or of a My account section
+   block it would copy, would land on one of yours, or the lock
    names a path outside the block's folder). When you edited the copy it lists the edited files
    and stops: they are deleted for good unless you committed them, so look with `cos diff <name>`,
    commit or keep what you want, then run it again with `--yes`. Its copied files are replaced and
