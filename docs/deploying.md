@@ -1740,17 +1740,23 @@ no zone says first which steps are not proved.
    - a real one: both clients at schema 9000 and served, the app Worker and the host's health on
      `0.1.1`.
 6. `cos client export alpha --out`, `cos client import charlie` from it, and an export of charlie.
-   Each export's part and file hashes are recomputed from its bytes on disk. Every row of the
-   first export must be in the second exactly as it was (each row's statement, table by table;
-   an AUTOINCREMENT table's next id never lower), and no table may have fewer rows. Rows charlie
-   has besides are the host's own since the import, allowed and named in the step's note: a live
-   client is written to by the runner's every-minute cron (its date-relative scan markers in
-   `core_automation_counters`), the app's 10-minute cron (its embeddings backfill, which writes a setting) and
-   audit rows (staging run 46034389470: 2 settings, 2 counters and 3 audit rows; there the app's
-   16:50 tick fell between the import and the re-export). `core_embedding` is the one table an
-   import empties by design (its records are queued again). The file hashes must be alike, the
-   export must carry alpha's packs and the import charlie the same (`COS_PACKS`), the export must
-   count rows, carry the picture of step 3 and, after a successful upgrade, the migration's row.
+   Each export's part and file hashes are recomputed from its bytes on disk. Every table must
+   be in the second export exactly as in the first, row for row, nothing more and nothing fewer
+   (an AUTOINCREMENT table's next id never lower), except what the host writes to a live client
+   by itself, each allowed in its narrowest way (`HOST_WRITTEN` in the script, with the code that
+   writes each): the runner's every-minute scan markers in `core_automation_counters` (`~…`, added
+   or, by retention, deleted); the `core_settings` keys its crons write (`embedding_backfill`,
+   `customer_signup_subscribers_state`: added or changed); `core_audit` rows of the shipped packs'
+   install (`extension.install`, again on an imported client's first operation) and of customer
+   sign-up's watch (`customer.signupOpened`); and `core_meta`'s `shipped_install` stamp. Each
+   record of the export's `core_embedding` must be in the re-export's `core_embedding` or its
+   queue (an import queues them again). The step's note names each allowed difference by table,
+   count and key, operation or marker, never a value; anything else fails, named the same way
+   (staging run 46034389470 added 2 settings, 2 markers and 3 audit rows after the app's 16:50
+   tick fell between the import and the re-export: the next run names them). The file hashes must
+   be alike, the export must carry alpha's packs and the import charlie the same (`COS_PACKS`),
+   the export must count rows, carry the picture of step 3 and, after a successful upgrade, the
+   migration's row.
 7. `cos client add delta`, and `cos client export bravo` started while the add holds the
    operator's Worker: the second is refused ("Another operator's command"), the first finishes. If
    the add finished before the export began, the two did not overlap and the step is partial.

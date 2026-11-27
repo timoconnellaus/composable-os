@@ -16,6 +16,7 @@ import {
   check,
   checkOptions,
   checkSteps,
+  columnOf,
   compareExports,
   cosRunner,
   describeFetchError,
@@ -1708,17 +1709,27 @@ function exportWithRows(statements, packs = "deals,leads") {
 }
 
 const setting = (key, value) =>
-  `INSERT INTO "core_settings" (key, value) VALUES ('${key}', '${value}')`;
-const audit = (id) => `INSERT INTO "core_audit" (id, action) VALUES ('${id}', 'x')`;
+  `INSERT INTO "core_settings" ("key", "value", "updated_at") VALUES ('${key}', '${value}', '2026-11-27')`;
+const audit = (id, operation) =>
+  `INSERT INTO "core_audit" ("id", "at", "operation") VALUES ('${id}', '2026-11-27', '${operation}')`;
+const counter = (id, hour) =>
+  `INSERT INTO "core_automation_counters" ("automation_id", "hour", "runs") VALUES ('${id}', '${hour}', 1)`;
+const person = (id, name) => `INSERT INTO "core_person" ("id", "name") VALUES ('${id}', '${name}')`;
+const embedding = (table, id) =>
+  `INSERT INTO "${table}" ("object_type", "record_id", "queued_at") VALUES ('person', '${id}', '2026-11-27')`;
 const ALPHA = [
   'CREATE TABLE "core_settings" (key TEXT PRIMARY KEY, value TEXT)',
-  setting("a", "1"),
-  setting("b", "2"),
-  audit("1"),
+  setting("org_name", "Staging check"),
+  setting("embedding_backfill", '{"after":"10"}'),
+  audit("1", "person.create"),
+  counter("~dateRelative", "2026-11-26"),
+  person("p1", "Ada"),
   "INSERT INTO sqlite_sequence (name, seq) VALUES ('core_audit', 3)",
 ];
+const facts = (statements) => exportFacts(exportWithRows(statements));
+const first = facts(ALPHA);
 
-test("an import keeps every row of its export as it was; rows the host writes after are named, not failed (staging run 46034389470, step 6)", async () => {
+test("an import keeps every table exactly, the host's own writes only as named (staging run 46034389470, step 6; review of #562, S1)", async () => {
   // A large row: its scratch statements are one unit with its INSERT.
   assert.deepEqual(
     rowUnits([
@@ -1730,97 +1741,133 @@ test("an import keeps every row of its export as it was; rows the host writes af
     ]).map(([t]) => t),
     ["core_note", "core_person"],
   );
-  const first = exportFacts(exportWithRows(ALPHA));
-  // What the host writes to a live client between the import and the re-export: the runner's
-  // scan markers, a setting, audit rows. Allowed, and named.
-  const later = exportFacts(
-    exportWithRows([
-      ...ALPHA.slice(0, 4),
-      setting("embedding_backfill", "{}"),
-      audit("2"),
-      `INSERT INTO "core_automation_counters" (automation_id, hour) VALUES ('~dateRelative', '2026-11-27')`,
+  assert.equal(columnOf(audit("9", "extension.install"), "operation"), "extension.install");
+  assert.equal(columnOf(setting("a", "it''s, (x)"), "value"), "it's, (x)");
+  assert.deepEqual([...compareExports(first, first)], []);
+
+  // What the host writes to a live client: markers, a cron setting changing, the pack install's
+  // audit rows, its stamp. Allowed, and named by key, operation and marker, never by value.
+  const live = compareExports(
+    first,
+    facts([
+      ...ALPHA.filter((s) => !s.includes("embedding_backfill") && !s.includes("~dateRelative")),
+      setting("embedding_backfill", '{"after":"11"}'),
+      audit("2", "extension.install"),
+      audit("3", "extension.install"),
+      counter("~dateRelativeZoned", "2026-11-27T16"),
+      `INSERT INTO "core_meta" ("key", "value") VALUES ('shipped_install', 'x')`,
       "INSERT INTO sqlite_sequence (name, seq) VALUES ('core_audit', 5)",
     ]),
   );
-  const compared = compareExports(first, later);
-  assert.deepEqual([...compared], []);
-  assert.deepEqual(compared.added, [
-    "core_settings +1",
-    "core_audit +1",
-    "core_automation_counters +1",
+  assert.deepEqual([...live], []);
+  assert.deepEqual(live.allowed, [
+    "core_settings: 1 changed (key embedding_backfill)",
+    "core_audit: +2 (operation extension.install ×2)",
+    "core_automation_counters: +1 (automation_id ~dateRelativeZoned), −1 (automation_id ~dateRelative)",
+    "core_meta: +1 (key shipped_install)",
   ]);
-  // A row changed by the import, or lost, still fails; so does a next id lowered.
-  const changed = exportFacts(
-    exportWithRows([...ALPHA.slice(0, 2), setting("b", "3"), ...ALPHA.slice(3)]),
-  );
-  assert.deepEqual(
-    [...compareExports(first, changed)],
-    ["core_settings: 1 of the export's 2 rows not in the import as they were"],
-  );
-  const lost = exportFacts(exportWithRows([...ALPHA.slice(0, 2), ...ALPHA.slice(3)]));
-  assert.deepEqual(
-    [...compareExports(first, lost)],
+
+  // Not the host's: an extra person, an audit row of any other operation, another setting added
+  // or changed, a counter that is no marker.
+  for (const [extra, why] of [
+    [[person("p2", "Mallory")], "core_person: 1 rows in the import that were not in the export"],
     [
-      "core_settings: 2 rows, then 1",
-      "core_settings: 1 of the export's 2 rows not in the import as they were",
+      [audit("4", "person.create")],
+      "core_audit: 1 rows in the import that were not in the export (operation person.create)",
+    ],
+    [
+      [setting("approval_floor", "autonomous")],
+      "core_settings: 1 rows in the import that were not in the export (key approval_floor)",
+    ],
+    [
+      [counter("automation-1", "2026-11-27T16")],
+      "core_automation_counters: 1 rows in the import that were not in the export (automation_id automation-1)",
+    ],
+  ]) {
+    assert.deepEqual([...compareExports(first, facts([...ALPHA, ...extra]))], [why]);
+  }
+  // A row changed or lost, a next id lowered, a schema statement missing: still fail.
+  const swap = (from, to) => ALPHA.map((s) => (s === from ? to : s));
+  assert.deepEqual(
+    [
+      ...compareExports(
+        first,
+        facts(swap(setting("org_name", "Staging check"), setting("org_name", "Other"))),
+      ),
+    ],
+    [
+      "core_settings: 1 of the export's 2 rows not in the import as they were (key org_name)",
+      "core_settings: 1 rows in the import that were not in the export (key org_name)",
     ],
   );
-  const lowered = exportFacts(
-    exportWithRows([
-      ...ALPHA.slice(0, 4),
-      "INSERT INTO sqlite_sequence (name, seq) VALUES ('core_audit', 2)",
-    ]),
+  assert.deepEqual(
+    [...compareExports(first, facts(ALPHA.filter((s) => !s.includes("Ada"))))],
+    ["core_person: 1 of the export's 1 rows not in the import as they were"],
+  );
+  // A cron key may change, never go.
+  assert.deepEqual(
+    [...compareExports(first, facts(ALPHA.filter((s) => !s.includes("embedding_backfill"))))],
+    [
+      "core_settings: 1 of the export's 2 rows not in the import as they were (key embedding_backfill)",
+    ],
   );
   assert.deepEqual(
-    [...compareExports(first, lowered)],
+    [
+      ...compareExports(
+        first,
+        facts(
+          swap(
+            "INSERT INTO sqlite_sequence (name, seq) VALUES ('core_audit', 3)",
+            "INSERT INTO sqlite_sequence (name, seq) VALUES ('core_audit', 2)",
+          ),
+        ),
+      ),
+    ],
     ["core_audit's next id went back: 3, then 2"],
   );
-  const schema = exportFacts(exportWithRows(ALPHA.slice(1)));
   assert.deepEqual(
-    [...compareExports(first, schema)],
+    [...compareExports(first, facts(ALPHA.slice(1)))],
     ["1 of the export's schema statements are not in the import as they were"],
   );
-  // The search index's rows are moved to its queue by the import, by design.
-  const embedded = [
-    ...ALPHA,
-    `INSERT INTO "core_embedding" (object_type, record_id) VALUES ('person', 'p')`,
-  ];
-  const requeued = [
-    ...ALPHA,
-    `INSERT INTO "core_embedding_queue" (object_type, record_id) VALUES ('person', 'p')`,
-  ];
-  const moved = compareExports(
-    exportFacts(exportWithRows(embedded)),
-    exportFacts(exportWithRows(requeued)),
-  );
-  assert.deepEqual([...moved], []);
-  assert.deepEqual(moved.added, ["core_embedding_queue +1"]);
 
-  // The step: passes with the host's rows named in its note; fails on a changed row.
+  // The search index: each record of the export's core_embedding queued again, or embedded
+  // again since; one in neither fails.
+  const indexed = facts([...ALPHA, embedding("core_embedding", "p1")]);
+  const queued = compareExports(
+    indexed,
+    facts([...ALPHA, embedding("core_embedding_queue", "p1")]),
+  );
+  assert.deepEqual([...queued], []);
+  assert.match(queued.allowed.join("; "), /core_embedding: 0 added, 1 gone/);
+  assert.deepEqual(
+    [...compareExports(indexed, facts(ALPHA))],
+    ["core_embedding: 1 of the export's 1 rows not in the import as they were"],
+  );
+  assert.deepEqual(
+    [...compareExports(indexed, facts([...ALPHA, embedding("core_embedding_queue", "p9")]))],
+    [
+      "core_embedding: 1 of the export's 1 rows not in the import as they were",
+      "core_embedding_queue: 1 rows in the import that were not in the export",
+    ],
+  );
+
+  // The step: passes, naming what the host wrote; fails on an extra person.
   const ctx = (one, two) => ({
     ...stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }), zone: false }),
     exportDir: one,
     reexportDir: two,
   });
   const passed = await step("export").run(
-    ctx(
-      exportWithRows(ALPHA),
-      exportWithRows([...ALPHA, setting("embedding_backfill", "{}"), audit("2")]),
-    ),
+    ctx(exportWithRows(ALPHA), exportWithRows([...ALPHA, audit("2", "extension.install")])),
   );
   assert.match(passed.note, /every row of the export in it as it was/);
   assert.match(
     passed.note,
-    /rows the host wrote to charlie since: core_settings \+1, core_audit \+1/,
+    /what the host wrote to charlie since: core_audit: \+1 \(operation extension\.install\)/,
   );
   await assert.rejects(
-    step("export").run(
-      ctx(
-        exportWithRows(ALPHA),
-        exportWithRows([...ALPHA.slice(0, 2), setting("b", "3"), ...ALPHA.slice(3)]),
-      ),
-    ),
-    /core_settings: 1 of the export's 2 rows not in the import as they were/,
+    step("export").run(ctx(exportWithRows(ALPHA), exportWithRows([...ALPHA, person("p2", "M")]))),
+    /core_person: 1 rows in the import that were not in the export/,
   );
 });
 

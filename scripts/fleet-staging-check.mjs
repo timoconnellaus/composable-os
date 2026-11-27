@@ -1187,54 +1187,253 @@ export function rowUnits(statements) {
   return out;
 }
 
-/**
- * Tables an import moves rows out of by design: `core_embedding`, whose records are queued again
- * (`requeue-embeddings`) for the host's embeddings tick to rebuild in the client's own index.
- */
-export const MOVED_BY_IMPORT = Object.freeze(["core_embedding"]);
+/** Splits `a, 'b, c', (d, e)` at its top-level commas, quotes and brackets respected. */
+function topLevel(list) {
+  const out = [];
+  let depth = 0;
+  let quote = null;
+  let start = 0;
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i];
+    if (quote) {
+      if (c === quote) {
+        if (list[i + 1] === quote) i += 1;
+        else quote = null;
+      }
+    } else if (c === "'" || c === '"') quote = c;
+    else if (c === "(") depth += 1;
+    else if (c === ")") depth -= 1;
+    else if (c === "," && depth === 0) {
+      out.push(list.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  out.push(list.slice(start).trim());
+  return out;
+}
+
+/** A text literal's value ('…' with '' doubled), or null for any other literal. */
+function textOf(literal) {
+  if (/^'(?:[^']|'')*'$/.test(literal)) return literal.slice(1, -1).replaceAll("''", "'");
+  const cast = /^CAST\(X'([0-9A-Fa-f]*)' AS TEXT\)$/.exec(literal);
+  return cast ? Buffer.from(cast[1], "hex").toString("utf8") : null;
+}
 
 /**
- * What an import must preserve: every row of the first export in the second, as it was (the same
- * statement), and nothing fewer. Rows the second has besides are the host's own since the import
- * (a cron tick, a first request: staging run 46034389470), allowed and named in `added`; a row
- * lost or changed is a problem. An AUTOINCREMENT table's next id may only grow. Files and packs
+ * One column's text value in a row's INSERT, as the export wrote it (packages/db sql-export.ts:
+ * `INSERT INTO "t" (c1, c2) VALUES (v1, v2)`, the row's own statement last in its unit), or null.
+ */
+export function columnOf(unit, column) {
+  const sql = unit.split("\n").at(-1);
+  const m = /^INSERT INTO (?:"(?:[^"]|"")+"|\w+) \((.*?)\) VALUES \((.*)\)$/s.exec(sql);
+  if (!m) return null;
+  const columns = topLevel(m[1]).map(unquote);
+  const values = topLevel(m[2]);
+  const at = columns.indexOf(column);
+  return at < 0 || at >= values.length ? null : textOf(values[at]);
+}
+
+/** The core_settings keys the host's own crons write to a running client. */
+const CRON_SETTINGS = Object.freeze([
+  // The app's 10-minute tick, its embeddings catch-up (runEmbeddingCron → backfillEmbeddingQueue,
+  // packages/core/src/ai/embedding.ts): how far the backfill of core_search_docs has got. An
+  // import queues every embedded record again for it.
+  "embedding_backfill",
+  // The runner's minute tick, customer sign-up's watch (watchSubscriberSignup,
+  // packages/core/src/customers/subscriber-signup.ts): whether a plan is on sale.
+  "customer_signup_subscribers_state",
+]);
+
+/** The core_audit operations the host's own crons and first request write to a running client. */
+const CRON_AUDITS = Object.freeze([
+  // The shipped packs' install, run once per isolate and client before its first staff operation
+  // (ensureShippedExtensions → installShippedExtensions, packages/core/src/extensions/shipped.ts):
+  // an imported client's workspace is this host's own, so its packs are committed and installed
+  // again, each through the audited `extension.install`.
+  "extension.install",
+  // The runner's minute tick, customer sign-up's watch (subscriber-signup.ts): a plan went on sale.
+  "customer.signupOpened",
+]);
+
+/**
+ * The tables the host writes to a running client by itself (a cron tick, its first request), each
+ * with the narrowest difference allowed between an export and the re-export of its import: `name`
+ * picks the row's name (null: not the host's), `add`/`change`/`remove` what may happen to a row so
+ * named. Every other table, and every other row of these, must be in both exactly as it was, no
+ * more and no fewer (review of #562, S1).
+ */
+export const HOST_WRITTEN = Object.freeze({
+  // The runner's minute tick (runAutomationCron → onceFor, apps/runner/src/automations/
+  // schedule.ts) marks each day's and hour's scan done (`~dateRelative`, `~dateRelativeZoned`);
+  // retention (packages/core/src/retention.ts) deletes the markers of hours gone by.
+  core_automation_counters: {
+    by: "automation_id",
+    name: (unit) => {
+      const id = columnOf(unit, "automation_id");
+      return id?.startsWith("~") ? id : null;
+    },
+    add: true,
+    remove: true,
+  },
+  core_audit: {
+    by: "operation",
+    name: (unit) => {
+      const operation = columnOf(unit, "operation");
+      return CRON_AUDITS.includes(operation) ? operation : null;
+    },
+    add: true,
+  },
+  core_settings: {
+    by: "key",
+    name: (unit) => {
+      const key = columnOf(unit, "key");
+      return CRON_SETTINGS.includes(key) ? key : null;
+    },
+    add: true,
+    change: true,
+  },
+  // The runner's stamp of its last shipped-pack install (PR #559, apps/runner/src/extensions/
+  // shipped-stamp.ts): an export leaves it out and an import deletes it (`HOST_ONLY_META`), so the
+  // imported client gains it again after its first operation.
+  core_meta: {
+    by: "key",
+    name: (unit) => (columnOf(unit, "key") === "shipped_install" ? "shipped_install" : null),
+    add: true,
+    change: true,
+  },
+});
+
+const multiset = (units) => {
+  const m = new Map();
+  for (const u of units) m.set(u, (m.get(u) ?? 0) + 1);
+  return m;
+};
+/** Units of `a` not in `b`, as a multiset difference. */
+const minus = (a, b) => {
+  const left = multiset(b);
+  const out = [];
+  for (const u of a) {
+    const n = left.get(u) ?? 0;
+    if (n > 0) left.set(u, n - 1);
+    else out.push(u);
+  }
+  return out;
+};
+const tally = (names) => {
+  const m = new Map();
+  for (const n of names) m.set(n, (m.get(n) ?? 0) + 1);
+  return [...m].map(([n, k]) => (k > 1 ? `${n} ×${k}` : n)).join(", ");
+};
+const embeddingKey = (unit) => `${columnOf(unit, "object_type")}:${columnOf(unit, "record_id")}`;
+
+/**
+ * What an import must preserve (review of #562, S1): every table exactly as it was, row for row,
+ * no more and no fewer, except the host's own writes `HOST_WRITTEN` names, each in its narrowest
+ * way, and the search index, which an import queues again (`requeue-embeddings`): each record of
+ * the export's `core_embedding` must be in the re-export's `core_embedding` or its queue. An
+ * AUTOINCREMENT table's next id may only grow. `allowed` names each allowed difference (tables,
+ * counts, and the settings keys, audit operations and markers: never a value). Files and packs
  * are compared as before.
  */
 export function compareExports(a, b) {
   const problems = [];
-  const added = [];
-  const rowsKnown = a.rows && b.rows;
+  const allowed = [];
+  const rowsKnown = Boolean(a.rows && b.rows);
   for (const table of new Set([...Object.keys(a.counts), ...Object.keys(b.counts)])) {
-    const before = a.counts[table] ?? 0;
-    const after = b.counts[table] ?? 0;
     // Rows the export's statements show are compared one by one below; a table they do not show
     // (no statement read for it) is held to its count.
     const shown = rowsKnown && ((a.rows[table] ?? []).length || (b.rows[table] ?? []).length);
-    if (MOVED_BY_IMPORT.includes(table)) continue;
-    if (after < before || (after > before && !shown)) {
-      problems.push(`${table}: ${before} rows, then ${after}`);
+    if (!shown && (a.counts[table] ?? 0) !== (b.counts[table] ?? 0)) {
+      problems.push(`${table}: ${a.counts[table] ?? 0} rows, then ${b.counts[table] ?? 0}`);
     }
   }
   if (rowsKnown) {
+    const embedded = new Set([
+      ...(b.rows.core_embedding ?? []).map(embeddingKey),
+      ...(b.rows.core_embedding_queue ?? []).map(embeddingKey),
+    ]);
+    const wasIndexed = new Set([
+      ...(a.rows.core_embedding ?? []).map(embeddingKey),
+      ...(a.rows.core_embedding_queue ?? []).map(embeddingKey),
+    ]);
     for (const table of new Set([...Object.keys(a.rows), ...Object.keys(b.rows)])) {
       if (table === "sqlite_sequence") continue;
-      const left = new Map();
-      for (const unit of b.rows[table] ?? []) left.set(unit, (left.get(unit) ?? 0) + 1);
-      let missing = 0;
-      for (const unit of a.rows[table] ?? []) {
-        const n = left.get(unit) ?? 0;
-        if (n > 0) left.set(unit, n - 1);
-        else missing += 1;
+      const before = a.rows[table] ?? [];
+      const after = b.rows[table] ?? [];
+      let missing = minus(before, after);
+      let extra = minus(after, before);
+      if (table === "core_embedding" || table === "core_embedding_queue") {
+        // Queued again by the import, or embedded again by the tick since: each record still
+        // indexed or queued, and nothing new but records the export had.
+        const lost = missing.filter((u) => !embedded.has(embeddingKey(u)));
+        const stray = extra.filter((u) => !wasIndexed.has(embeddingKey(u)));
+        if (missing.length - lost.length || extra.length - stray.length) {
+          allowed.push(
+            `${table}: ${extra.length - stray.length} added, ${missing.length - lost.length} gone (requeued by the import or embedded again)`,
+          );
+        }
+        missing = lost;
+        extra = stray;
       }
-      const extra = [...left.values()].reduce((x, y) => x + y, 0);
-      if (missing && !MOVED_BY_IMPORT.includes(table)) {
+      const rule = HOST_WRITTEN[table];
+      if (rule) {
+        const addedNames = [];
+        const goneNames = [];
+        const changedNames = [];
+        const extraNames = new Map();
+        for (const u of extra) {
+          const n = rule.name(u);
+          if (n !== null) extraNames.set(n, [...(extraNames.get(n) ?? []), u]);
+        }
+        missing = missing.filter((u) => {
+          const n = rule.name(u);
+          if (n === null) return true;
+          if (rule.change && extraNames.get(n)?.length) {
+            extraNames.get(n).pop();
+            changedNames.push(n);
+            return false;
+          }
+          if (rule.remove) {
+            goneNames.push(n);
+            return false;
+          }
+          return true;
+        });
+        extra = extra.filter((u) => {
+          const n = rule.name(u);
+          return n === null || !rule.add;
+        });
+        for (const [n, units] of extraNames)
+          for (const _ of units) if (rule.add) addedNames.push(n);
+        const parts = [
+          addedNames.length ? `+${addedNames.length} (${rule.by} ${tally(addedNames)})` : "",
+          changedNames.length
+            ? `${changedNames.length} changed (${rule.by} ${tally(changedNames)})`
+            : "",
+          goneNames.length ? `−${goneNames.length} (${rule.by} ${tally(goneNames)})` : "",
+        ].filter(Boolean);
+        if (parts.length) allowed.push(`${table}: ${parts.join(", ")}`);
+      }
+      // The names of what is not allowed, where they are the host's kind of name (never values).
+      const named = (units) => {
+        if (!rule) return "";
+        const names = units.map((u) => columnOf(u, rule.by)).filter((n) => n !== null);
+        return names.length ? ` (${rule.by} ${tally(names)})` : "";
+      };
+      if (missing.length) {
         problems.push(
           table === "(schema)"
-            ? `${missing} of the export's schema statements are not in the import as they were`
-            : `${table}: ${missing} of the export's ${(a.rows[table] ?? []).length} rows not in the import as they were`,
+            ? `${missing.length} of the export's schema statements are not in the import as they were`
+            : `${table}: ${missing.length} of the export's ${before.length} rows not in the import as they were${named(missing)}`,
         );
       }
-      if (extra) added.push(`${table} +${extra}`);
+      if (extra.length) {
+        problems.push(
+          table === "(schema)"
+            ? `${extra.length} schema statements in the import were not in the export`
+            : `${table}: ${extra.length} rows in the import that were not in the export${named(extra)}`,
+        );
+      }
     }
     const seq = (rows) =>
       new Map(
@@ -1260,8 +1459,8 @@ export function compareExports(a, b) {
       `packs: COS_PACKS=${a.packs ?? "(none carried)"}, then ${b.packs ?? "(none carried)"}`,
     );
   }
-  // The tables the host added rows to, beside the problems (not one of them).
-  Object.defineProperty(problems, "added", { value: added });
+  // The differences allowed, beside the problems (not one of them).
+  Object.defineProperty(problems, "allowed", { value: allowed });
   return problems;
 }
 
@@ -1830,7 +2029,7 @@ export function checkSteps() {
             `the export or the import is not as it should be: ${problems.slice(0, 5).join("; ")}`,
           );
         const notes = [
-          `${a} exported (${Object.keys(first.counts).length} tables, ${rows} rows, ${first.files.length} files, every hash recomputed from the bytes), imported as ${imported}, exported again: every row of the export in it as it was, the same file hashes and packs (COS_PACKS=${first.packs})${compared.added.length ? `; rows the host wrote to ${imported} since: ${compared.added.join(", ")}` : ""}`,
+          `${a} exported (${Object.keys(first.counts).length} tables, ${rows} rows, ${first.files.length} files, every hash recomputed from the bytes), imported as ${imported}, exported again: every row of the export in it as it was and nothing else but the host's own writes, the same file hashes and packs (COS_PACKS=${first.packs})${compared.allowed.length ? `; what the host wrote to ${imported} since: ${compared.allowed.join("; ")}` : ""}`,
         ];
         if (!ctx.zoneId) {
           return {
