@@ -1127,7 +1127,10 @@ describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
     expect(lines.join("\n")).toContain("stays proxy-fallback.other.example (not changed)");
     // The wildcard: one record and one route for every name, nothing per client.
     await setUpFleetZone({ ...input, fleet: fleetOn("wildcard") }, () => {});
-    expect(cf.routes.map((r) => [r.pattern, r.script])).toContainEqual(["*.fleet.example/*", "demo-app"]);
+    expect(cf.routes.map((r) => [r.pattern, r.script])).toContainEqual([
+      "*.fleet.example/*",
+      "demo-app",
+    ]);
     expect(cf.dnsRecords.map((r) => r.name)).toContain("*.fleet.example");
   });
 
