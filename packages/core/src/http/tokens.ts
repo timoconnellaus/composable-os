@@ -4,8 +4,8 @@
 //
 // - Every refresh rotates both. The refresh hashes already used are kept on the row; presenting
 //   one again, or two refreshes racing with one token, ends the whole session. The one exception
-//   (migration 1505): within REFRESH_GRACE_MS of a rotation, while its answer is unused and once
-//   in a session's life, the token it rotated past gets the same answer again (a device whose
+//   (migration 1505): within REFRESH_GRACE_MS of a rotation, while its answer is unused and at
+//   most once in 24 hours, the token it rotated past gets the same answer again (a device whose
 //   answer was lost), audited; the answer is kept sealed under that token, never as given.
 // - A session unused for the `device_session_idle_days` setting (default 90, a human admin
 //   changes it) ends when it is next presented.
@@ -155,12 +155,23 @@ const sessionIdOf = (refreshToken: string): string | null => {
 
 /**
  * How long after a rotation the refresh token it rotated past may still be answered again
- * (ADR 0419, amended 2026-11-27), and only while the answer is unused and only once a session:
- * long enough for a device whose answer was lost to try again (the client gives up on a refresh
- * after 15 seconds, then retries at once). A constant, not a setting: identity is not
- * configurable (AGENTS.md).
+ * (ADR 0419, amended 2026-11-27), and only while the answer is unused and at most once in
+ * `REFRESH_GRACE_PERIOD_MS`: long enough for a device whose answer was lost to try again (the
+ * client gives up on a refresh after 15 seconds, then retries at once). A constant, not a
+ * setting: identity is not configurable (AGENTS.md).
  */
 export const REFRESH_GRACE_MS = 60_000;
+
+/**
+ * A session is answered again at most once in this long (24 hours): a session has no fixed end,
+ * so once in its life would sign out a phone whose answer is lost twice in months, while a thief
+ * timing a replay still gets one shot either way.
+ */
+export const REFRESH_GRACE_PERIOD_MS = 24 * 60 * 60 * 1000;
+
+/** The earliest `grace_answered_at` that still spends the grace at `now`. */
+const graceSpentSince = (now: Date) =>
+  new Date(now.getTime() - REFRESH_GRACE_PERIOD_MS).toISOString();
 
 /** The audit row of a refresh answered again (ADR 0419, amended 2026-11-27). */
 export const DEVICE_REFRESH_REPLAYED_AUDIT = "deviceSession.refreshReplayed";
@@ -244,7 +255,7 @@ interface GraceRow {
  * - within `REFRESH_GRACE_MS` of it;
  * - its answer is unused: neither its access token nor its refresh token has been presented
  *   (either clears the seal);
- * - this session has never been answered again before.
+ * - this session has not been answered again in the last `REFRESH_GRACE_PERIOD_MS`.
  * Taking it clears the seal and audits the answer. Else null, and the token is treated as before:
  * reuse, which ends the session.
  */
@@ -257,7 +268,9 @@ async function takeGraceAnswer(
   now: Date,
 ): Promise<IssuedTokens | null> {
   const sealed = row.successor_sealed;
-  if (!sealed || !row.previous_rotated_at || row.grace_answered_at) return null;
+  const spentSince = graceSpentSince(now);
+  if (!sealed || !row.previous_rotated_at) return null;
+  if (row.grace_answered_at && row.grace_answered_at >= spentSince) return null;
   if (hash !== row.previous_refresh_hash) return null;
   const since = now.getTime() - Date.parse(row.previous_rotated_at);
   if (!(since >= 0 && since <= REFRESH_GRACE_MS)) return null;
@@ -269,7 +282,9 @@ async function takeGraceAnswer(
     .set({ successor_sealed: null, grace_answered_at: now.toISOString() })
     .where("id", "=", sessionId)
     .where("successor_sealed", "=", sealed)
-    .where("grace_answered_at", "is", null)
+    .where((eb) =>
+      eb.or([eb("grace_answered_at", "is", null), eb("grace_answered_at", "<", spentSince)]),
+    )
     .returning("id")
     .executeTakeFirst();
   if (!taken) return null;
@@ -299,9 +314,9 @@ async function takeGraceAnswer(
 /**
  * Rotates a session's tokens. A refresh token used before ends the session; so does one that
  * lost a race with another refresh of the same token. The one exception (ADR 0419, amended
- * 2026-11-27): within `REFRESH_GRACE_MS` of a rotation, while its answer is unused and once in a
- * session's life, the token it rotated past is answered with the same tokens again, for a device
- * whose answer was lost; never a second rotation, and always audited.
+ * 2026-11-27): within `REFRESH_GRACE_MS` of a rotation, while its answer is unused and at most
+ * once in `REFRESH_GRACE_PERIOD_MS`, the token it rotated past is answered with the same tokens
+ * again, for a device whose answer was lost; never a second rotation, and always audited.
  */
 export async function refreshDeviceSession(
   db: CrmDb,
@@ -353,22 +368,37 @@ export async function refreshDeviceSession(
     accessExpiresAt: t.accessExpiresAt,
     sessionId,
   };
+  const spentSince = graceSpentSince(now);
+  const graceSpent = Boolean(row.grace_answered_at && row.grace_answered_at >= spentSince);
+  const seal = graceSpent ? null : await sealSuccessor(refreshToken, hash, sessionId, answer);
   const rotated = await db.query
     .updateTable("core_device_session")
-    .set({
+    .set((eb) => ({
       access_hash: t.accessHash,
       access_expires_at: t.accessExpiresAt,
       refresh_hash: t.refreshHash,
       used_refresh_hashes: JSON.stringify([...used, hash].slice(-USED_KEPT)),
       last_used_at: now.toISOString(),
       // The answer again, for this token only, while unused, for REFRESH_GRACE_MS: sealed under
-      // it. None once the session has been answered again: the grace is once a session.
+      // it. None while the session's grace is spent (answered again in the last
+      // REFRESH_GRACE_PERIOD_MS), decided in the statement itself, so a grace taken since this
+      // row was read writes none either.
       previous_refresh_hash: hash,
       previous_rotated_at: now.toISOString(),
-      successor_sealed: row.grace_answered_at
-        ? null
-        : await sealSuccessor(refreshToken, hash, sessionId, answer),
-    })
+      successor_sealed: seal
+        ? eb
+            .case()
+            .when(
+              eb.or([
+                eb("grace_answered_at", "is", null),
+                eb("grace_answered_at", "<", spentSince),
+              ]),
+            )
+            .then(seal)
+            .else(null)
+            .end()
+        : null,
+    }))
     .where("id", "=", sessionId)
     .where("refresh_hash", "=", hash)
     .returning("id")

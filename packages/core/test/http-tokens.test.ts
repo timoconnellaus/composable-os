@@ -11,6 +11,7 @@ import {
   invoke,
   issueDeviceSession,
   REFRESH_GRACE_MS,
+  REFRESH_GRACE_PERIOD_MS,
   refreshDeviceSession,
   resolveAccessToken,
 } from "../src/index.ts";
@@ -237,20 +238,57 @@ describe("tokens", () => {
       expect((await rowOf(u1.sessionId)).successor_sealed).toBeNull();
     });
 
-    it("is given once in a session's life: a second lost answer, rotations later, ends the session", async () => {
+    it("is given at most once in 24 hours: a second lost answer inside them ends the session", async () => {
       const t1 = await start();
       const at = new Date();
       const t2 = await refreshDeviceSession(db, t1.refreshToken, at);
       await refreshDeviceSession(db, t1.refreshToken, seconds(at, 2));
       await resolveAccessToken(db, t2.accessToken, at);
       const t3 = await refreshDeviceSession(db, t2.refreshToken, seconds(at, 600));
-      // No seal is kept for a session that has had its answer again.
+      // No seal is kept while the session's grace is spent.
       expect((await rowOf(t1.sessionId)).successor_sealed).toBeNull();
       expect(await reason(refreshDeviceSession(db, t2.refreshToken, seconds(at, 601)))).toBe(
         "refresh_reused",
       );
       expect(await sessionExists(t1.sessionId)).toBe(false);
       expect(t3.sessionId).toBe(t1.sessionId);
+    });
+
+    it("is given again once 24 hours have passed since the last one, and audited again", async () => {
+      const t1 = await start();
+      const at = new Date();
+      const t2 = await refreshDeviceSession(db, t1.refreshToken, at);
+      await refreshDeviceSession(db, t1.refreshToken, seconds(at, 2));
+      await resolveAccessToken(db, t2.accessToken, at);
+      // A day and an hour later the phone refreshes, and that answer is lost too.
+      const later = seconds(at, REFRESH_GRACE_PERIOD_MS / 1000 + 3600);
+      const t3 = await refreshDeviceSession(db, t2.refreshToken, later);
+      expect((await rowOf(t1.sessionId)).successor_sealed).toBeTruthy();
+      const again = await refreshDeviceSession(
+        db,
+        t2.refreshToken,
+        new Date(later.getTime() + 5_000),
+      );
+      expect(again).toEqual(t3);
+      expect(await replays(t1.sessionId)).toHaveLength(2);
+      expect(await sessionExists(t1.sessionId)).toBe(true);
+    });
+
+    it("a grace answer racing the next rotation leaves no seal behind (review of #554)", async () => {
+      const t1 = await start();
+      const at = new Date();
+      const t2 = await refreshDeviceSession(db, t1.refreshToken, at);
+      // The answer to t1 was lost; the phone retries with t1 just as it also refreshes with t2
+      // (the answer it did get, by another request).
+      const [grace, next] = await Promise.all([
+        refreshDeviceSession(db, t1.refreshToken, seconds(at, 1)),
+        refreshDeviceSession(db, t2.refreshToken, seconds(at, 1)),
+      ]);
+      expect(grace).toEqual(t2);
+      expect(next.sessionId).toBe(t1.sessionId);
+      expect(await replays(t1.sessionId)).toHaveLength(1);
+      // The grace is spent, so the rotation kept no seal, whichever read the row first.
+      expect((await rowOf(t1.sessionId)).successor_sealed).toBeNull();
     });
 
     it("keeps no token as given, and a forged token opens nothing", async () => {

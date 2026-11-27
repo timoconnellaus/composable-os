@@ -85,13 +85,18 @@ counted as reuse and ended the session: an unexplained sign-out on a phone.
 - that rotation's answer is **unused**: neither its access token nor its refresh token has been
   presented. A device that received its answer uses the access token at once (it refreshed because
   a call was waiting), and that first use closes the grace;
-- the session has **never** been answered again before: once in a session's life.
+- the session has not been answered again in the last 24 hours (`REFRESH_GRACE_PERIOD_MS`): at
+  most once a day. Not once in its life: a session has no fixed end (only the 90-day idle limit),
+  and a proxy that sends one refresh twice also spends the grace, so once-ever would sign out
+  phones for no visible reason; a thief timing a replay gets one shot either way. While the grace
+  is spent, a rotation keeps no seal (decided in the rotation's own statement, so a grace answer
+  that lands as the row is rotated leaves none either); once the period has passed it seals again.
 
 Every such answer writes an audit row, `deviceSession.refreshReplayed` (the account, the session,
 when, how long after the rotation; no token), which admins see in Settings → Audit log. It does not
 change the session's last use, which the rotation moments before has just set. Any other
 presentation of a token rotated past (after the window, after the answer was used, a second time,
-a second grace in the session, or any older token) ends the session as reuse always has. Nothing
+a second grace within 24 hours, or any older token) ends the session as reuse always has. Nothing
 matches on the client's address or network: a changed network is how answers get lost.
 
 **How the answer is kept.** Never as given. It is sealed with AES-GCM under a key derived
@@ -111,16 +116,19 @@ device's own new tokens, and nothing is ended:
 - If the device's answer was lost, the thief gets the tokens and the device's own retry then ends
   the session: detected, as before, a moment later.
 - If the device got its answer but has not yet used it, the two now hold the same live tokens and
-  nothing is ended at once. The session ends at the next rotation, when the holder that did not
-  rotate next presents the old tokens, normally within one access token's life (ten minutes). Until
-  then the sharing is not detected, and only the audit row records it.
-- A thief can do this once a session: a second grace is refused and ends the session.
+  nothing is ended at once. The session ends only when the holder that did not rotate next
+  presents its old refresh token, after the other's rotation. A device does that within about ten
+  minutes, when its access token runs out. **A thief who only uses the access token and never
+  refreshes is caught by nothing but the audit row**, for up to that access token's life (ten
+  minutes), after which its tokens stop working without ever ending the session.
+- A thief can do this at most once in 24 hours: a second grace within them is refused and ends the
+  session.
 - Outside the window, after the device's first call, and for any older token, nothing changed.
 
 **Why 60 seconds.** The client gives up on a refresh after 15 seconds and the next call retries at
 once, so a lost answer is retried within seconds; 60 leaves room for a slow network. An app killed
 and reopened minutes later is not covered: it is signed out, as before. The use-closes-it and
-once-a-session rules limit what the window gives a thief more than its length does.
+once-a-day rules limit what the window gives a thief more than its length does.
 
 **A constant, not a setting.** Identity and policy are not AI-configurable (AGENTS.md): changing
 the window or the rule is a code change and a review.
