@@ -193,11 +193,18 @@ loads.
   that runs on a click.
 - **It is compiled when saved,** by the build extensions already have (the transpile, the import
   check and the type check), which gains JSX. There is no build service.
-- **It runs on the host,** in the organisation's sandbox, where its extension's tools run: no
-  network, one Worker per organisation and extension commit.
+- **It runs on the host,** in the organisation's sandbox under Worker Loader, on a loader id
+  of its own, apart from the Worker its extension's tools run in: no network, an empty `env`,
+  and no run host.
 - **A render is a pure function.** The block is given no host module: it cannot call an
   operation, read a record or use a model while it draws. Everything it shows comes from what
-  it is handed.
+  it is handed, the time included (`now` is handed in).
+- **Nothing is carried from one person's render to another's.** "Pure" above limits host
+  modules and the network, not what code can keep in a variable of a warm Worker, and a loader
+  id per organisation and commit is shared by everyone who looks. So a render Worker is never
+  reused across people: its id holds the person (or a fingerprint of what they may see), or each
+  call gets a fresh one. Step 6 measures both and step 8 enforces the one chosen. The same
+  holds for a working copy drawn for two editors.
 - **What it is handed.** The host reads the region's record with the fields in `reads`, **as the
   person looking**, never with the extension's own wider reach, and hands the block that and
   the selection values it declared. A field the person may not see is absent.
@@ -218,8 +225,12 @@ loads.
   | `divider` | Nothing |
 
   There is no raw HTML, no style or class, and no address the browser fetches: a link names a
-  record or a screen, and an image names a file. The host serves the current schema version and
-  the one before.
+  record or a screen, and an image names a file. An id in a link, an image or a button's
+  input is one the block was handed, or is checked against what the person may read when the
+  tree is rebuilt. Text is never turned into a link. The host serves the current schema version and
+  the one before. This repository already has a catalogue of components the client trusts, for
+  the assistant's cards (ADR 0346, `agent-a2ui`). Step 7 makes `BlockTree` a profile of that
+  catalogue, adding to it what is missing, or writes the ADR that says why there are two.
 - **The host does not pass a tree through.** It rebuilds each tree from that list and refuses a
   tree whole if anything else is in it. A tree is at most 64 nodes, eight deep and 16 KB, and a
   call's answer at most 256 KB. The admin checks it again before drawing.
@@ -229,14 +240,27 @@ loads.
   apply, and its input is checked against the tool's schema. The host refuses a tool the block
   did not declare. The call is recorded as the person's, with the block and its commit beside
   it. Afterwards the region is drawn again.
+  - **This differs from the assistant's cards,** whose buttons run as the assistant because a
+    button's label is not what it runs (ADR 0346, amended 2026-11-06). A block's label is no
+    more trustworthy. So: for any tool riskier than an ordinary write, the admin itself draws
+    a confirmation that names the tool and the record, which the block cannot change. Each
+    press is bound to a handle the host issued when it made the tree (the person, the block,
+    its commit, the tool, a hash of the input, an expiry), so a press can only be the button
+    that was drawn. Step 9 records this against ADR 0346.
+  - **The actor is the owner's to confirm** before steps 8 and 9 are built (see Status).
 - **What a block can therefore do** is bounded twice: by what the person looking may see, and
   by its extension's tools, each of which a person approved with the extension and may only do
   what the extension's permissions allow. A block that newly names a tool, or an extension that
   asks for more, is a wider change and waits for a human admin, as today.
 - **Limits and failure.** A call has two seconds and a CPU limit set by step 6. A block that
   fails, is refused or is late is not drawn: the region shows its default, with a line saying
-  so for people who may edit the screen. It never breaks the page. Three failures in a row
-  switch the extension off, as for its tools.
+  so for people who may edit the screen. It never breaks the page.
+  - Failures are counted per block. Three in a row switch off that block, not its extension.
+  - A tree refused for its size is not counted when the size came from the person's data (a
+    long note): the row shows its default.
+  - What a render logs or throws can hold the person's fields. None of it is kept, and an
+    editor is shown the kind of failure (threw, late, too large, not in the schema), never its
+    message.
 - **Caching.** A tree depends only on the block's commit, the schema version and what the block
   was handed, and what it was handed is already the person's own view. Trees are kept for the
   length of a request at first; step 6 says whether a longer cache, keyed by those three and the
@@ -362,7 +386,9 @@ be code in the app, and the ADR's rule would apply to it unchanged.
     trees only (asserted on the wire).
 12. During a render a block can call no operation, read no record and reach no network. It is
     handed only the fields it declared, as the person looking may see them: two people with
-    different visibility get different trees from one block.
+    different visibility get different trees from one block. A block written to keep what it was
+    handed and show it later shows person B nothing of person A's, in a published screen and
+    in a working copy drawn for two editors.
 13. A tree with a node, a key or a value outside the schema is refused whole, on the host and
     again in the admin. Text holding markup is shown as text.
 14. A block in a list of 100 rows is drawn with one call to the sandbox, inside the limits step
@@ -408,7 +434,10 @@ Block CF: migrations 1510–1529, ADRs 0970–0979. Expected: `core_screen` and 
    off, the rewrite a release carries. Step 8 adds custom blocks' region versions to it.
 6. **The render spike:** one block drawn for 1, 50 and 100 rows in the sandbox, cold and warm,
    on Cloudflare; its time, its cost, the limits to set, and whether a cache is worth having.
-   Its result is recorded here.
+   It also settles how a render Worker is kept from one person to the next (the person in its
+   id, or a fresh one per call) and what that costs, and a budget for a whole page: several
+   custom blocks over hundreds of rows, how many calls run at once, the host's reads as the
+   person, and what a region shows while its trees load. Its result is recorded here.
 7. **Custom blocks, declared and checked:** `blocks` in the manifest, JSX in the build, the
    `BlockTree` schema and the rebuilding check, the lint, what the proposal shows a person.
 8. **Custom blocks, run:** the render call into the sandbox, one call for a page, what a block
@@ -462,6 +491,10 @@ None open. Decisions 9 to 12 answer this stage's interview (2026-11-27).
 Spec agreed (owner, 2026-11-27). No build step is built yet. Each build step changes its own
 line here (CONTRIBUTING.md, Working in parallel).
 
+Steps 8 and 9 wait for the owner's answer on three things this spec decided: a block's button
+running as the person (which differs from ADR 0346's cards), a new commit of a block going live
+at its extension's approval, and an unapproved block being drawn for the person editing it.
+
 - **Step 1** — not built — The region contract, block settings and the first regions
 
 - **Step 2** — not built — needs: step 1 — The screen record
@@ -476,9 +509,9 @@ line here (CONTRIBUTING.md, Working in parallel).
 
 - **Step 7** — not built — needs: step 1, step 6 — Custom blocks, declared and checked
 
-- **Step 8** — not built — needs: step 2, step 5, step 7 — Custom blocks, run
+- **Step 8** — not built — needs: step 2, step 5, step 7, an owner decision — Custom blocks, run
 
-- **Step 9** — not built — needs: step 8 — Custom blocks, drawn
+- **Step 9** — not built — needs: step 8, an owner decision — Custom blocks, drawn
 
 - **Step 10** — not built — needs: step 3 — Edit mode
 

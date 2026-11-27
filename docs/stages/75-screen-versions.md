@@ -45,7 +45,7 @@ app (stage 76) downloads.
 | 4 | Both a client's own web app and the admin's staff screens become published versions; the admin's are stage 77 (interview, 2026-11-27) |
 | 5 | A person at the client who holds the publish permission may publish for a hosted client |
 | 6 | Changes come from the client's repository and from inside the product (an editor or the assistant), both from the start |
-| 7 | The admin's screens as a version, an organisation's own admin screens made of regions, the build service for custom blocks and edit mode were agreed here the same day and are [stage 77](77-admin-screens.md), where those decisions are recorded |
+| 7 | The admin's screens as a version, an organisation's own admin screens made of regions, custom blocks and edit mode were agreed here the same day and are [stage 77](77-admin-screens.md), where those decisions are recorded |
 
 ## The design in one page
 
@@ -85,8 +85,8 @@ app (stage 76) downloads.
 ## Out of scope
 
 - The desktop app (stage 76).
-- The admin's own screens, an organisation's own admin screens, regions, custom blocks, the
-  build service and edit mode: [stage 77](77-admin-screens.md).
+- The admin's own screens, an organisation's own admin screens, regions, custom blocks and
+  edit mode: [stage 77](77-admin-screens.md).
 - Versions of extensions, fields or operations: those change through the client's staging
   environment.
 - The mobile app, whose screens go through the stores.

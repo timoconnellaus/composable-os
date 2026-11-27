@@ -16,8 +16,9 @@ Status: **spec agreed (owner interviewed 2026-11-27)**. It loads the admin's sta
 ## Goal
 
 A real desktop app for a client's product: installed, opened from the dock, its screens on the
-machine so it opens with no network. One signed app serves every client. It shows the client's
-published screens (stage 75) and gets a new version of them without an update of the app. The web
+machine so it opens with no network. One signed app serves every client. It shows the admin
+(stage 77 step 13), with each organisation's own screens arriving as data, and gets a new
+version of the admin without an update of the app. The web
 version stays.
 
 ## What exists today (from the code)
@@ -69,7 +70,12 @@ version stays.
 - **Choosing a client.** A person adds a client by its address or by a link from that client;
   the wrapper asks the host at that address who it is and signs the person in through the system
   browser. A person can have several clients and switch between them.
-- **Loading screens.** The wrapper asks the client's host for the published version, downloads
+- **What it loads.** The admin as a version: the release's signed static files, the same for
+  every organisation on a host, served by the host at a fixed address (stage 77 step 13). It
+  changes when the host takes a release, not when an organisation publishes. An organisation's
+  own screens, their fills and its custom blocks' trees are not files: they arrive as data over
+  `/api/v1`, as they do in a browser, so `screen.publish` shows in the app at once.
+- **Loading it.** The wrapper asks the client's host for the admin's current version, downloads
   the files it does not have, checks the manifest's signature against a key built into the
   wrapper and every file's hash, and only then moves the version into that client's folder. A
   version is checked again when it is loaded from disk. Screens are shown from the folder, one
@@ -103,10 +109,11 @@ version stays.
 
 1. One signed, notarised app installs on macOS 14 or later and refuses below it.
 2. A person adds a client by address, signs in through the browser and sees that client's
-   published screens, served from disk.
+   admin, served from disk, with its own screens and fills as its host answers them.
 3. With no network the app opens the last version it had.
 4. A version with a wrong signature or a changed file is not shown, at download and at load.
-5. After `screens.publish` the wrapper shows the new version at the next launch, with no update
+5. After the host takes a release the wrapper shows the new admin at the next launch, and after
+   `screen.publish` it shows the changed screen at once, both with no update
    of the app.
 6. Two clients in one app cannot read each other's storage, files or token (tests on the real
    webview).
@@ -156,7 +163,7 @@ here (CONTRIBUTING.md, Working in parallel).
 
 - **Step 1** — not built — needs: stage 77 step 13 — The wrapper's skeleton
 
-- **Step 2** — not built — needs: step 1, stage 75 step 4 — Screens from the host
+- **Step 2** — not built — needs: step 1 — Screens from the host
 
 - **Step 3** — not built — needs: step 2 — Several clients
 
