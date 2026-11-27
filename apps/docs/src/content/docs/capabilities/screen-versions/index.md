@@ -28,7 +28,8 @@ built files and a manifest that says what they are. A stored version changes not
 - **File**: named by the SHA-256 of its bytes, stored once in the client's part of the files
   binding however many versions name it. Its content type is the host's, from its extension.
 - **Limits**: 1000 files, 25 MB a file, 50 MB a version; paths at most 200
-  characters and 10 folders deep. At most 3 uploads of a kind open at once, each removed if not
+  characters and 10 folders deep. At most 50 versions begun and 250 MB of new files a day, and at most 3 uploads of a kind
+  open at once, each removed if not
   sealed within 24 hours.
 
 ## How the pieces fit

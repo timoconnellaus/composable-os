@@ -24,7 +24,10 @@ and MCP see, inside the HTTP surface's 1 MB body; a file's bytes cannot be one.
   `screenContentType`), so a build and the host check the same rules. It holds `format`
   (`cos-screens/1`), `entry`, `contract` (the API contract version, `v1`), `files` (each `path`,
   `sha256`, `size`) and `build` (`tool`, and `from`: a repository, commit or ref). It is strict:
-  an unknown key is refused.
+  an unknown key is refused. A repository address with a user part (a CI's
+  `https://gitlab-ci-token:<token>@…`), a query, a fragment or a space is refused
+  (`repositoryProblem`): a sealed manifest is never changed, so a token in it could never be taken
+  out.
 - **Three steps, so no operation carries a file:** `screens.versionBegin` opens a version (and
   says which of the build's hashes the client holds already, so those are not sent again);
   each file goes to `PUT /api/v1/screens/versions/<id>/files/<sha256>` as the request's body,
@@ -45,7 +48,12 @@ and MCP see, inside the HTTP surface's 1 MB body; a file's bytes cannot be one.
 - **Limits:** at most 1000 files, 25 MB a file (Cloudflare's limit for a static asset, so a
   version is also servable as one), 50 MB a version (so a manifest is at most about 330 KB,
   inside the surface's 1 MB body); at most 3 versions of a kind open at once, each swept 24 hours
-  after it was begun. A client's unsealed bytes are so at most 150 MB a kind, gone within a day.
+  after it was begun; at most 50 versions begun and 250 MB of new files stored a day, per client.
+  Each bound is checked in the write itself (triggers on `core_screen_version`,
+  `core_screen_version_upload` and `core_screen_blob`, with the day's counts in
+  `core_screen_day`), so calls at once cannot pass it; the operations check the same first for a
+  plain answer. A client's files grow by at most 250 MB a day however its versions are begun,
+  filled and sealed, and the sweep removes what retention lets go in rounds until none is left.
 - **Where it lives.** Records in the client's database (migration 1490):
   `core_screen_version` (open, then sealed with its canonical manifest, its SHA-256 and what it
   says), `core_screen_version_file` (a sealed version's files, exactly its manifest's, with the
@@ -59,8 +67,13 @@ and MCP see, inside the HTTP surface's 1 MB body; a file's bytes cannot be one.
   naming a file the client does not hold at that size, any change to a version's files, their
   removal while the version exists, a change to a held file's hash, size or place, and the
   removal of a file a version names. The seal's own trigger checks the version's count, bytes
-  and entry against its files. The operations refuse the same first, with plain answers.
-  `query.sql` reaches no core table.
+  and entry against its files. `INSERT OR REPLACE` fires no delete trigger (recursive triggers
+  are off), so it is closed apart: a version's insert is refused when its id exists, and a file's
+  insert is ignored when its hash or key exists (ignored, not refused, so two puts of one new
+  file still race safely). A file's key is held by a CHECK to `screens/<its hash>/scv_<id>`, so
+  no row (an imported one, which no trigger sees, included) points at another object of the
+  client's. The operations refuse the same first, with plain answers. `query.sql` reaches no core
+  table.
 - **Removal is the retention rule only.** No operation removes a version. The daily maintenance
   sweep (`sweepScreenVersions`, per client) ends holds whose `until` has passed, removes open
   versions past their time with what they were sent, and removes sealed versions beyond the ten
@@ -68,7 +81,9 @@ and MCP see, inside the HTTP surface's 1 MB body; a file's bytes cannot be one.
   its kind or a held one.
   Files no version names and no open version claims are queued in `core_blob_deletion` in the
   same batch that removes their rows (drained by the 10-minute cron); objects under `screens/`
-  no row names (a put whose batch failed) are deleted once their version is not open.
+  no row names (a put whose batch failed) are deleted once their version is sealed or gone,
+  checked against the database after each page is listed, so an upload in flight (its object
+  stored, its row not yet) is left.
 - **The seam step 4 fills:** a row in `core_screen_version_hold` keeps a sealed version whatever
   its age. Step 4 writes one (`reason` `published`, `until` null) for the published version, and
   when the pointer moves sets its `until` to 90 days on: "any version published in the last 90

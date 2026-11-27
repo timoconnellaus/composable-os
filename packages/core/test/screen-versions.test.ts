@@ -5,6 +5,7 @@
 // (criterion 7, as far as versions go). Against real D1 and a real local R2 bucket.
 import { env } from "cloudflare:workers";
 import {
+  repositoryProblem,
   SCREEN_VERSION_LIMITS,
   type ScreenVersionManifest,
   screenPathProblem,
@@ -18,6 +19,8 @@ import {
   type ActingUser,
   clientScopesHeld,
   coreInvoker,
+  DAILY_BYTES,
+  DAILY_VERSIONS,
   drainAllBlobDeletions,
   handleScreenVersions,
   invoke,
@@ -143,9 +146,11 @@ beforeAll(async () => {
   member = await createUser("member");
 });
 
-// Each test starts with no upload open (MAX_OPEN_VERSIONS bounds them).
+// Each test starts with no upload open (MAX_OPEN_VERSIONS bounds them) and a fresh day's counts
+// (DAILY_VERSIONS and DAILY_BYTES bound them).
 beforeEach(async () => {
   await env.DB.batch([
+    env.DB.prepare("DELETE FROM core_screen_day"),
     env.DB.prepare(
       "DELETE FROM core_screen_version_upload WHERE version_id IN (SELECT id FROM core_screen_version WHERE state = 'open')",
     ),
@@ -277,6 +282,34 @@ describe("a build stored as a version (criterion 2)", () => {
   });
 });
 
+describe("a build of many files (review M1: a statement takes at most 100 parameters)", () => {
+  it("is stored and sealed with 120 files, and a second build of 300 hashes is told the 120 it holds", async () => {
+    const files = [
+      { path: "index.html", bytes: text("<!doctype html>many") },
+      ...Array.from({ length: 119 }, (_, i) => ({
+        path: `assets/chunk-${i}.js`,
+        bytes: text(`export const n = ${i}; // many`),
+      })),
+    ];
+    const first = await begin();
+    for (const f of files) await put(first.id, f.bytes);
+    const sealed = await seal(first.id, await manifestOf(files));
+    expect(sealed.state).toBe("sealed");
+    const hashes = await Promise.all(files.map((f) => sha256OfBytes(f.bytes)));
+    const fresh = Array.from({ length: 180 }, (_, i) => i.toString(16).padStart(64, "c"));
+    const second = await begin([...hashes, ...fresh]);
+    expect(second.held).toEqual([...hashes].sort());
+    // Each held file is claimed for the open version, in one statement.
+    const claimed = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_screen_version_upload WHERE version_id = ?",
+    )
+      .bind(second.id)
+      .first<{ n: number }>();
+    expect(claimed?.n).toBe(120);
+    expect((await seal(second.id, await manifestOf(files))).state).toBe("sealed");
+  });
+});
+
 describe("a version's kind", () => {
   it("is web, the only kind there is: another is refused by the operation and the database", async () => {
     const version = await begin();
@@ -317,6 +350,34 @@ describe("the manifest's checks", () => {
     expect(screenVersionManifestProblems({ entry: "index.html", files: heavy })).toEqual([
       expect.objectContaining({ message: expect.stringMatching(/together/) }),
     ]);
+  });
+
+  it("refuses a repository address that carries a token, a password, a query or a fragment (review S3)", async () => {
+    for (const bad of [
+      "https://gitlab-ci-token:glcbt-secret@gitlab.example/org/screens.git",
+      "https://user@github.com/org/screens",
+      "https://github.com/org/screens?token=x",
+      "https://github.com/org/screens#x",
+      "https://github.com/org/ screens",
+    ]) {
+      expect(repositoryProblem(bad), bad).not.toBeNull();
+      const files = build("repo");
+      await expect(
+        screenVersionManifestOf(files, {
+          entry: "index.html",
+          contract: "v1",
+          build: { tool: "t", from: { repository: bad } },
+        }),
+      ).rejects.toThrow();
+    }
+    for (const good of ["https://github.com/org/screens.git", "git@github.com:org/screens.git"]) {
+      expect(repositoryProblem(good), good).toBeNull();
+    }
+  });
+
+  it("takes an entry whose extension is in capitals, as its content type does (review F7)", () => {
+    const file = { path: "INDEX.HTML", sha256: "a".repeat(64), size: 1 };
+    expect(screenVersionManifestProblems({ entry: "INDEX.HTML", files: [file] })).toEqual([]);
   });
 
   it("refuses paths that leave the version, are absolute, hold a NUL or are too long", () => {
@@ -427,9 +488,31 @@ describe("the manifest's checks", () => {
         new Date().toISOString(),
       )
       .run();
-    const result = await attempt(put(version.id, text("12345")));
+    const bytes = text("12345");
+    const result = await attempt(put(version.id, bytes));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.details?.reason).toBe("too_large");
+    // Refused before its bytes were stored.
+    const sha = await sha256OfBytes(bytes);
+    expect((await bucket.list({ prefix: `screens/${sha}/` })).objects).toHaveLength(0);
+  });
+
+  it("refuses a version's file past its 1000th, before its bytes are stored", async () => {
+    const version = await begin();
+    await env.DB.prepare(
+      "INSERT INTO core_screen_version_upload (version_id, sha256, size, received_at) SELECT ?, printf('%064x', value + 4096), 0, '2026' FROM json_each(?)",
+    )
+      .bind(
+        version.id,
+        JSON.stringify(Array.from({ length: SCREEN_VERSION_LIMITS.maxFiles }, (_, i) => i)),
+      )
+      .run();
+    const bytes = text(`one too many ${version.id}`);
+    const result = await attempt(put(version.id, bytes));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.details?.reason).toBe("too_many_files");
+    const sha = await sha256OfBytes(bytes);
+    expect((await bucket.list({ prefix: `screens/${sha}/` })).objects).toHaveLength(0);
   });
 });
 
@@ -473,6 +556,67 @@ describe("a sealed version never changes", () => {
       .bind(id)
       .first<{ n: number }>();
     expect(files?.n).toBe(3);
+  });
+
+  it("is not replaced by INSERT OR REPLACE, which fires no delete trigger (review M2)", async () => {
+    const { id } = await store3("replace");
+    const replaced = await attempt(
+      env.DB.prepare(
+        "INSERT OR REPLACE INTO core_screen_version (id, kind, state, created_at, created_by, expires_at) VALUES (?, 'web', 'open', ?, 'u', '2999-01-01')",
+      )
+        .bind(id, new Date().toISOString())
+        .run(),
+    );
+    expect(replaced.ok).toBe(false);
+    if (!replaced.ok) expect(replaced.error.message).toMatch(/core_screen_version_open_first/);
+    const file = await screenVersionFile(db.query, id, "index.html");
+    const before = await env.DB.prepare("SELECT * FROM core_screen_blob WHERE sha256 = ?")
+      .bind(file?.sha256)
+      .first();
+    // A held file's row is kept as it is: the replace is ignored, not applied.
+    await env.DB.prepare(
+      "INSERT OR REPLACE INTO core_screen_blob (sha256, size, object_key, stored_at, last_put_at) VALUES (?, 999, ?, '2026', '2026')",
+    )
+      .bind(file?.sha256, `screens/${file?.sha256}/scv_${"Z".repeat(26)}`)
+      .run();
+    expect(
+      await env.DB.prepare("SELECT * FROM core_screen_blob WHERE sha256 = ?")
+        .bind(file?.sha256)
+        .first(),
+    ).toEqual(before);
+    // Nor is another file's row taken out by reusing its key.
+    const other = await screenVersionFile(db.query, id, "assets/app.js");
+    await env.DB.prepare(
+      "INSERT OR REPLACE INTO core_screen_blob (sha256, size, object_key, stored_at, last_put_at) VALUES (?, 1, ?, '2026', '2026')",
+    )
+      .bind("d".repeat(64), other?.objectKey)
+      .run();
+    expect(await screenVersionFile(db.query, id, "assets/app.js")).toEqual(other);
+    const versionRow = await env.DB.prepare(
+      "SELECT state, manifest IS NOT NULL AS m FROM core_screen_version WHERE id = ?",
+    )
+      .bind(id)
+      .first();
+    expect(versionRow).toEqual({ state: "sealed", m: 1 });
+  });
+
+  it("keeps a file's key to its own hash and version, whatever inserts the row (review B1)", async () => {
+    for (const key of [
+      "media/private-thing",
+      `screens/${"b".repeat(64)}/scv_${"0".repeat(26)}`,
+      `screens/${"a".repeat(64)}/not-a-version`,
+      `screens/${"a".repeat(64)}/scv_${"0".repeat(25)}%`,
+    ]) {
+      const result = await attempt(
+        env.DB.prepare(
+          "INSERT INTO core_screen_blob (sha256, size, object_key, stored_at, last_put_at) VALUES (?, 1, ?, '2026', '2026')",
+        )
+          .bind("a".repeat(64), key)
+          .run(),
+      );
+      expect(result.ok, key).toBe(false);
+      if (!result.ok) expect(result.error.message, key).toMatch(/CHECK constraint failed/);
+    }
   });
 
   it("is out of reach of query.sql, which refuses core tables", async () => {
@@ -547,11 +691,123 @@ describe("the retention rule and the sweep", () => {
     expect((await bucket.list({ prefix: `screens/${lone.sha256}/` })).objects).toHaveLength(0);
   });
 
+  it("keeps a file only an open version was sent while it is open (review F1)", async () => {
+    const version = await begin();
+    const sent = await put(version.id, text(`sent to an open version ${version.id}`));
+    await sweepScreenVersions(db, new Date(), blobs);
+    const row = await env.DB.prepare("SELECT object_key FROM core_screen_blob WHERE sha256 = ?")
+      .bind(sent.sha256)
+      .first<{ object_key: string }>();
+    expect(row).not.toBeNull();
+    expect(await bucket.get(row?.object_key ?? "")).not.toBeNull();
+  });
+
+  it("leaves an object an open version is being sent, before its row commits (review S1, F1)", async () => {
+    const version = await begin();
+    const sha = "9".repeat(64);
+    const key = `screens/${sha}/${version.id}`;
+    await bucket.put(key, "in flight");
+    await sweepScreenVersions(db, new Date(), blobs);
+    expect(await bucket.get(key)).not.toBeNull();
+  });
+
+  it("leaves an upload begun and stored while the sweep lists the bucket (review S1)", async () => {
+    let raced: { id: string; sha256: string } | null = null;
+    const racing = {
+      ...blobs,
+      list: async (prefix: string, cursor?: string) => {
+        if (!raced) {
+          const version = await begin();
+          const bytes = text(`stored while listed ${version.id}`);
+          const sent = await put(version.id, bytes);
+          raced = { id: version.id, sha256: sent.sha256 };
+        }
+        return blobs.list(prefix, cursor);
+      },
+    };
+    await sweepScreenVersions(db, new Date(), racing);
+    const got = raced as { id: string; sha256: string } | null;
+    const row = await env.DB.prepare("SELECT object_key FROM core_screen_blob WHERE sha256 = ?")
+      .bind(got?.sha256)
+      .first<{ object_key: string }>();
+    expect(await bucket.get(row?.object_key ?? "")).not.toBeNull();
+  });
+
   it("deletes a stray object no row names once its version is no longer open", async () => {
     await bucket.put("screens/".concat("e".repeat(64), "/scv_00000000000000000000000000"), "stray");
     const result = await sweepScreenVersions(db, new Date(), blobs);
     expect(result.strays).toBeGreaterThanOrEqual(1);
     expect(await bucket.get(`screens/${"e".repeat(64)}/scv_00000000000000000000000000`)).toBeNull();
+  });
+
+  it("holds the bounds against calls at once (review S2)", async () => {
+    // Five begins at once: three open.
+    const begun = await Promise.all(Array.from({ length: 5 }, () => attempt(begin())));
+    expect(begun.filter((r) => r.ok)).toHaveLength(MAX_OPEN_VERSIONS);
+    const [open] = begun.filter((r) => r.ok).map((r) => (r as { value: { id: string } }).value);
+    // Three 20 MB files at once into one version: no more than its 50 MB.
+    const big = (n: number) => {
+      const bytes = new Uint8Array(20 * 1024 * 1024);
+      bytes[0] = n;
+      return bytes;
+    };
+    const puts = await Promise.all([1, 2, 3].map((n) => attempt(put(open?.id as string, big(n)))));
+    expect(puts.filter((r) => r.ok).length).toBeLessThanOrEqual(2);
+    const total = await env.DB.prepare(
+      "SELECT coalesce(sum(size), 0) AS n FROM core_screen_version_upload WHERE version_id = ?",
+    )
+      .bind(open?.id)
+      .first<{ n: number }>();
+    expect(total?.n).toBeLessThanOrEqual(SCREEN_VERSION_LIMITS.maxTotalBytes);
+  });
+
+  it("counts a version's files and bytes in the write, at the SDK's limits", async () => {
+    const version = await begin();
+    const rows = (n: number, size: number) =>
+      env.DB.prepare(
+        "INSERT INTO core_screen_version_upload (version_id, sha256, size, received_at) SELECT ?, printf('%064x', value), ?, '2026' FROM json_each(?)",
+      )
+        .bind(version.id, size, JSON.stringify(Array.from({ length: n }, (_, i) => i)))
+        .run();
+    await rows(SCREEN_VERSION_LIMITS.maxFiles, 0);
+    const many = await attempt(
+      env.DB.prepare(
+        "INSERT INTO core_screen_version_upload (version_id, sha256, size, received_at) VALUES (?, ?, 0, '2026')",
+      )
+        .bind(version.id, "e".repeat(64))
+        .run(),
+    );
+    expect(many.ok).toBe(false);
+    if (!many.ok) expect(many.error.message).toMatch(/core_screen_version_too_many_files/);
+    const other = await begin();
+    await env.DB.prepare(
+      "INSERT INTO core_screen_version_upload (version_id, sha256, size, received_at) VALUES (?, ?, ?, '2026')",
+    )
+      .bind(other.id, "e".repeat(64), SCREEN_VERSION_LIMITS.maxTotalBytes)
+      .run();
+    const over = await attempt(
+      env.DB.prepare(
+        "INSERT INTO core_screen_version_upload (version_id, sha256, size, received_at) VALUES (?, ?, 1, '2026')",
+      )
+        .bind(other.id, "f".repeat(64))
+        .run(),
+    );
+    expect(over.ok).toBe(false);
+    if (!over.ok) expect(over.error.message).toMatch(/core_screen_version_too_large/);
+  });
+
+  it("bounds the versions begun and the bytes newly stored a day (review S2)", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    await env.DB.prepare("INSERT INTO core_screen_day (day, versions, bytes) VALUES (?, ?, ?)")
+      .bind(today, DAILY_VERSIONS - 1, DAILY_BYTES - 4)
+      .run();
+    const version = await begin();
+    const result = await attempt(put(version.id, text("12345 new today")));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.details?.reason).toBe("day_full");
+    const more = await attempt(begin());
+    expect(more.ok).toBe(false);
+    if (!more.ok) expect(more.error.details?.reason).toBe("day_full");
   });
 
   it("bounds how many uploads are open at once", async () => {

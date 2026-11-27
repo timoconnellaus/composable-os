@@ -29,6 +29,17 @@ export const OPEN_VERSION_HOURS = 24;
 /** Open versions of a kind a client may have at once: with a version's limits, the bound on unsealed bytes. */
 export const MAX_OPEN_VERSIONS = 3;
 
+/**
+ * Versions begun a day, and bytes of new files stored a day, per client: counted in the writes
+ * (migration 1490's core_screen_day), so beginning, filling and sealing versions over and over
+ * cannot grow a client's files without bound. Five full versions a day.
+ */
+export const DAILY_VERSIONS = 50;
+export const DAILY_BYTES = 250 * 1024 * 1024;
+
+/** How many days of core_screen_day are kept. */
+const DAY_ROWS_KEPT = 7;
+
 /** Sealed versions of each kind always kept, newest first; the delete trigger holds it too. */
 export const KEPT_VERSIONS = 10;
 
@@ -85,8 +96,9 @@ export interface ScreenSweep {
   strays: number;
 }
 
-/** At most this many versions are removed by one sweep; the rest wait for the next day. */
+/** Versions removed a round; rounds go on until none is left, at most SWEEP_ROUNDS a sweep. */
 const SWEEP_VERSIONS = 50;
+const SWEEP_ROUNDS = 20;
 /** At most this many pages of the files binding are read for strays by one sweep. */
 const SWEEP_PAGES = 20;
 
@@ -120,51 +132,60 @@ export async function sweepScreenVersions(
     .executeTakeFirst();
   result.holdsEnded = Number(ended.numDeletedRows);
 
-  const expired = await db
-    .selectFrom("core_screen_version")
-    .select("id")
-    .where("state", "=", "open")
-    .where("expires_at", "<=", at)
-    .limit(SWEEP_VERSIONS)
-    .execute();
-  for (const { id } of expired) {
-    await crm.batch([
-      db.deleteFrom("core_screen_version_upload").where("version_id", "=", id),
-      db.deleteFrom("core_screen_version").where("id", "=", id).where("state", "=", "open"),
-    ]);
-    result.openRemoved += 1;
+  for (let round = 0; round < SWEEP_ROUNDS; round++) {
+    const expired = await db
+      .selectFrom("core_screen_version")
+      .select("id")
+      .where("state", "=", "open")
+      .where("expires_at", "<=", at)
+      .limit(SWEEP_VERSIONS)
+      .execute();
+    for (const { id } of expired) {
+      await crm.batch([
+        db.deleteFrom("core_screen_version_upload").where("version_id", "=", id),
+        db.deleteFrom("core_screen_version").where("id", "=", id).where("state", "=", "open"),
+      ]);
+      result.openRemoved += 1;
+    }
+    if (expired.length < SWEEP_VERSIONS) break;
   }
 
   for (const kind of SCREEN_VERSION_KINDS) {
-    const beyond = await db
-      .selectFrom("core_screen_version as v")
-      .select("v.id")
-      .where("v.kind", "=", kind)
-      .where("v.state", "=", "sealed")
-      .where(({ not, exists, selectFrom }) =>
-        not(
-          exists(
-            selectFrom("core_screen_version_hold as h")
-              .select("h.version_id")
-              .whereRef("h.version_id", "=", "v.id"),
+    for (let round = 0; round < SWEEP_ROUNDS; round++) {
+      const beyond = await db
+        .selectFrom("core_screen_version as v")
+        .select("v.id")
+        .where("v.kind", "=", kind)
+        .where("v.state", "=", "sealed")
+        .where(({ not, exists, selectFrom }) =>
+          not(
+            exists(
+              selectFrom("core_screen_version_hold as h")
+                .select("h.version_id")
+                .whereRef("h.version_id", "=", "v.id"),
+            ),
           ),
-        ),
-      )
-      .orderBy("v.sealed_at", "desc")
-      .orderBy("v.id", "desc")
-      .limit(SWEEP_VERSIONS)
-      .offset(KEPT_VERSIONS)
-      .execute();
-    for (const { id } of beyond) {
-      // The version first (its trigger refuses one still kept), then its files, whose trigger
-      // lets them go only once it has. One batch: both or neither.
-      await crm.batch([
-        db.deleteFrom("core_screen_version").where("id", "=", id),
-        db.deleteFrom("core_screen_version_file").where("version_id", "=", id),
-      ]);
-      result.sealedRemoved += 1;
+        )
+        .orderBy("v.sealed_at", "desc")
+        .orderBy("v.id", "desc")
+        .limit(SWEEP_VERSIONS)
+        .offset(KEPT_VERSIONS)
+        .execute();
+      for (const { id } of beyond) {
+        // The version first (its trigger refuses one still kept), then its files, whose trigger
+        // lets them go only once it has. One batch: both or neither.
+        await crm.batch([
+          db.deleteFrom("core_screen_version").where("id", "=", id),
+          db.deleteFrom("core_screen_version_file").where("version_id", "=", id),
+        ]);
+        result.sealedRemoved += 1;
+      }
+      if (beyond.length < SWEEP_VERSIONS) break;
     }
   }
+
+  const since = new Date(now.getTime() - DAY_ROWS_KEPT * 86_400_000).toISOString().slice(0, 10);
+  await db.deleteFrom("core_screen_day").where("day", "<", since).execute();
 
   const unnamed = sql<boolean>`NOT EXISTS (SELECT 1 FROM core_screen_version_file f WHERE f.sha256 = core_screen_blob.sha256)
     AND NOT EXISTS (SELECT 1 FROM core_screen_version_upload u WHERE u.sha256 = core_screen_blob.sha256)`;
@@ -187,40 +208,58 @@ export async function sweepScreenVersions(
   return result;
 }
 
-/** Objects under `screens/` that no row names and whose version is not open. */
+/**
+ * Objects under `screens/` that no row names and whose version is sealed or gone. Each listed page
+ * is checked against the database after it is listed, not against a reading taken before: a put
+ * stores its object before its row commits, and only into a version that is open then, so an
+ * object whose version is open now may be an upload in flight and is left.
+ */
 async function deleteStrays(db: Db, blobs: BlobStore): Promise<number> {
   if (!blobs.list) return 0;
-  const named = new Set(
-    (await db.selectFrom("core_screen_blob").select("object_key").execute()).map(
-      (r) => r.object_key,
-    ),
-  );
-  const open = new Set(
-    (
-      await db.selectFrom("core_screen_version").select("id").where("state", "=", "open").execute()
-    ).map((r) => r.id),
-  );
-  const queued = new Set(
-    (
-      await db
-        .selectFrom("core_blob_deletion")
-        .select("key")
-        .where("key", "like", `${SCREEN_FILES_PREFIX}%`)
-        .execute()
-    ).map((r) => r.key),
-  );
   let deleted = 0;
   let cursor: string | undefined;
   for (let page = 0; page < SWEEP_PAGES; page++) {
     const listed = await blobs.list(SCREEN_FILES_PREFIX, cursor);
-    const strays = listed.keys.filter((key) => {
-      if (named.has(key) || queued.has(key)) return false;
-      const version = key.slice(SCREEN_FILES_PREFIX.length).split("/")[1];
-      return !version || !open.has(version);
-    });
-    if (strays.length) {
-      await blobs.delete(strays);
-      deleted += strays.length;
+    const keys = listed.keys;
+    if (keys.length) {
+      const versionOf = (key: string) => key.slice(SCREEN_FILES_PREFIX.length).split("/")[1] ?? "";
+      const keyList = JSON.stringify(keys);
+      const versionList = JSON.stringify([...new Set(keys.map(versionOf))]);
+      const named = new Set(
+        (
+          await db
+            .selectFrom("core_screen_blob")
+            .select("object_key")
+            .where(sql<boolean>`object_key IN (SELECT value FROM json_each(${keyList}))`)
+            .execute()
+        ).map((r) => r.object_key),
+      );
+      const queued = new Set(
+        (
+          await db
+            .selectFrom("core_blob_deletion")
+            .select("key")
+            .where(sql<boolean>`key IN (SELECT value FROM json_each(${keyList}))`)
+            .execute()
+        ).map((r) => r.key),
+      );
+      const open = new Set(
+        (
+          await db
+            .selectFrom("core_screen_version")
+            .select("id")
+            .where("state", "=", "open")
+            .where(sql<boolean>`id IN (SELECT value FROM json_each(${versionList}))`)
+            .execute()
+        ).map((r) => r.id),
+      );
+      const strays = keys.filter(
+        (key) => !named.has(key) && !queued.has(key) && !open.has(versionOf(key)),
+      );
+      if (strays.length) {
+        await blobs.delete(strays);
+        deleted += strays.length;
+      }
     }
     if (!listed.cursor) break;
     cursor = listed.cursor;

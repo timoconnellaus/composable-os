@@ -37,6 +37,8 @@ import { ConflictError, NotFoundError, OperationError, ValidationError } from ".
 import { newId } from "../ids.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import {
+  DAILY_BYTES,
+  DAILY_VERSIONS,
   MAX_OPEN_VERSIONS,
   OPEN_VERSION_HOURS,
   screenObjectKey,
@@ -160,7 +162,8 @@ async function openVersion(ctx: HandlerContext, id: string): Promise<VersionRow>
 
 /** A refusal the database made at commit (migration 1490's triggers), said plainly. */
 async function explainStoreFailure(error: OperationError): Promise<OperationError | null> {
-  const message = error.message;
+  // The trigger's name is in the message, or in the reason an unrecognised error keeps.
+  const message = `${error.message} ${JSON.stringify(error.details ?? null)}`;
   if (message.includes("core_screen_version_sealed")) {
     return new ConflictError("A sealed version is never changed", {
       rule: "screen_version",
@@ -178,6 +181,36 @@ async function explainStoreFailure(error: OperationError): Promise<OperationErro
       rule: "screen_version",
       reason: "not_open",
     });
+  }
+  if (message.includes("core_screen_version_too_many_open")) {
+    return new ConflictError(
+      `${MAX_OPEN_VERSIONS} versions of this kind are being uploaded already: seal one, or wait until one is swept`,
+      { rule: "screen_version", reason: "too_many_open", max: MAX_OPEN_VERSIONS },
+    );
+  }
+  if (message.includes("core_screen_version_day_full")) {
+    return new ConflictError(
+      `At most ${DAILY_VERSIONS} versions are begun a day: try again tomorrow`,
+      { rule: "screen_version", reason: "day_full", max: DAILY_VERSIONS },
+    );
+  }
+  if (message.includes("core_screen_day_full")) {
+    return new ConflictError(
+      `At most ${DAILY_BYTES} bytes of new files are stored a day: try again tomorrow`,
+      { rule: "screen_version", reason: "day_full", max: DAILY_BYTES, httpStatus: 413 },
+    );
+  }
+  if (message.includes("core_screen_version_too_many_files")) {
+    return new ValidationError(`A version holds at most ${SCREEN_VERSION_LIMITS.maxFiles} files`, {
+      reason: "too_many_files",
+      max: SCREEN_VERSION_LIMITS.maxFiles,
+    });
+  }
+  if (message.includes("core_screen_version_too_large")) {
+    return new ValidationError(
+      `A version's files are at most ${SCREEN_VERSION_LIMITS.maxTotalBytes} bytes together`,
+      { reason: "too_large", max: SCREEN_VERSION_LIMITS.maxTotalBytes, httpStatus: 413 },
+    );
   }
   if (message.includes("core_screen_version_seal_mismatch")) {
     return new ConflictError("The seal does not match the version's files", {
@@ -218,27 +251,19 @@ export const screenVersionBegin = defineOperation({
   mcp: { expose: false },
   explainFailure: explainStoreFailure,
   async handler(input, ctx) {
-    const open = await ctx.db
-      .selectFrom("core_screen_version")
-      .select(({ fn }) => fn.countAll<number>().as("n"))
-      .where("kind", "=", input.kind)
-      .where("state", "=", "open")
-      .where("expires_at", ">", ctx.now)
-      .executeTakeFirst();
-    if (Number(open?.n ?? 0) >= MAX_OPEN_VERSIONS) {
-      throw new ConflictError(
-        `${MAX_OPEN_VERSIONS} versions of this kind are being uploaded already: seal one, or wait until one is swept`,
-        { rule: "screen_version", reason: "too_many_open", max: MAX_OPEN_VERSIONS },
-      );
-    }
+    // At most 3 open of a kind and 50 begun a day: the insert's trigger counts them, so begins at
+    // once cannot pass them (explainStoreFailure says which).
     const id = newId("screenVersion");
     const expiresAt = new Date(Date.parse(ctx.now) + OPEN_VERSION_HOURS * 3_600_000).toISOString();
     const wanted = [...new Set(input.sha256)];
+    // The hashes as one parameter (json_each): a statement takes at most 100, a build 1000 files.
+    const listed = JSON.stringify(wanted);
+    const inListed = sql<boolean>`sha256 IN (SELECT value FROM json_each(${listed}))`;
     const held = wanted.length
       ? await ctx.db
           .selectFrom("core_screen_blob")
           .select(["sha256", "size"])
-          .where("sha256", "in", wanted)
+          .where(inListed)
           .execute()
       : [];
     ctx.write(
@@ -254,14 +279,9 @@ export const screenVersionBegin = defineOperation({
     // What it holds is claimed for this version at once, so the sweep leaves it while it is open.
     if (held.length) {
       ctx.write(
-        ctx.db.insertInto("core_screen_version_upload").values(
-          held.map((h) => ({
-            version_id: id,
-            sha256: h.sha256,
-            size: h.size,
-            received_at: ctx.now,
-          })),
-        ),
+        sql`INSERT INTO core_screen_version_upload (version_id, sha256, size, received_at)
+          SELECT ${id}, b.sha256, b.size, ${ctx.now} FROM core_screen_blob b
+          WHERE b.sha256 IN (SELECT value FROM json_each(${listed}))`.compile(ctx.db),
       );
     }
     return {
@@ -295,8 +315,10 @@ export const screenVersionPut = defineOperation({
   // The bytes are the request's, never the input's: a pending action could not hold them, so a
   // call the policy or the deploy floor would make wait is refused instead.
   neverQueued: true,
+  // Its input is only the version and the hash; neverQueued needs a redaction, so the hash is it,
+  // and the summary names none either (the sealed version's files name each hash).
   redact: ["sha256"],
-  auditSummary: (out, input) => ({ version: input.version, sha256: out.sha256, size: out.size }),
+  auditSummary: (out, input) => ({ version: input.version, size: out.size, stored: out.stored }),
   explainFailure: explainStoreFailure,
   async handler(input, ctx) {
     const bytes = ctx.upload?.bytes;
@@ -335,6 +357,8 @@ export const screenVersionPut = defineOperation({
       .where("version_id", "=", input.version)
       .where("sha256", "=", actual)
       .executeTakeFirst();
+    // Checked here before any byte is stored; the upload's trigger checks again in the write, so
+    // puts at once cannot pass the bounds either.
     if (!already) {
       if (Number(sent?.files ?? 0) + 1 > SCREEN_VERSION_LIMITS.maxFiles) {
         throw new ValidationError(

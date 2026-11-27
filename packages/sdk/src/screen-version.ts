@@ -122,6 +122,19 @@ const screenFileSchema = z.strictObject({
   size: z.number().int().min(0).max(SCREEN_VERSION_LIMITS.maxFileBytes),
 });
 
+/**
+ * Why `value` is no repository address a sealed manifest may keep; null when it may. A CI's
+ * checkout URL can carry its token (`https://gitlab-ci-token:<token>@host/…`), and a sealed
+ * manifest is never changed, so a URL with a user part, a query or a fragment is refused, as is
+ * any space. The scp-like form (`git@github.com:org/repo.git`) has no secret and is taken.
+ */
+export function repositoryProblem(value: string): string | null {
+  if (/\s/.test(value)) return "no spaces";
+  if (/[?#]/.test(value)) return "no query or fragment";
+  if (/^[a-z][a-z0-9+.-]*:\/\/[^/]*@/i.test(value)) return "no user, password or token";
+  return null;
+}
+
 /** An API contract version, as the host names them (ADR 0417): `v1`, `v2`, … */
 export const API_CONTRACT_VERSION = /^v[1-9][0-9]{0,3}$/;
 
@@ -139,7 +152,16 @@ export const screenVersionManifestSchema = z
       tool: z.string().trim().min(1).max(100),
       from: z
         .strictObject({
-          repository: z.string().trim().min(1).max(300).optional(),
+          repository: z
+            .string()
+            .trim()
+            .min(1)
+            .max(300)
+            .refine((value) => repositoryProblem(value) === null, {
+              message:
+                "a repository's address without a user, password or token (no user@ in a URL), a query or a fragment",
+            })
+            .optional(),
           commit: z
             .string()
             .regex(/^[0-9a-f]{7,64}$/, "a commit id in lowercase hex")
@@ -209,7 +231,7 @@ export function screenVersionManifestProblems(
       message: `the entry ${manifest.entry} is not one of the files`,
       path: ["entry"],
     });
-  } else if (!/\.html$/.test(manifest.entry)) {
+  } else if (!/\.html$/i.test(manifest.entry)) {
     problems.push({ message: "the entry is an .html file", path: ["entry"] });
   }
   return problems;

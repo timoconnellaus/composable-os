@@ -6,27 +6,37 @@
 // a run that finds no test file): it runs whole, once, in the first shard, or in an unsharded run.
 import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
+import { availableParallelism } from "node:os";
 
 const args = process.argv.slice(2);
 const shard = args.map((arg) => /^--shard=(\d+)\/(\d+)$/.exec(arg)).find(Boolean);
 const unsharded = args.filter((arg) => !/^--shard=/.test(arg));
 
-// A worker of the two-client suite cannot take a second test file (its workerd exits, as core's
-// two-client mode's does: packages/core/scripts/test-two-clients.mjs), so each file has a worker
-// of its own however few cores the machine has (a CI runner's 4 gave 3 workers for 4 files).
-const twoClientFiles = readdirSync(new URL("../test-two-clients", import.meta.url)).filter((name) =>
-  name.endsWith(".test.ts"),
-).length;
+function run(config, runArgs) {
+  const result = spawnSync("vitest", ["run", "-c", config, ...runArgs], { stdio: "inherit" });
+  if (result.error) throw result.error;
+  if (result.status !== 0) process.exit(result.status ?? 1);
+}
 
-const runs = [
-  ["vitest.config.ts", args],
-  ["vitest.node.config.ts", args],
-  ...(!shard || shard[1] === "1"
-    ? [["vitest.two-client.config.ts", [`--maxWorkers=${twoClientFiles}`, ...unsharded]]]
-    : []),
-];
-for (const [config, runArgs] of runs) {
-  const run = spawnSync("vitest", ["run", "-c", config, ...runArgs], { stdio: "inherit" });
-  if (run.error) throw run.error;
-  if (run.status !== 0) process.exit(run.status ?? 1);
+run("vitest.config.ts", args);
+run("vitest.node.config.ts", args);
+
+// A worker of the two-client suite cannot take a second test file (its workerd exits, as core's
+// two-client mode's does: packages/core/scripts/test-two-clients.mjs). So its files run in batches
+// the size of the worker count, each file with a worker of its own, however few cores the machine
+// has (a CI runner's 4 gave 3 workers to 4 files) and however many files the suite grows to. A
+// file named on the command line runs only if it is one of the suite's.
+if (!shard || shard[1] === "1") {
+  const flags = unsharded.filter((arg) => arg.startsWith("-"));
+  const named = unsharded.filter((arg) => !arg.startsWith("-"));
+  const files = readdirSync(new URL("../test-two-clients", import.meta.url))
+    .filter((name) => name.endsWith(".test.ts"))
+    .sort()
+    .map((name) => `test-two-clients/${name}`)
+    .filter((file) => !named.length || named.some((name) => file.includes(name)));
+  const workers = Math.max(1, Math.min(8, availableParallelism() - 2));
+  for (let at = 0; at < files.length; at += workers) {
+    const batch = files.slice(at, at + workers);
+    run("vitest.two-client.config.ts", [`--maxWorkers=${batch.length}`, ...flags, ...batch]);
+  }
 }

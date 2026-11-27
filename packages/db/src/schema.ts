@@ -1131,6 +1131,13 @@ export interface CoreScreenVersionHoldTable {
   created_at: string;
 }
 
+/** What one day added to a client's screen versions: begun, and bytes newly stored (migration 1490). */
+export interface CoreScreenDayTable {
+  day: string;
+  versions: Generated<number>;
+  bytes: Generated<number>;
+}
+
 export interface CoreIdempotencyClaimTable {
   scope: string;
   idempotency_key: string;
@@ -4757,6 +4764,7 @@ export interface CoreDatabase {
   core_screen_version_file: CoreScreenVersionFileTable;
   core_screen_version_upload: CoreScreenVersionUploadTable;
   core_screen_version_hold: CoreScreenVersionHoldTable;
+  core_screen_day: CoreScreenDayTable;
   core_device_session: CoreDeviceSessionTable;
   core_user_invite: CoreUserInviteTable;
   core_native_handoff: CoreNativeHandoffTable;

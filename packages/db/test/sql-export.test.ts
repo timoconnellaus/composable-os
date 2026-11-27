@@ -78,7 +78,7 @@ lines', X'00', X'0102', NULL),
 // its files, then sealed. Its triggers must hold again once the import has made them.
 const SHA = "a".repeat(64);
 const SCREEN_VERSION = [
-  `INSERT INTO core_screen_blob VALUES ('${SHA}', 12, 'screens/${SHA}/scv_export', '2026-11-27', '2026-11-27')`,
+  `INSERT INTO core_screen_blob VALUES ('${SHA}', 12, 'screens/${SHA}/scv_01JC9Z6X0V8M4T3K2Q1W5E7R9Y', '2026-11-27', '2026-11-27')`,
   "INSERT INTO core_screen_version (id, kind, state, created_at, created_by, expires_at) VALUES ('scv_export', 'web', 'open', '2026-11-27', 'usr_x', '2026-11-28')",
   `INSERT INTO core_screen_version_file VALUES ('scv_export', 'index.html', '${SHA}', 12, 'text/html; charset=utf-8')`,
   `UPDATE core_screen_version SET state = 'sealed', expires_at = NULL, sealed_at = '2026-11-27', sealed_by = 'usr_x', manifest = '{}', manifest_sha256 = '${SHA}', entry = 'index.html', contract = 'v1', build_tool = 'test', file_count = 1, total_bytes = 12 WHERE id = 'scv_export'`,
