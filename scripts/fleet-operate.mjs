@@ -31,10 +31,11 @@
 // process.env before any import that is not Node's own.
 //
 // A client's first day (docs/deploying.md, "A client's first day"): `client-add` with its packs,
-// label and first admin (an address and the SHA-256 of a setup token the owner made on his own
-// machine), `client-first-admin`, and the settings commands. The first admin's address is a
-// client's personal data in a public log: it is masked before anything prints, never in the
-// command line shown, and only redacted in the summary. cos runs with CI=true, so its own refusal
+// label and first admin (the SHA-256 of a setup token the owner made on his own machine, an
+// input, and the admin's address, the environment secret CLIENT_<ID>_ADMIN_EMAIL, never an input:
+// a client's personal data, kept out of a public repository's run history), `client-first-admin`,
+// and the settings commands. The address is masked, never in the command line shown, and only
+// redacted in the summary. cos runs with CI=true, so its own refusal
 // of anything that would print a setup link holds here; `--print-link`, `first-admin-token`,
 // `--show-email` and `--adopt` are never mapped.
 import { spawn, spawnSync } from "node:child_process";
@@ -62,21 +63,20 @@ const EMAIL_SHAPE = /^(?!-)[^\s@,;<>"'`$\\]{1,64}@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]
 const HEX32 = /^[0-9a-f]{32}$/;
 const CUSTOMER_CODE = /^[a-z0-9]{4,64}$/;
 
+// Which settings are identity or approval policy is the registry's own mark (`policy` in
+// packages/db registry.ts OPERATOR_SETTINGS, `isPolicySetting`), given to `readInputs` with its
+// rules. AGENTS.md: identity and policy are not AI-configurable, and loosening approval is a human
+// admin's alone; this workflow, which agents may dispatch, sets one only as the owner's own
+// confirmed change, never at client-add (reviews of #547, S4, and of #560, S3).
+
+/** The environment secret that holds a client's first admin's address (review of #560, M1). */
+export const adminEmailSecret = (client) => `CLIENT_${String(client).toUpperCase()}_ADMIN_EMAIL`;
+
 /**
- * The client settings that are identity or approval policy (packages/db registry.ts
- * `CLIENT_SETTINGS`): who may sign in and how, where sign-in codes go, and what needs approval.
- * AGENTS.md: identity and policy are not AI-configurable, and loosening approval is a human
- * admin's alone; this workflow, which agents may dispatch, never sets them (review of #547, S4).
+ * The line cos prints for each hostname it waited for that still does not answer (cos's
+ * `NOT_ANSWERING_MARKER`, packages/create-composable-os/src/fleet/clients.ts): `<marker> <host>`.
  */
-export const POLICY_SETTINGS = Object.freeze([
-  "APPROVAL_FLOOR",
-  "APPROVAL_EXPIRY_DAYS",
-  "IDENTITY_PROVIDER",
-  "AUTH_ALLOW_SIGNUP",
-  "NATIVE_REDIRECT_URIS",
-  // Which browser origins may call the API with a session (the re-review of #547).
-  "API_ALLOWED_ORIGINS",
-]);
+export const NOT_ANSWERING = "cos-status: hostname-not-answering";
 
 /** A setting's value for client-setting-set: one argument to cos, never a flag (no leading -). */
 const SETTING_ARGUMENT = /^(?!-)[\p{L}\p{N} ,._:/@+'&()!?#-]{1,512}$/u;
@@ -109,18 +109,18 @@ export const COMMANDS = Object.freeze({
     confirmWhat: "the version",
   },
   "client-list": { dry: "read", fields: [] },
-  // Its packs are required (COS_PACKS in `settings`); its label and first admin are optional, the
-  // admin's address and token hash together. cos waits for its new staff hostname to answer (up
+  // Its packs are required (COS_PACKS in `settings`); its label and first admin are optional: a
+  // token hash given names the first admin, whose address is CLIENT_<ID>_ADMIN_EMAIL. cos waits for its new staff hostname to answer (up
   // to 15 minutes): never --no-wait, so the run says whether the admin's link works yet.
   "client-add": {
     dry: "flag",
     fields: ["client"],
-    optional: ["adminEmail", "tokenSha256", "label"],
+    optional: ["tokenSha256", "label"],
   },
   // Names (or names again) who may make the client's first account: a new hash replaces the last.
   "client-first-admin": {
     dry: "flag",
-    fields: ["client", "adminEmail", "tokenSha256"],
+    fields: ["client", "tokenSha256"],
     confirm: (i) => i.client,
   },
   "client-pause": {
@@ -190,7 +190,7 @@ export const COMMANDS = Object.freeze({
 
 /** A setting's confirm: `<client id>:<NAME>` for an identity or approval one, else the id. */
 function settingConfirm(i) {
-  return POLICY_SETTINGS.includes(i.settingName) ? `${i.client}:${i.settingName}` : i.client;
+  return i.policy ? `${i.client}:${i.settingName}` : i.client;
 }
 
 function upgradeConfirm(i) {
@@ -213,7 +213,14 @@ const bool = (s, fallback) => {
  */
 export function readInputs(
   env,
-  { knownSettings, isSecretName, clientIdProblem, isEmail = () => true, labelProblem = () => null },
+  {
+    knownSettings,
+    isSecretName,
+    clientIdProblem,
+    isPolicySetting,
+    isEmail = () => true,
+    labelProblem = () => null,
+  },
 ) {
   const problems = [];
   const fail = (m) => problems.push(m);
@@ -233,8 +240,10 @@ export function readInputs(
     secretName: words(env.OP_SECRET_NAME),
     settingName: words(env.OP_SETTING_NAME),
     settingValue: String(env.OP_SETTING_VALUE ?? ""),
-    adminEmail: words(env.OP_ADMIN_EMAIL),
     tokenSha256: words(env.OP_ADMIN_TOKEN_SHA256),
+    // From the environment secret CLIENT_<ID>_ADMIN_EMAIL (ADMIN_EMAIL here), only with a hash:
+    // never an input. Absent in the job that checks inputs, which holds no secret.
+    adminEmail: "",
     // As given: a label with a space before or after is refused, not trimmed.
     label: String(env.OP_LABEL ?? ""),
     confirm: words(env.OP_CONFIRM),
@@ -276,21 +285,26 @@ export function readInputs(
   check("secretName", (v) => isSecretName(v), "secret_name (a given secret's name)");
   check("settingName", (v) => knownSettings.includes(v), "setting_name (a client setting's name)");
   check("settingValue", (v) => SETTING_ARGUMENT.test(v), "setting_value");
-  // Never echoed: an address is a client's personal data.
-  check(
-    "adminEmail",
-    (v) => v.length <= 254 && EMAIL_SHAPE.test(v) && isEmail(v),
-    "admin_email (the first admin's address)",
-  );
   check("tokenSha256", (v) => SHA256.test(v), "admin_token_sha256 (64 lowercase hex characters)");
   check(
     "label",
     (v) => !v.startsWith("-") && labelProblem(v) === null,
     "label (1 to 60 characters, no space before or after, no line break, < or >)",
   );
-  // The address and its token's hash name the first admin together.
-  if (i.command === "client-add" && Boolean(i.adminEmail) !== Boolean(i.tokenSha256)) {
-    fail("admin_email and admin_token_sha256 go together: give both, or neither");
+  i.policy = Boolean(i.settingName && isPolicySetting(i.settingName));
+  // A first admin's address is the environment secret CLIENT_<ID>_ADMIN_EMAIL: a secret's name
+  // has no hyphen, so a client id with one cannot have it (as client-secret-set refuses them).
+  if (i.tokenSha256 && i.client.includes("-")) {
+    fail(
+      `a first admin needs a client id without a hyphen (its address is the environment secret ${adminEmailSecret("<ID>")}, and a secret's name has no hyphen)`,
+    );
+  }
+  if (i.tokenSha256 && env.ADMIN_EMAIL) {
+    const address = words(env.ADMIN_EMAIL);
+    // Never echoed: an address is a client's personal data.
+    if (address.length <= 254 && EMAIL_SHAPE.test(address) && isEmail(address)) {
+      i.adminEmail = address;
+    } else fail(`the environment secret ${adminEmailSecret(i.client)} is not an email address`);
   }
   // A COS_PACKS that is "*", or a COS_PACKS unset: a client's packs are an explicit list.
   if (i.command === "client-setting-set" && i.settingName === "COS_PACKS") {
@@ -315,7 +329,7 @@ export function readInputs(
     const m = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(pair);
     if (m?.[1] === "COS_PACKS" && m[2].includes("*")) {
       fail("COS_PACKS is never *, the whole catalogue: list the client's packs");
-    } else if (m && POLICY_SETTINGS.includes(m[1])) {
+    } else if (m && isPolicySetting(m[1])) {
       fail(
         `setting ${m[1]} is identity or approval policy: never set at client-add; it is the owner's own change, by client-setting-set with confirm <client id>:${m[1]} (docs/deploying.md)`,
       );
@@ -483,7 +497,7 @@ export function plan(i) {
     // The value in full, for whoever approves the real run.
     const what =
       i.command === "client-setting-set"
-        ? `; it would set ${i.settingName} for ${id} to "${i.settingValue}"${POLICY_SETTINGS.includes(i.settingName) ? `, an identity or approval setting: confirm ${id}:${i.settingName} to run it` : ""}`
+        ? `; it would set ${i.settingName} for ${id} to "${i.settingValue}"${i.policy ? `, an identity or approval setting: confirm ${id}:${i.settingName} to run it` : ""}`
         : "";
     return { argv: [...argv, "--dry-run"], run: true, why: `dry run: cos changes nothing${what}` };
   }
@@ -622,10 +636,10 @@ export async function operate(env, deps) {
   const secrets = [env.CLOUDFLARE_API_TOKEN, env.CLOUDFLARE_ACCOUNT_ID, env.GITHUB_TOKEN].filter(
     Boolean,
   );
-  // Before anything is printed: the first admin's address (a client's personal data; the
-  // workflow masks it at the job's start too), the Stream token and signing key, and Stream's
-  // account id. Each is cut out of everything written as well.
-  const email = words(env.OP_ADMIN_EMAIL);
+  // Before anything is printed: the first admin's address (a client's personal data, a secret the
+  // runner masks too), the Stream token and signing key, and Stream's account id. Each is cut out
+  // of everything written as well.
+  const email = words(env.ADMIN_EMAIL);
   if (email) secrets.push(email, email.toLowerCase());
   const streamToken = words(env.FLEET_STREAM_API_TOKEN);
   const streamJwk = String(env.FLEET_STREAM_SIGNING_JWK ?? "").trim();
@@ -639,13 +653,15 @@ export async function operate(env, deps) {
     lines.push(clean);
     deps.log(clean);
   };
-  const finish = (code, i, shown, outcome, output = "") => {
+  const finish = (code, i, shown, outcome, output = "", warning = "") => {
+    if (warning) deps.log(sanitize(`::warning::${warning}`, secrets));
     deps.log(sanitize(`Result: ${outcome}`, secrets));
     deps.writeSummary(
       sanitize(
         [
           `## Fleet operation: ${i?.command ?? "?"} on ${i?.env ?? "?"}`,
           "",
+          ...(warning ? [`**${warning}**`, ""] : []),
           `- by: ${env.GITHUB_ACTOR ?? "?"}`,
           `- client: ${i?.client || "none"}`,
           ...(i?.adminEmail ? [`- first admin: ${redactEmail(i.adminEmail)} (redacted)`] : []),
@@ -677,6 +693,12 @@ export async function operate(env, deps) {
     i = readInputs(env, deps.rules);
     checkProduct(deps.product);
     if (i.command === "fleet-install") streamTogether(i, streamToken, streamJwk);
+    // A hash names a first admin: the address must be in this environment (review of #560, M1).
+    if (i.tokenSha256 && !i.adminEmail) {
+      throw new InputError(
+        `the environment secret ${adminEmailSecret(i.client)} is not set: create it in this fleet's environment with the first admin's address, then run again`,
+      );
+    }
   } catch (error) {
     say(`Refused: ${error.message}`);
     return finish(2, i, null, `refused before cos: ${error.message}`);
@@ -814,13 +836,39 @@ export async function operate(env, deps) {
   );
   const output = sanitize(result.out, secrets);
   for (const line of output.split("\n")) if (line.trim()) deps.log(`    ${line}`);
+  const pending = notAnswering(result.out);
+  const warning = pending.length ? notAnsweringWarning(i, pending) : "";
   return finish(
     result.code,
     i,
     shown,
-    result.code === 0 ? "succeeded" : `failed (exit ${result.code})`,
+    result.code === 0
+      ? pending.length
+        ? `succeeded, but ${pending.join(", ")} ${pending.length > 1 ? "do" : "does"} not answer yet`
+        : "succeeded"
+      : `failed (exit ${result.code})`,
     [...notes, output].join("\n"),
+    warning,
   );
+}
+
+/** The hostnames cos says still do not answer after its wait: its fixed line, one each. */
+export function notAnswering(out) {
+  const found = [];
+  for (const line of String(out).split("\n")) {
+    const m = new RegExp(`^${NOT_ANSWERING} (\\S+)$`).exec(line.trim());
+    if (m && HOSTNAME.test(m[1])) found.push(m[1]);
+  }
+  return found;
+}
+
+/** What a run says first when a hostname it made does not answer yet. */
+function notAnsweringWarning(i, hostnames) {
+  const which = hostnames.join(", ");
+  if (i.command === "client-add" && i.tokenSha256) {
+    return `${i.client} was added, but ${which} does not answer yet: do not send the setup link until a client-list or hostname-verify run shows it answering`;
+  }
+  return `${which} ${hostnames.length > 1 ? "do" : "does"} not answer yet: run client-list or hostname-verify in a few minutes to see it answering`;
 }
 
 /**
@@ -898,6 +946,7 @@ export function takeSecrets(env) {
 export const TAKEN = Object.freeze([
   "FLEET_KEYS",
   "SECRET_VALUE",
+  "ADMIN_EMAIL",
   "FLEET_STREAM_API_TOKEN",
   "FLEET_STREAM_SIGNING_JWK",
 ]);
@@ -942,15 +991,15 @@ async function main(argv) {
   // Before any import that is not Node's own.
   const taken = takeSecrets(ENV);
   const [command] = argv;
-  const { OPERATOR_SETTINGS, clientIdProblem, firstAdminEmail, labelProblem } = await import(
-    "../packages/db/src/registry.ts"
-  );
+  const { OPERATOR_SETTINGS, clientIdProblem, firstAdminEmail, isPolicySetting, labelProblem } =
+    await import("../packages/db/src/registry.ts");
   const { isGivenSecretName } = await import("../packages/db/src/registry-sealing.ts");
   const rules = {
     // The settings an operator writes (cos refuses every other, at add too).
     knownSettings: Object.keys(OPERATOR_SETTINGS),
     isSecretName: isGivenSecretName,
     clientIdProblem,
+    isPolicySetting,
     isEmail: (v) => firstAdminEmail(v) !== null,
     labelProblem,
   };

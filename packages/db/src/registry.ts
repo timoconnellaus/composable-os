@@ -405,9 +405,20 @@ const NOT_APP_SCHEMES = new Set([
  * with the reason `NOT_OPERATOR_SETTINGS` gives: the deployment's value applies, or its own
  * command writes it. `setClientSetting` (registry-writes) holds the same list where the write is.
  * A changed setting is served within the registry's refresh (`REGISTRY_REFRESH_MS`, 10 seconds).
+ * `policy` marks an identity or approval setting: who may sign in and how, which origins may call
+ * the API with a session, what needs approval. AGENTS.md: those are not AI-configurable, so the
+ * operator's workflow sets one only as the owner's own reviewed change (confirmed by
+ * `<client id>:<NAME>`, scripts/fleet-operate.mjs), and never at `add`.
  */
 export const OPERATOR_SETTINGS: Readonly<
-  Record<string, { check: (value: string, context: SettingContext) => string | null; what: string }>
+  Record<
+    string,
+    {
+      check: (value: string, context: SettingContext) => string | null;
+      what: string;
+      policy?: true;
+    }
+  >
 > = {
   COS_PACKS: {
     what: "the packs the client has, an explicit comma-separated list of pack ids, only ever wider",
@@ -427,6 +438,7 @@ export const OPERATOR_SETTINGS: Readonly<
   },
   API_ALLOWED_ORIGINS: {
     what: "the origins of the client's own sites and apps that may call its API",
+    policy: true,
     check: (value, context) => {
       const entries = entriesOf(value);
       if (entries.length === 0 || entries.length > 20) return "1 to 20 https origins";
@@ -450,6 +462,7 @@ export const OPERATOR_SETTINGS: Readonly<
   },
   NATIVE_REDIRECT_URIS: {
     what: "the client's native app's sign-in redirects",
+    policy: true,
     check: (value, context) => {
       const entries = entriesOf(value);
       if (entries.length === 0 || entries.length > 20) return "1 to 20 redirect addresses";
@@ -483,6 +496,7 @@ export const OPERATOR_SETTINGS: Readonly<
   },
   APPROVAL_EXPIRY_DAYS: {
     what: "days before a pending action expires",
+    policy: true,
     check: (value) =>
       /^\d{1,2}$/.test(value) && Number(value) >= 1 && Number(value) <= 90 ? null : "1 to 90",
   },
@@ -491,6 +505,11 @@ export const OPERATOR_SETTINGS: Readonly<
     check: labelProblem,
   },
 };
+
+/** Whether an operator's setting is identity or approval policy (`policy` above). */
+export function isPolicySetting(name: string): boolean {
+  return Object.hasOwn(OPERATOR_SETTINGS, name) && OPERATOR_SETTINGS[name]?.policy === true;
+}
 
 /** Why each other client setting is not written by the operator's settings. */
 export const NOT_OPERATOR_SETTINGS: Readonly<Record<string, string>> = {

@@ -19,10 +19,12 @@
 #     secret CLIENT_<ID>_<NAME> by file. Neither is printed or uploaded; there are no artifacts.
 #   - The repository's product only, from a published, attested release (cos --require-gh). The
 #     staging check's throwaway names (cosstg-…) are refused.
-#   - A client's first admin is named by an address and the SHA-256 of a setup token the owner made
-#     on his own machine: nothing here can make a client's first account. The address is masked
-#     by the first step of each job, before any step shows its environment, and only redacted in
-#     the summary. Stream's token and signing key reach only fleet install, by 0600 file.
+#   - A client's first admin is named by the SHA-256 of a setup token the owner made on his own
+#     machine (an input: it opens nothing) and its address, the environment secret
+#     CLIENT_<ID>_ADMIN_EMAIL, never an input: nothing here can make a client's first account, and
+#     no address is kept in a public run's history. The summary has it redacted. Stream's token,
+#     signing key and account id are secrets; the token and key reach only fleet install, by
+#     0600 file.
 name: Fleet operate
 
 on:
@@ -96,11 +98,8 @@ on:
       label:
         description: client add only, the client's own label (spaces allowed, e.g. Gym A)
         default: ""
-      admin_email:
-        description: client add and client-first-admin, the first admin's email (masked in the log, redacted in the summary)
-        default: ""
       admin_token_sha256:
-        description: client add and client-first-admin, the SHA-256 of the setup token from cos client first-admin-token, run on your own machine (64 hex; it opens nothing)
+        description: client add and client-first-admin, the SHA-256 of the setup token from cos client first-admin-token, run on your own machine (64 hex; it opens nothing); the address is the environment secret CLIENT_<ID>_ADMIN_EMAIL
         default: ""
       hostname:
         description: hostname commands only, the client's own web hostname
@@ -130,17 +129,6 @@ jobs:
     name: Check the inputs
     runs-on: ubuntu-latest
     steps:
-      # Before any step shows its environment: the first admin's address, read from the event,
-      # never from an expression in a script or an env block (either would print it first).
-      - name: Mask the first admin's address
-        run: |
-          given="$(jq -r '.inputs.admin_email // ""' "$GITHUB_EVENT_PATH")"
-          email="$(printf '%s' "$given" | tr -d '[:space:]')"
-          if [ -n "$email" ]; then
-            echo "::add-mask::$given"
-            echo "::add-mask::$email"
-            echo "::add-mask::${email,,}"
-          fi
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -170,7 +158,6 @@ jobs:
           OP_SETTING_NAME: ${{ inputs.setting_name }}
           OP_SETTING_VALUE: ${{ inputs.setting_value }}
           OP_LABEL: ${{ inputs.label }}
-          OP_ADMIN_EMAIL: ${{ inputs.admin_email }}
           OP_ADMIN_TOKEN_SHA256: ${{ inputs.admin_token_sha256 }}
           OP_TAKE_OVER: ${{ inputs.take_over }}
         run: node scripts/fleet-operate.mjs validate
@@ -199,17 +186,6 @@ jobs:
       # gh attestation verify (cos --require-gh) reads the release's attestation.
       attestations: read
     steps:
-      # Before any step shows its environment: the first admin's address, read from the event,
-      # never from an expression in a script or an env block (either would print it first).
-      - name: Mask the first admin's address
-        run: |
-          given="$(jq -r '.inputs.admin_email // ""' "$GITHUB_EVENT_PATH")"
-          email="$(printf '%s' "$given" | tr -d '[:space:]')"
-          if [ -n "$email" ]; then
-            echo "::add-mask::$given"
-            echo "::add-mask::$email"
-            echo "::add-mask::${email,,}"
-          fi
       # Before anything else: the secrets are this fleet's environment's own (review of #547, M2).
       - name: In the fleet's own environment
         env:
@@ -261,7 +237,6 @@ jobs:
           OP_SETTING_NAME: ${{ inputs.setting_name }}
           OP_SETTING_VALUE: ${{ inputs.setting_value }}
           OP_LABEL: ${{ inputs.label }}
-          OP_ADMIN_EMAIL: ${{ inputs.admin_email }}
           OP_ADMIN_TOKEN_SHA256: ${{ inputs.admin_token_sha256 }}
           OP_TAKE_OVER: ${{ inputs.take_over }}
           FLEET_ENVIRONMENT: ${{ secrets.FLEET_ENVIRONMENT }}
@@ -274,10 +249,14 @@ jobs:
           FLEET_KEYS: ${{ (inputs.command == 'fleet-install' || inputs.command == 'fleet-upgrade') && secrets.FLEET_KEYS || '' }}
           # A client's secret value, for client-secret-set only: always a CLIENT_ secret.
           SECRET_VALUE: ${{ inputs.command == 'client-secret-set' && secrets[format('CLIENT_{0}_{1}', inputs.client, inputs.secret_name)] || '' }}
-          # The operator's Stream account, for fleet install only: three ids (the environment's
-          # variables: not secret, never committed) and the token and signing key (its secrets),
-          # all five or none (none: an install without Stream).
-          FLEET_STREAM_ACCOUNT_ID: ${{ inputs.command == 'fleet-install' && vars.FLEET_STREAM_ACCOUNT_ID || '' }}
+          # A client's first admin's address, for client-add and client-first-admin with a token
+          # hash only: always the CLIENT_<ID>_ADMIN_EMAIL secret, never an input.
+          ADMIN_EMAIL: ${{ (inputs.command == 'client-add' || inputs.command == 'client-first-admin') && inputs.admin_token_sha256 != '' && secrets[format('CLIENT_{0}_ADMIN_EMAIL', inputs.client)] || '' }}
+          # The operator's Stream account, for fleet install only, all five or none (none: an
+          # install without Stream): its account id, token and signing key are the environment's
+          # secrets; the customer code (in every playback address) and the signing key's id (in
+          # every playback token) are public by nature, its variables, never committed.
+          FLEET_STREAM_ACCOUNT_ID: ${{ inputs.command == 'fleet-install' && secrets.FLEET_STREAM_ACCOUNT_ID || '' }}
           FLEET_STREAM_CUSTOMER_CODE: ${{ inputs.command == 'fleet-install' && vars.FLEET_STREAM_CUSTOMER_CODE || '' }}
           FLEET_STREAM_SIGNING_KEY_ID: ${{ inputs.command == 'fleet-install' && vars.FLEET_STREAM_SIGNING_KEY_ID || '' }}
           FLEET_STREAM_API_TOKEN: ${{ inputs.command == 'fleet-install' && secrets.FLEET_STREAM_API_TOKEN || '' }}
