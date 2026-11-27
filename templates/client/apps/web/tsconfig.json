@@ -14,5 +14,5 @@
     "noUncheckedIndexedAccess": true,
     "types": ["@cloudflare/workers-types", "./worker-configuration.d.ts", "vite/client"]
   },
-  "include": ["src", "worker-configuration.d.ts", "vite.config.ts"]
+  "include": ["src", "worker-configuration.d.ts"]
 }

@@ -10,6 +10,10 @@ common work are in `skills/` (start with `start-client-app` and `add-block`).
   `@composable-os/client` and the generated client (`cos client generate`): the web app over its
   `HOST` service binding, the mobile app over HTTPS. Never open a database, and never give the web
   app a D1, R2 or KV binding or a secret of its own.
+- **One set of screens, two builds.** `apps/web` builds as the Worker (`pnpm build`) and as static
+  files (`pnpm build:browser`, over `/api/v1` with tokens). A screen reaches the host only through
+  `useScreenHost()` (`src/screen-host/`), never `fetch("/auth/...")`, the binding or a server
+  function, so both builds keep working; `pnpm --dir apps/web test` checks the static build.
 - **Rules live in the host.** A screen never calculates a price, checks a capacity or decides what
   a customer may see. It calls an operation and shows the answer.
 - **Copy blocks, do not import them.** `cos add <block>` copies a block into an app; the copy is

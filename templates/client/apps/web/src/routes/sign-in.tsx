@@ -1,21 +1,16 @@
-// Sign-in with a code by email, on this app's own hostname. The host sends the code and makes the
-// session; this page only posts to this app's /auth routes (src/host.ts). Signed in, the customer
-// goes to "Before you go on", which goes straight on to their account when nothing is due.
-import { createFileRoute } from "@tanstack/react-router";
+// Sign-in with a code by email. The host sends the code and makes the session; this page asks
+// through the ScreenHost (src/screen-host/): in the server build this app's /auth routes and a
+// cookie, in the browser build the host's token sign-in. Signed in, the customer goes to "Before
+// you go on", which goes straight on to their account when nothing is due.
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
+import { useScreenHost } from "../screen-host/index.ts";
 
 export const Route = createFileRoute("/sign-in")({ component: SignIn });
 
-async function post(path: string, body: unknown): Promise<boolean> {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  return response.ok;
-}
-
 function SignIn() {
+  const host = useScreenHost();
+  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [sent, setSent] = useState(false);
@@ -25,11 +20,11 @@ function SignIn() {
     event.preventDefault();
     setError(null);
     if (!sent) {
-      if (await post("/auth/code", { email })) setSent(true);
+      if (await host.requestCode(email)) setSent(true);
       else setError("We could not send a code. Try again in a moment.");
       return;
     }
-    if (await post("/auth/sign-in", { email, code })) window.location.assign("/before-you-go-on");
+    if (await host.signIn(email, code)) await navigate({ to: "/before-you-go-on" });
     else setError("That code did not work. Check it, or ask for a new one.");
   }
 

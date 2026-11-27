@@ -40,9 +40,9 @@ for (const file of tarballs) {
   overrides[(JSON.parse(listing) as { name: string }).name] = `file:${join(npmDir, file)}`;
 }
 
-const run = (cmd: string, args: string[], cwd: string) => {
+const run = (cmd: string, args: string[], cwd: string, env: Record<string, string> = {}) => {
   console.log(`\n$ ${cmd} ${args.join(" ")}   (in ${cwd})`);
-  execFileSync(cmd, args, { cwd, stdio: "inherit", env: { ...process.env, CI: "true" } });
+  execFileSync(cmd, args, { cwd, stdio: "inherit", env: { ...process.env, CI: "true", ...env } });
 };
 
 const work = mkdtempSync(join(tmpdir(), "cos-npm-check-"));
@@ -101,6 +101,12 @@ try {
   run("pnpm", ["--dir", "apps/web", "typecheck"], shop);
   run("pnpm", ["--dir", "apps/mobile", "typecheck"], shop);
   run("pnpm", ["--dir", "apps/web", "build"], shop);
+  // The same screens as static files (stage 75 step 2): no server code, checked by its tests.
+  // It requires the host's address: an example one, as nothing here is deployed.
+  run("pnpm", ["--dir", "apps/web", "build:browser"], shop, {
+    COS_HOST_URL: "https://admin.example.com",
+  });
+  run("pnpm", ["--dir", "apps/web", "test"], shop);
   console.log(
     `\nnpm packages ${version}: a fresh client repo installs them, type-checks and builds.`,
   );

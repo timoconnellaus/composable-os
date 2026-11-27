@@ -93,6 +93,20 @@ a live host side by side in one account, `environments` in `product.ts`): each i
    - **Astro with React islands** is a supported way to host web blocks: the page's server code
      uses the host module, and the islands call `operationRoute`. A site in a framework with no
      React at all calls the host from its server code only.
+   - **The browser-only build** (stage 75): the template's same screens as static files,
+     `COS_HOST_URL=https://<the host's address> pnpm --dir apps/web build:browser`, into
+     `apps/web/dist/browser/` (an `index.html`, hashed assets and `build.json`: each file's SHA-256
+     and size and the API contract version, written only when the build succeeds). `COS_HOST_URL`
+     is required, an https origin (http on localhost only); the build stops without it. No
+     server code: the screens call the host's `/api/v1` with a customer device session (an
+     emailed code; tokens kept in the tab's `sessionStorage`, never a cookie; a duplicated tab
+     starts signed out) and route by hash (`#/account`). `pnpm --dir apps/web test`
+     checks the output holds no server function, `HOST` binding or cookie code. A screen reaches
+     the host only through the ScreenHost (`useScreenHost()` from `src/screen-host/`, or
+     `context.screenHost` in a loader), never `fetch("/auth/...")`, the binding or a server
+     function, so it works in both builds. Served from any address but the host's own, that
+     origin must be in the client's `API_ALLOWED_ORIGINS`. Nothing stores or serves the build
+     yet: `pnpm build` (the Worker) is still what `cos deploy` deploys.
 6. **The mobile app** (Expo) calls the host's public address over HTTPS with the same typed
    client. Its host module (`apps/mobile/src/host.ts`, or `src/composable-os/host.ts` when adopted)
    has `hostSession({ hostUrl, store, deviceName, random })` with `requestCode`, `signIn` (the host

@@ -1564,6 +1564,23 @@ name). The host checks it at seal and keeps its canonical text and that text's S
 types are not in it: the host decides them from each path.
 _Avoid_: the manifest (alone: an extension's manifest is another thing), index, file list
 
+### Browser-only build
+
+The client template's web screens built as static files (`pnpm build:browser`: an `index.html`,
+hashed assets and `build.json`) with no server code: they call the host's `/api/v1` at the
+address the build names (`COS_HOST_URL`, required) with the typed client, sign in with a device
+session's tokens, one per tab, and route by the address's hash (stage 75
+step 2, ADR 0960). The server-rendered Worker (`pnpm build`) is the other build of the same
+screens, and still the default deploy.
+_Avoid_: SPA build, static site
+
+### ScreenHost
+
+What a client app's screens reach the host through, one per build (`src/screen-host/`): the
+server build's over the web app's own routes and the customer's cookie, the browser-only build's
+over `/api/v1` with tokens. Screens take it from the router's context and never name a build; a
+desktop wrapper can give them its own (stage 75 step 2).
+
 ### Client repo
 
 The repository holding one product's client apps, its own extensions (`extensions/`), copied

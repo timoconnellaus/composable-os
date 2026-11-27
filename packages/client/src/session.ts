@@ -7,7 +7,11 @@
 //   const session = tokenSession({ baseUrl, store: secureStore });
 //   await session.requestCode(email);
 //   await session.signInWithCode(email, code, "Ada's phone");
-//   const api = createCustomerClient({ baseUrl, headers: session.headers });
+//   const api = createCustomerClient({ baseUrl, fetch: session.fetch });
+//
+// `session.fetch` adds the access token to each call and, when the host says it has expired
+// (this device's clock behind the host's), refreshes once and sends the call again. A refresh
+// the host refuses forgets the session; one that fails for any other reason keeps it.
 //
 // Staff whose sign-in is browser-based (Google, Cloudflare Access) use `startBrowserSignIn` and
 // `finishBrowserSignIn` instead: the system browser signs them in, never a web view.
@@ -112,6 +116,25 @@ export function signInErrorWords(error: unknown, step: SignInStep = "code"): str
     : "We could not sign you in just now. Try again in a moment.";
 }
 
+/**
+ * Whether a refresh's failure means the session is over: the host refused the token (401, 403, or
+ * 400 for one that is not a token). A 5xx, a 429 or no answer at all does not.
+ */
+function sessionRefused(error: unknown): boolean {
+  return error instanceof ApiError && [400, 401, 403].includes(error.status);
+}
+
+/** The `details.reason` of a refusal's envelope, or null. */
+function refusalReason(text: string): string | null {
+  try {
+    const reason = (JSON.parse(text) as { error?: { details?: { reason?: unknown } } }).error
+      ?.details?.reason;
+    return typeof reason === "string" ? reason : null;
+  } catch {
+    return null;
+  }
+}
+
 export function tokenSession(options: TokenSessionOptions) {
   const base = options.baseUrl.replace(/\/+$/, "");
   const fetcher =
@@ -129,11 +152,44 @@ export function tokenSession(options: TokenSessionOptions) {
       await options.store.save(next);
       return next;
     } catch (error) {
-      // The session ended (signed out, unused too long, a reused token): forget it.
-      if (error instanceof ApiError) await options.store.save(null);
+      // The host refused the token (signed out, unused too long, reused, not a token): the session
+      // is over, so forget it. A 5xx, a 429, a proxy's page or no answer says nothing about the
+      // session: the tokens are kept for the next try.
+      if (sessionRefused(error)) await options.store.save(null);
       throw error;
     }
   }
+
+  /** One refresh at a time, shared by every call waiting on it. */
+  function refreshOnce(tokens: Tokens): Promise<Tokens | null> {
+    refreshing ??= refresh(tokens).finally(() => {
+      refreshing = null;
+    });
+    return refreshing;
+  }
+
+  /**
+   * The tokens to use after `used` was refused as expired (a clock behind the host's): those a
+   * refresh already in flight, or just finished, gives; else one refresh, shared.
+   */
+  async function renewedAfter(used: Tokens): Promise<Tokens | null> {
+    if (refreshing) return refreshing;
+    const now = await options.store.load();
+    if (!now) return null;
+    if (now.accessToken !== used.accessToken) return now;
+    return refreshOnce(now);
+  }
+
+  /** The stored tokens, refreshed first when the access token is about to end. */
+  async function current(): Promise<Tokens | null> {
+    const tokens = await options.store.load();
+    if (!tokens) return null;
+    if (Date.parse(tokens.accessExpiresAt) - early <= now()) return refreshOnce(tokens);
+    return tokens;
+  }
+
+  const bearer = (tokens: Tokens | null): Record<string, string> =>
+    tokens ? { authorization: `Bearer ${tokens.accessToken}` } : {};
 
   return {
     /**
@@ -219,19 +275,38 @@ export function tokenSession(options: TokenSessionOptions) {
       await options.store.save(tokens);
       return tokens;
     },
-    /** The headers for a call: a current access token, refreshed first when it is about to end. */
+    /**
+     * The headers for a call: a current access token, refreshed first when it is about to end by
+     * this device's clock. Prefer `fetch`, which also refreshes when the host says it has ended.
+     */
     async headers(): Promise<Record<string, string>> {
-      let tokens = await options.store.load();
-      if (!tokens) return {};
-      if (Date.parse(tokens.accessExpiresAt) - early <= now()) {
-        refreshing ??= refresh(tokens).finally(() => {
-          refreshing = null;
-        });
-        tokens = await refreshing;
-        if (!tokens) return {};
-      }
-      return { authorization: `Bearer ${tokens.accessToken}` };
+      return bearer(await current());
     },
+    /**
+     * A fetch that carries the session (pass it as the typed client's `fetch`): each call with a
+     * current access token; when the host refuses it as expired (`token_expired`: this device's
+     * clock behind the host's), one refresh, shared by every call refused at once, and the call
+     * sent once more. Any other answer is passed back as it came.
+     */
+    fetch: (async (url, init) => {
+      const used = await current();
+      const send = (tokens: Tokens | null) =>
+        fetcher(url, { ...init, headers: { ...init.headers, ...bearer(tokens) } });
+      const first = await send(used);
+      if (!used || first.status !== 401) return first;
+      const text = await first.text();
+      const again = { status: first.status, headers: first.headers, text: async () => text };
+      if (refusalReason(text) !== "token_expired") return again;
+      let next: Tokens | null;
+      try {
+        next = await renewedAfter(used);
+      } catch (error) {
+        // Refused: the session is over and forgotten; the call's own refusal says so.
+        if (!(await options.store.load())) return again;
+        throw error;
+      }
+      return next ? send(next) : again;
+    }) as FetchLike,
     /**
      * Ends this device's session on the host (ADR 0455) with its refresh token, which any account
      * may do whatever it may call, then forgets the tokens, even when the host could not be
