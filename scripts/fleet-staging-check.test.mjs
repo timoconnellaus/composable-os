@@ -1083,3 +1083,60 @@ test("what a failure needed, said plainly; secrets cut out; cos's list and expor
     "file media/x not imported as it was",
   ]);
 });
+
+test("each client's first admin is named at add, and its setup link makes the first account (stage 66 step 9)", async () => {
+  const added = [];
+  const tokens = { alpha: "A".repeat(43), bravo: "B".repeat(43) };
+  const answer = (args) => {
+    if (args[0] === "client" && args[1] === "add") {
+      added.push(args);
+      const id = args[2];
+      return {
+        code: 0,
+        out: `Added ${id} in 1.0 s\n  https://${id}-admin.x/sign-in#first-admin=${tokens[id]}`,
+        ms: 1,
+      };
+    }
+    if (args[0] === "client" && args[1] === "list") {
+      return {
+        code: 0,
+        out: "  alpha  active  live  schema 3\n  bravo  active  live  schema 3",
+        ms: 1,
+      };
+    }
+    return { code: 0, out: "", ms: 1 };
+  };
+  const base = stepCtx({ answer });
+  const ctx = { ...base, api: { ...base.api, putDomain: async () => {} } };
+  await step("add").run(ctx);
+  assert.equal(added.length, 2);
+  for (const args of added) {
+    assert.equal(args[args.indexOf("--admin") + 1], `staff-${args[2]}-123@staging-check.invalid`);
+  }
+  const signedUp = {};
+  const host = (url) => new URL(url).hostname.split("-admin.")[0];
+  await step("requests").run({
+    ...ctx,
+    subdomain: "x",
+    fetch: async (url, init = {}) => {
+      if (url.endsWith("/api/auth/sign-up/email")) {
+        signedUp[host(url)] = init.headers?.["cos-first-admin-token"];
+        return new Response("{}", {
+          status: 200,
+          headers: { "set-cookie": `__Host-cos.session_token=${host(url)}; Path=/` },
+        });
+      }
+      if (url.endsWith("/api/auth/sign-in/email")) return new Response("{}", { status: 401 });
+      if (url.includes("/api/v1/op/")) {
+        return init.headers?.cookie === `__Host-cos.session_token=${host(url)}`
+          ? new Response("{}", { status: 200 })
+          : new Response(JSON.stringify({ error: { code: "unauthenticated" } }), { status: 401 });
+      }
+      if (url.endsWith("/api/health"))
+        return new Response(JSON.stringify({ host: true, version: VERSIONS.from }));
+      if (url.includes("/api/media")) return new Response("{}", { status: 201 });
+      return new Response("ok", { status: url.includes("workers.dev") ? 404 : 200 });
+    },
+  });
+  assert.deepEqual(signedUp, tokens);
+});

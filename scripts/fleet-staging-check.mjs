@@ -702,11 +702,22 @@ async function hostHealth(ctx, version) {
   return answer;
 }
 
-async function signUp(ctx, hostname, email, password) {
+/** The staff address the check names each client's first admin with (stage 66 step 9). */
+const staffEmail = (ctx, id) => `staff-${id}-${ctx.run}@staging-check.invalid`;
+
+/** The setup link's token `cos client add --admin` printed, or null (the operator's link, ADR 0618). */
+const setupTokenOf = (out) => /#first-admin=([A-Za-z0-9_-]{32,128})/.exec(out ?? "")?.[1] ?? null;
+
+async function signUp(ctx, hostname, email, password, setupToken) {
   const origin = `https://${hostname}`;
   const answer = await request(ctx.fetch, `${origin}/api/auth/sign-up/email`, {
     method: "POST",
-    headers: { "content-type": "application/json", origin },
+    headers: {
+      "content-type": "application/json",
+      origin,
+      // A client's first account is made only with its setup link (stage 66 step 9).
+      ...(setupToken ? { "cos-first-admin-token": setupToken } : {}),
+    },
     body: JSON.stringify({ email, password, name: "Staging check" }),
   });
   if (answer.status !== 200) {
@@ -954,9 +965,23 @@ export function checkSteps() {
           ctx.location,
           "--web-hostname",
           ctx.hosts.web,
+          "--admin",
+          staffEmail(ctx, a),
           "--yes",
         ]);
-        const second = await must(ctx, ["client", "add", b, "--location", ctx.location, "--yes"]);
+        const second = await must(ctx, [
+          "client",
+          "add",
+          b,
+          "--location",
+          ctx.location,
+          "--admin",
+          staffEmail(ctx, b),
+          "--yes",
+        ]);
+        // Each client's first account is made with its setup link, which step 3 uses.
+        ctx.setupTokens = { [a]: setupTokenOf(first.out), [b]: setupTokenOf(second.out) };
+        for (const token of Object.values(ctx.setupTokens)) ctx.addSecret(token);
         const list = await clientList(ctx);
         for (const id of [a, b]) {
           if (list[id]?.status !== "active") fail(`${id} is ${list[id]?.status} after its add`);
@@ -992,13 +1017,13 @@ export function checkSteps() {
         }
         notes.push("both staff sign-in pages answer 200");
         for (const id of [a, b]) {
-          const email = `staff-${id}-${ctx.run}@staging-check.invalid`;
+          const email = staffEmail(ctx, id);
           const password = randomBytes(18).toString("base64url");
           ctx.addSecret(password);
           ctx.staff[id] = {
             email,
             password,
-            cookie: await signUp(ctx, ctx.hosts.staff[id], email, password),
+            cookie: await signUp(ctx, ctx.hosts.staff[id], email, password, ctx.setupTokens?.[id]),
           };
           ctx.addSecret(ctx.staff[id].cookie);
         }
