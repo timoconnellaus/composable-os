@@ -483,9 +483,10 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
   }
 
   /**
-   * An install outlives its caller by up to 30 s more (issue #558): RPC cancels the callee when
-   * the caller's context ends (cos-app's request, itself kept 30 s by its own waitUntil), and a
-   * pack whose install is under way then finishes and commits rather than being cut off.
+   * An install is expected to outlive its caller by up to 30 s more (issue #558; Cloudflare
+   * documents that a callee may extend itself so, not that it survives the caller's own
+   * cancellation): RPC cancels the callee when the caller's context ends (cos-app's request, kept
+   * 30 s by its own waitUntil). Nothing depends on it: a cut-off install is carried on next time.
    */
   #outlive(work: unknown): void {
     if (work instanceof Promise) this.ctx.waitUntil(work.catch(() => {}));

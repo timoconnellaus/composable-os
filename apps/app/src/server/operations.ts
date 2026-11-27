@@ -213,8 +213,8 @@ export const SHIPPED_WAIT_MS = 2_000;
 /**
  * An install still running after this long is not waited on again: the next call starts another.
  * Longer than the work can live: cos-app's `waitUntil` keeps its request 30 s after the response,
- * and cos-runner's own keeps the install 30 s after that (Cloudflare cancels what is still pending
- * then). So only an install that was cut off gets here; the next one carries on from the packs
+ * and cos-runner's own is expected (not documented) to keep the install about 30 s after that. So
+ * only an install that was cut off gets here; the next one carries on from the packs
  * it finished, each committed on its own.
  */
 export const SHIPPED_STALE_MS = 65_000;

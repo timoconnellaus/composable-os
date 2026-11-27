@@ -25,6 +25,9 @@ import {
   hostnamesOf,
   inventory,
   owned,
+  PACKS_BOUND_MS,
+  PACKS_POLL_MS,
+  packsAnswer,
   parseClientList,
   prefixOf,
   productDefinition,
@@ -1314,6 +1317,66 @@ test("the requests step: B's password at A must be the wrong-password answer, no
     assert.equal(cancelled, repeat === 200 ? 1 : 0);
     assert.ok(slept.includes(5000));
   }
+});
+
+test("a client's packs must answer within PACKS_BOUND_MS: at once, after 503s still installing, or never (issue #558)", async () => {
+  const installing = () =>
+    new Response(
+      JSON.stringify({
+        error: { code: "timeout", message: "still installing", details: { installing: true } },
+      }),
+      { status: 503 },
+    );
+  /** A fetch whose pack read answers 503 "still installing" `busy` times, then `then`. */
+  const ctxWith = (busy, then = () => new Response("{}", { status: 200 })) => {
+    let asked = 0;
+    const slept = [];
+    const ctx = {
+      ...stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }) }),
+      fetch: async (url, init = {}) => {
+        if (url.endsWith("/api/v1/op/record.list")) {
+          assert.equal(JSON.parse(init.body).object, "deals.deal");
+          asked += 1;
+          return asked <= busy ? installing() : then();
+        }
+        return new Response("{}", { status: 200 });
+      },
+      sleep: async (ms) => {
+        slept.push(ms);
+      },
+    };
+    ctx.staff[CLIENTS.a] = { cookie: "c" };
+    return { ctx, asked: () => asked, slept };
+  };
+  const now = ctxWith(0);
+  assert.match(await packsAnswer(now.ctx, CLIENTS.a), /^alpha's packs answered after \d+\.\d s$/);
+  assert.equal(now.asked(), 1);
+
+  const later = ctxWith(2);
+  assert.match(
+    await packsAnswer(later.ctx, CLIENTS.a, " after the upgrade"),
+    /^alpha's packs answered after the upgrade after \d+\.\d s$/,
+  );
+  assert.equal(later.asked(), 3);
+  assert.deepEqual(later.slept, [PACKS_POLL_MS, PACKS_POLL_MS]);
+
+  const never = ctxWith(Number.POSITIVE_INFINITY);
+  await assert.rejects(
+    packsAnswer(never.ctx, CLIENTS.a),
+    /alpha's packs were still installing after 120 s/,
+  );
+  assert.equal(never.asked(), PACKS_BOUND_MS / PACKS_POLL_MS);
+
+  // Any other refusal fails at once, without waiting.
+  const refused = ctxWith(
+    0,
+    () => new Response(JSON.stringify({ error: { code: "unknown_operation" } }), { status: 404 }),
+  );
+  await assert.rejects(
+    packsAnswer(refused.ctx, CLIENTS.a),
+    /alpha's record\.list of deals\.deal answered 404/,
+  );
+  assert.equal(refused.asked(), 1);
 });
 
 test("a client's first operation must answer within FIRST_OP_BOUND_MS: a fresh client's (step 3) and the first after an upgrade (step 5), issue #558", async () => {

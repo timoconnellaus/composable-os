@@ -118,9 +118,9 @@ describe("installShipped's record of the last install", () => {
     expect(await stamp()).not.toBeNull();
     // The database on another host, its record with it (as an older export carried it).
     const there = onAnotherHost();
-    const results = await new ClientRunner(there, env).installShipped();
-    expect(Object.values(outcomes(results))).toContain("installed");
-    // Every shipped pack's code is there at its installed commit.
+    await new ClientRunner(there, env).installShipped();
+    // Every shipped pack's code is there at its installed commit. (Its outcome may be
+    // `unchanged`: a commit made in the same second with the same identity has the same id.)
     const { results: rows } = await env.DB.prepare(
       "SELECT id, commit_oid FROM core_extensions WHERE source = 'shipped'",
     ).all<{ id: string; commit_oid: string }>();

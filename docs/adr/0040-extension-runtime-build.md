@@ -162,8 +162,10 @@ workspace object, each pack's row read twice). Decided:
 - **An install that converges, whatever its length.** The install runs in cos-runner, called from
   cos-app's request. Cloudflare's documented limits: `waitUntil` keeps a request's work up to 30 s
   after its response, then cancels it; an RPC callee is cancelled when its caller's context ends,
-  and may extend itself with its own `waitUntil` (30 s more). cos-runner does, so an install
-  lives up to about a minute past the response, then is cut off. Each extension's install is its
+  and may extend itself with its own `waitUntil`. cos-runner does. Only the 30 s after cos-app's
+  response is documented; that the runner's own `waitUntil` gives its work about 30 s more once
+  cos-app's is cancelled is expected, unconfirmed. Convergence does not depend on it: an install
+  is cut off at whichever limit holds, and the next try carries on. Each extension's install is its
   own operation, committed when it finishes, and a commit already made is found again by
   `commitShipped`, so the next try leaves the finished ones `unchanged` and does the rest; the
   record is written only by a try that finished. A client with many packs may take two or three
