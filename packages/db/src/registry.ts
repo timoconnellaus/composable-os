@@ -323,13 +323,46 @@ export function labelProblem(value: string): string | null {
 }
 
 /**
- * The settings `cos client setting set|unset` may change on a running client, each with its check
- * (null: the value is good). The rest of `CLIENT_SETTINGS` is set at `add` or written by its own
- * command, for the reason `NOT_OPERATOR_SETTINGS` gives. A changed setting is served within the
- * registry's refresh (`REGISTRY_REFRESH_MS`, 10 seconds).
+ * Where a setting is checked against: the client's own hostnames (verified or not) and the fleet's
+ * registrable domain. A check that needs them refuses what it cannot check without them.
+ */
+export interface SettingContext {
+  ownHostnames?: readonly string[];
+  /** The fleet's registrable domain (`fleet.example`): no other client's hostname is under it. */
+  fleetDomain?: string | null;
+}
+
+const isUnderDomain = (host: string, domain: string) =>
+  host === domain || host.endsWith(`.${domain}`);
+
+/** A native app's sign-in redirect's one shape: `<scheme>://staff-sign-in` (client-repo.ts). */
+const APP_REDIRECT = /^([a-z][a-z0-9+.-]{1,40}):\/\/staff-sign-in$/;
+/** The command-line tools' loopback sign-in (`cos … import`, ADR 0470): any port is allowed. */
+const LOOPBACK_REDIRECTS = ["http://127.0.0.1/cos-sign-in", "http://[::1]/cos-sign-in"];
+const NOT_APP_SCHEMES = new Set([
+  "http",
+  "https",
+  "javascript",
+  "data",
+  "file",
+  "blob",
+  "about",
+  "vbscript",
+  "ftp",
+  "ws",
+  "wss",
+  "mailto",
+]);
+
+/**
+ * The settings the operator writes for a client, at `cos client add` and with `cos client
+ * setting`, each with its check (null: the value is good). Every other client setting is refused
+ * with the reason `NOT_OPERATOR_SETTINGS` gives: the deployment's value applies, or its own
+ * command writes it. `setClientSetting` (registry-writes) holds the same list where the write is.
+ * A changed setting is served within the registry's refresh (`REGISTRY_REFRESH_MS`, 10 seconds).
  */
 export const OPERATOR_SETTINGS: Readonly<
-  Record<string, { check: (value: string) => string | null; what: string }>
+  Record<string, { check: (value: string, context: SettingContext) => string | null; what: string }>
 > = {
   COS_PACKS: {
     what: "the packs the client has, a comma-separated list of pack ids, only ever wider",
@@ -344,35 +377,55 @@ export const OPERATOR_SETTINGS: Readonly<
   },
   API_ALLOWED_ORIGINS: {
     what: "the origins of the client's own sites and apps that may call its API",
-    check: (value) => {
+    check: (value, context) => {
       const entries = entriesOf(value);
       if (entries.length === 0 || entries.length > 20) return "1 to 20 https origins";
-      const bad = entries.find((entry) => !httpsOrigin(entry));
-      return bad ? `${bad} is not an https origin with nothing after it` : null;
+      for (const entry of entries) {
+        const origin = httpsOrigin(entry);
+        if (!origin) return `${entry} is not an https origin with nothing after it`;
+        // Under the fleet's own domain only the client's own hostname: a sibling there is another
+        // client's or the fleet's (stage 66 step 8, ADR 0619).
+        const host = new URL(origin).hostname;
+        if (
+          context.fleetDomain &&
+          isUnderDomain(host, context.fleetDomain) &&
+          !(context.ownHostnames ?? []).includes(host)
+        ) {
+          return `${entry} is under the fleet's domain and is not this client's hostname`;
+        }
+      }
+      return null;
     },
   },
   NATIVE_REDIRECT_URIS: {
     what: "the client's native app's sign-in redirects",
-    check: (value) => {
+    check: (value, context) => {
       const entries = entriesOf(value);
       if (entries.length === 0 || entries.length > 20) return "1 to 20 redirect addresses";
       for (const entry of entries) {
+        if (LOOPBACK_REDIRECTS.includes(entry)) continue;
+        const app = APP_REDIRECT.exec(entry);
+        if (app) {
+          if (NOT_APP_SCHEMES.has(app[1] as string)) return `${entry} is not an app's scheme`;
+          continue;
+        }
         let url: URL;
         try {
           url = new URL(entry);
         } catch {
           return `${entry} is not an address`;
         }
-        if (url.username || url.password || url.hash) return `${entry} has credentials or a #`;
-        const scheme = url.protocol.slice(0, -1);
-        if (scheme === "http") {
-          // Only a command-line tool's loopback address, with no port (ADR 0470).
-          if (!["127.0.0.1", "[::1]"].includes(url.hostname) || url.port) {
-            return `${entry}: http only for 127.0.0.1 or [::1], with no port`;
-          }
-        } else if (["javascript", "data", "file", "blob", "about", "vbscript"].includes(scheme)) {
-          return `${entry} is not a redirect address`;
+        // An https redirect only on one of the client's own hostnames.
+        if (
+          url.protocol === "https:" &&
+          !url.username &&
+          !url.password &&
+          !url.hash &&
+          (context.ownHostnames ?? []).includes(url.hostname)
+        ) {
+          continue;
         }
+        return `${entry}: a redirect is <scheme>://staff-sign-in (the client's app), http://127.0.0.1/cos-sign-in (cos's own), or https on the client's own hostname`;
       }
       return null;
     },
@@ -388,12 +441,12 @@ export const OPERATOR_SETTINGS: Readonly<
   },
 };
 
-/** Why each other client setting is not changed by `cos client setting`. */
+/** Why each other client setting is not written by the operator's settings. */
 export const NOT_OPERATOR_SETTINGS: Readonly<Record<string, string>> = {
   APPROVAL_FLOOR:
-    "the approval floor is policy: set it at add; changing a running client's floor is a reviewed change of its own, and a floor that does not parse stops every request of the client",
+    "the approval floor is policy: a client has the deployment's; a floor per client is a reviewed change of its own (a floor that does not parse stops every request of the client)",
   IDENTITY_PROVIDER:
-    "the identity provider decides who every staff account is: set it at add, not on a running client",
+    "the identity provider decides who every staff account is: a client has the deployment's",
   AUTH_ALLOW_SIGNUP:
     "open staff sign-up lets anyone who finds the client's staff hostname make an account: never on a fleet",
   COS_ORG_EXTENSIONS:
@@ -405,17 +458,21 @@ export const NOT_OPERATOR_SETTINGS: Readonly<Record<string, string>> = {
   COS_FIRST_ADMIN: "written by cos client add --admin and cos client first-admin",
 };
 
-/** What is wrong with setting `name` to `value` on a running client, or null. */
-export function operatorSettingProblem(name: string, value: string | null): string | null {
+/** What is wrong with the operator setting `name` to `value` for a client, or null. */
+export function operatorSettingProblem(
+  name: string,
+  value: string | null,
+  context: SettingContext = {},
+): string | null {
   const setting = Object.hasOwn(OPERATOR_SETTINGS, name) ? OPERATOR_SETTINGS[name] : undefined;
   if (!setting) {
     const why = Object.hasOwn(NOT_OPERATOR_SETTINGS, name) ? NOT_OPERATOR_SETTINGS[name] : null;
     return why
-      ? `${name} is not changed this way: ${why}`
+      ? `${name} is not set this way: ${why}`
       : `${name} is not a client setting (${Object.keys(OPERATOR_SETTINGS).join(", ")})`;
   }
   if (value === null) return null;
-  const problem = setting.check(value);
+  const problem = setting.check(value, context);
   return problem ? `${name}: ${problem}` : null;
 }
 

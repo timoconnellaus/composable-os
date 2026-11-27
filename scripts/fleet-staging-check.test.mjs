@@ -3,7 +3,7 @@
 // half-way, what each step demands before it passes, and that no secret reaches what is written.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -17,6 +17,7 @@ import {
   checkOptions,
   checkSteps,
   compareExports,
+  cosRunner,
   explainFailure,
   exportFacts,
   hostnamesOf,
@@ -1122,49 +1123,64 @@ test("what a failure needed, said plainly; secrets cut out; cos's list and expor
   ]);
 });
 
-test("each client's first admin is named at add with a token the check made, never logged, and it makes the first account (stage 66 step 9)", async () => {
-  const added = [];
-  // What cos read from each token file, while it existed.
-  const tokens = {};
-  const answer = (args) => {
-    if (args[0] === "client" && args[1] === "add") {
-      added.push(args);
-      tokens[args[2]] = readFileSync(args[args.indexOf("--admin-token-file") + 1], "utf8");
-      return { code: 0, out: `Added ${args[2]} in 1.0 s`, ms: 1 };
-    }
-    if (args[0] === "client" && args[1] === "list") {
-      return {
-        code: 0,
-        out: "  alpha  active  live  schema 3\n  bravo  active  live  schema 3",
-        ms: 1,
-      };
-    }
-    return { code: 0, out: "", ms: 1 };
-  };
-  const base = stepCtx({ answer });
-  const masked = [];
+test("each client's first admin is named at add with only its token's hash: no line the run logs holds the token (stage 66 step 9, S1)", async () => {
+  // cos run as the check runs it (`cosRunner`: a child process, every line it prints logged), by a
+  // stand-in that prints every argument and every variable it was given: a token handed to cos in
+  // any way would be in the log.
+  const dir = mkdtempSync(join(tmpdir(), "s66-staging-cli-"));
+  const cli = join(dir, "cos.mjs");
+  writeFileSync(
+    cli,
+    [
+      "const args = process.argv.slice(2);",
+      "console.log(args.join(' '));",
+      "console.log(JSON.stringify(process.env));",
+      "if (args[0] === 'client' && args[1] === 'list') console.log('  alpha  active  live  schema 3\\n  bravo  active  live  schema 3');",
+    ].join("\n"),
+  );
+  const logged = [];
+  const secrets = new Set();
+  const base = stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }) });
   const ctx = {
     ...base,
     api: { ...base.api, putDomain: async () => {} },
-    addSecret: (value) => masked.push(value),
+    cos: cosRunner({
+      cli,
+      productFile: "/p.json",
+      bundleDir: "/b",
+      env: {},
+      secrets: () => [],
+      log: (line) => logged.push(line),
+    }),
+    addSecret: (value) => secrets.add(value),
   };
   const result = await step("add").run(ctx);
-  assert.equal(added.length, 2);
-  for (const args of added) {
-    assert.equal(args[args.indexOf("--admin") + 1], `staff-${args[2]}-123@staging-check.invalid`);
-    const file = args[args.indexOf("--admin-token-file") + 1];
-    // 32 random bytes as hex, masked before cos ran, the file gone once the clients are added.
-    assert.match(tokens[args[2]], /^[0-9a-f]{64}$/);
-    assert.ok(masked.includes(tokens[args[2]]));
-    assert.equal(existsSync(file), false);
-    // Never in the command line or the step's note.
-    assert.equal(args.join(" ").includes(tokens[args[2]]), false);
-    assert.equal(JSON.stringify(result).includes(tokens[args[2]]), false);
+  const tokens = Object.values(ctx.setupTokens);
+  assert.equal(tokens.length, 2);
+  const text = logged.join("\n");
+  for (const token of tokens) {
+    // Made by the check, masked before cos ran, and nowhere in what was logged.
+    assert.match(token, /^[A-Za-z0-9_-]{43}$/);
+    assert.ok(secrets.has(token));
+    assert.equal(text.includes(token), false);
+    assert.equal(JSON.stringify(result).includes(token), false);
+    // What cos was given is its hash.
+    assert.ok(text.includes(createHash("sha256").update(token).digest("hex")));
   }
+  for (const id of ["alpha", "bravo"]) {
+    assert.match(
+      text,
+      new RegExp(
+        `--admin staff-${id}-123@staging-check\\.invalid --admin-token-sha256 [0-9a-f]{64}`,
+      ),
+    );
+  }
+  // Step 3 signs up with the token itself.
   const signedUp = {};
   const host = (url) => new URL(url).hostname.split("-admin.")[0];
   await step("requests").run({
     ...ctx,
+    cos: async () => ({ code: 0, out: "", ms: 1 }),
     subdomain: "x",
     fetch: async (url, init = {}) => {
       if (url.endsWith("/api/auth/sign-up/email")) {
@@ -1186,5 +1202,5 @@ test("each client's first admin is named at add with a token the check made, nev
       return new Response("ok", { status: url.includes("workers.dev") ? 404 : 200 });
     },
   });
-  assert.deepEqual(signedUp, tokens);
+  assert.deepEqual(signedUp, ctx.setupTokens);
 });

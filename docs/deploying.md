@@ -1288,49 +1288,63 @@ cos client remove gym-a                      # export kept 90 days, then erased;
   check, `REGISTRY_REFRESH_MS`); from then nothing is sent for that client while it is paused (a
   send queued before may still be approved once it is resumed), and nothing ever after it is
   removed.
-- **A client's first admin** (stage 66 step 9). A client's staff hostname is public from the
-  moment it is added, so on a host of many clients nobody can make its first account by finding
-  it first: only the address the operator names, with a setup token the operator makes. `cos`
-  keeps only the token's SHA-256 and an expiry 72 hours on, and **prints nothing of the token or
-  the link**, so the commands can run in a public repository's workflow, whose logs anyone reads.
-  The owner, once per client, on his own machine (no Cloudflare token needed):
-  ```sh
-  openssl rand -hex 32 > token                                     # 32 random bytes, hex
-  gh secret set CLIENT_GYM_A_FIRST_ADMIN_TOKEN --env fleet-staging < token
-  echo "https://gym-a-admin.<fleet domain>/sign-in#first-admin=$(cat token)"   # the link
-  rm token
-  ```
-  He sends the link to the client's admin himself. The workflow writes the secret to a 0600 file
-  and runs:
-  ```sh
-  cos client add gym-a --env staging --location oc --label "Gym A" \
-    --admin owner@gym-a.example --admin-token-file "$RUNNER_TEMP/first-admin-token" --yes
-  cos client first-admin gym-a owner@gym-a.example --env staging \
-    --token-file "$RUNNER_TEMP/first-admin-token"        # a new token replaces the last
-  ```
-  A token is refused unless it is 32 random bytes or more as hex (64 to 128 of `0-9 a-f`) or
-  base64url (43 to 128 of `A-Z a-z 0-9 - _`), with no space or line break inside (one trailing
-  line break is dropped). A person at a terminal may let `cos` make one and print the link once
-  instead (`--print-link`), which is refused when `CI` or `GITHUB_ACTIONS` is set. The link works
-  for that address only, by password sign-up (a new client cannot send mail until its admin sets
-  mail up, so the link is how the first account is made), and does nothing once the client has
-  an account. With no admin named, nobody can make the client's first account. A single-client
-  install is as before: its installer signs up at `/setup` right after the deploy.
-- **A running client's settings** (`cos client setting list|set|unset <id> [NAME] [value]`): only
-  `COS_PACKS`, `API_ALLOWED_ORIGINS`, `NATIVE_REDIRECT_URIS`, `APPROVAL_EXPIRY_DAYS` and
-  `COS_PRODUCT_LABEL`, each value checked before it is written; replacing or removing one asks for
-  the client's id (or `--yes`). The others are set at `add` (`APPROVAL_FLOOR`, `IDENTITY_PROVIDER`),
-  written by their own command (`COS_FIRST_ADMIN`, `COS_ORG_EXTENSIONS` by the client repository's
-  deploy), or never right on a fleet (`AUTH_ALLOW_SIGNUP`); the command says which. A change
-  reaches a running host within 10 seconds (its registry refresh). **`COS_PACKS` only widens**:
-  every pack must be one the installed release carries, with the packs it requires named too
-  (Courses: Programs and Content), and none of the client's own list taken out (a pack taken out
-  stays installed and is no longer updated by a release). The host installs a newly listed pack,
-  its objects and migrations, at the client's next staff or API request, as it installs a new
-  release's packs; its routine email stays off until the client's admin turns it on.
+- **A client's first day, in order** (stage 66 step 9; ADR 0618, "The first client's day one").
+  The fleet's commands run in the operator's workflow, in a public repository whose logs anyone
+  can read, so nothing that could make a client's first account is ever in it: only a hash.
+  1. **The owner makes the setup token, on his own machine** (no Cloudflare token needed; refused
+     in CI):
+     ```sh
+     cos client first-admin-token --staff-hostname gym-a-admin.<fleet domain>
+     ```
+     It prints the link (`https://gym-a-admin.<fleet domain>/sign-in#first-admin=<token>`) and the
+     token's SHA-256. He keeps the link and gives the workflow only the hash.
+  2. **The workflow adds the client with its first admin**, the hash as a plain input:
+     ```sh
+     cos client add gym-a --env staging --location oc --label "Gym A" \
+       --admin owner@gym-a.example --admin-token-sha256 <sha256> --yes
+     ```
+     It prints neither a token, a link nor the address: only that the first admin is stored, and
+     until when (72 hours). A new hash replaces the last:
+     `cos client first-admin gym-a --email owner@gym-a.example --token-sha256 <sha256>`.
+  3. **The owner sends the link to the client's admin himself.** Only that address, with that
+     link, by password sign-up, before it expires, makes the client's first account, which is its
+     admin. With no admin named, nobody can. The link does nothing once the client has an account;
+     `first-admin` cannot tell whether it has one (the people are in the client's database, which
+     these registry commands do not open), so naming one again then is harmless and does nothing.
+  4. **The admin signs up** at the link, then sets up mail in the app (the sign-in mail steps
+     above: the operator's `cos client sender add` and `verify`, then Settings → Integrations and
+     Settings → Users).
+  5. **Packs, origins and redirects** with `cos client setting` (below): the client's packs, its
+     own site's origin, its app's sign-in redirect.
+
+  `--print-link` (cos makes the token and prints the link once) is for a self-hosted operator at a
+  terminal, and is refused when `CI` or `GITHUB_ACTIONS` is set. `cos client setting list` shows
+  the first admin as set, with its expiry, and its address only with `--show-email`. A
+  single-client install is as before: its installer signs up at `/setup` right after the deploy.
+- **A running client's settings** (`cos client setting list|set|unset <id> [NAME] [value]`, and
+  `cos client add --setting NAME=VALUE`): only `COS_PACKS`, `API_ALLOWED_ORIGINS`,
+  `NATIVE_REDIRECT_URIS`, `APPROVAL_EXPIRY_DAYS` and `COS_PRODUCT_LABEL`, each value checked before
+  it is written; replacing or removing one asks for the client's id (or `--yes`). Every other
+  setting is refused, at `add` too, with the reason: the deployment's value applies
+  (`APPROVAL_FLOOR`, `IDENTITY_PROVIDER`, the AI settings), its own command writes it
+  (`COS_FIRST_ADMIN`; `COS_ORG_EXTENSIONS`, the client repository's deploy), or it is never right
+  on a fleet (`AUTH_ALLOW_SIGNUP`). The registry's own write holds the same list. A change reaches
+  a running host within 10 seconds (its registry refresh).
+  - **`COS_PACKS` only widens**: every pack must be one the installed release carries, with the
+    packs it requires named too (Courses: Programs and Content), and none of the client's own list
+    taken out (a pack taken out stays installed and is no longer updated by a release). The host
+    installs a newly listed pack, its objects and migrations, at the client's next staff or API
+    request, as it installs a new release's packs; its customer and public tools are open from
+    then on, its routine email off until the client's admin turns it on.
+  - **`API_ALLOWED_ORIGINS`**: https origins only, and none under the fleet's own domain but the
+    client's own hostnames (a sibling there is another client's or the fleet's).
+  - **`NATIVE_REDIRECT_URIS`**: the client's app's `<scheme>://staff-sign-in` (the scheme its
+    product.ts names for the environment, `nativeRedirectUri`), cos's own
+    `http://127.0.0.1/cos-sign-in`, or an https address on one of the client's own hostnames.
   ```sh
   cos client setting set gym-a COS_PACKS ticketing,content --env staging --yes
   cos client setting set gym-a API_ALLOWED_ORIGINS https://www.gym-a.example --env staging
+  cos client setting set gym-a NATIVE_REDIRECT_URIS gyma://staff-sign-in,http://127.0.0.1/cos-sign-in --env staging
   ```
 - **A client's own label** (`COS_PRODUCT_LABEL`, `--label` at add or the setting): its staff
   screens, its sign-in page and every mail it sends name the product so, never the fleet's

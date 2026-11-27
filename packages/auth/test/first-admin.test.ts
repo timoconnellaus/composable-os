@@ -10,6 +10,7 @@ import {
   awaitingFirstUser,
   createIdentityProvider,
   FIRST_ADMIN_HEADER,
+  firstAdminMaySignUp,
   type IdentityEnv,
 } from "../src/index.ts";
 
@@ -137,5 +138,18 @@ describe("a client of a host of many clients", () => {
     const identity = authEnv({ COS_CLIENT_ID: "gym-bad", COS_FIRST_ADMIN: '{"email":"x"}' });
     expect((await signUp(identity, "x", TOKEN))?.ok).toBe(false);
     expect(await people()).toEqual([]);
+  });
+});
+
+describe("the first admin's rule itself", () => {
+  it("lets the first account be made by password sign-up only: a code, Google or any other path is refused (S7)", async () => {
+    const rule = { email: "owner@gym-a.test", sha256: await sha256Hex(TOKEN), expires: LATER };
+    const now = new Date();
+    const attempt = (path: string | undefined) =>
+      firstAdminMaySignUp(rule, { path, email: "owner@gym-a.test", token: TOKEN }, now);
+    expect(await attempt("/sign-up/email")).toBe(true);
+    for (const path of ["/sign-in/email-otp", "/callback/google", "/sign-in/social", undefined]) {
+      expect(await attempt(path), String(path)).toBe(false);
+    }
   });
 });

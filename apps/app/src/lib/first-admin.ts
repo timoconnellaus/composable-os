@@ -1,8 +1,9 @@
 // The first admin's setup link on a host of many clients (stage 66 step 9, ADR 0618 "The first
-// client's day one"): `https://<staff hostname>/sign-in#first-admin=<token>`, printed once to the
-// operator by `cos client add --admin` or `cos client first-admin`. The token is in the fragment,
-// which the browser never sends to a server, so no log holds it; the sign-in page reads it and
-// sends it with the first account's sign-up, in a header the host checks
+// client's day one"): `https://<staff hostname>/sign-in#first-admin=<token>`, made on the owner's
+// own machine by `cos client first-admin-token`, whose hash alone the operator's command stores.
+// The token is in the fragment, which the browser never sends to a server, so no log holds it;
+// the sign-in page reads it, drops it from the address bar, and sends it with the first account's
+// sign-up, in a header the host checks
 // (`@composable-os/auth` `FIRST_ADMIN_HEADER`; the two are held equal by a test).
 
 /** The setup link's fragment key (`@composable-os/db/registry` `FIRST_ADMIN_FRAGMENT`). */

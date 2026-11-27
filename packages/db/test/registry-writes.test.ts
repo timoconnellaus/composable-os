@@ -41,7 +41,7 @@ const gym = (id: string, over: Partial<NewClient> = {}): NewClient => ({
     { hostname: `${id}-admin.composableos.app`, surface: "staff" },
     { hostname: `${id}.composableos.app`, surface: "web" },
   ],
-  settings: { APPROVAL_FLOOR: "write" },
+  settings: { COS_PRODUCT_LABEL: "Gym One" },
   ...over,
 });
 
@@ -62,7 +62,7 @@ describe("adding a client", () => {
       staff: "gym-one-admin.composableos.app",
       web: "gym-one.composableos.app",
     });
-    expect(snapshot.settings.get("gym-one" as ClientId)).toEqual({ APPROVAL_FLOOR: "write" });
+    expect(snapshot.settings.get("gym-one" as ClientId)).toEqual({ COS_PRODUCT_LABEL: "Gym One" });
   });
 
   it("refuses what the registry would not hold, saying what, before writing", async () => {
@@ -77,7 +77,7 @@ describe("adding a client", () => {
     ).toEqual([
       'the id: "admin" is reserved',
       "Callback.Fleet.Example is not a canonical hostname",
-      "COS_ROOT_KEY is not a client setting",
+      "COS_ROOT_KEY is not a client setting (COS_PACKS, API_ALLOWED_ORIGINS, NATIVE_REDIRECT_URIS, APPROVAL_EXPIRY_DAYS, COS_PRODUCT_LABEL)",
     ]);
     expect(
       newClientProblems(

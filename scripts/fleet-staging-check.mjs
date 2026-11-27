@@ -30,7 +30,6 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -712,18 +711,16 @@ async function hostHealth(ctx, version) {
 /** The staff address the check names each client's first admin with (stage 66 step 9). */
 const staffEmail = (ctx, id) => `staff-${id}-${ctx.run}@staging-check.invalid`;
 
-/** The setup link's token `cos client add --admin` printed, or null (the operator's link, ADR 0618). */
 /**
- * A first admin's setup token the check makes itself (32 random bytes, hex), masked at once and
- * written 0600 to a file of its own for `cos client add --admin-token-file`: cos keeps its hash and
- * prints nothing of it (ADR 0618), and the check never logs it.
+ * A first admin's setup token the check makes itself (32 random bytes, base64url, as the owner's
+ * `cos client first-admin-token` makes one), registered as a secret before any cos call, so no
+ * line of the run can carry it. cos is given only its SHA-256 (ADR 0618): the token never reaches
+ * cos, its arguments or its output.
  */
-function setupToken(ctx, id) {
-  const token = randomBytes(32).toString("hex");
+function setupToken(ctx) {
+  const token = randomBytes(32).toString("base64url");
   ctx.addSecret(token);
-  const file = join(mkdtempSync(join(tmpdir(), "cos-first-admin-")), id);
-  writeFileSync(file, token, { mode: 0o600 });
-  return { token, file };
+  return { token, sha256: createHash("sha256").update(token).digest("hex") };
 }
 
 async function signUp(ctx, hostname, email, password, setupToken) {
@@ -997,7 +994,7 @@ export function checkSteps() {
       name: "2. cos client add, two clients",
       async run(ctx) {
         // Each client's first account is made with its setup token, which step 3 uses.
-        const tokens = { [a]: setupToken(ctx, a), [b]: setupToken(ctx, b) };
+        const tokens = { [a]: setupToken(ctx), [b]: setupToken(ctx) };
         ctx.setupTokens = { [a]: tokens[a].token, [b]: tokens[b].token };
         const first = await must(ctx, [
           "client",
@@ -1009,8 +1006,8 @@ export function checkSteps() {
           ctx.hosts.web,
           "--admin",
           staffEmail(ctx, a),
-          "--admin-token-file",
-          tokens[a].file,
+          "--admin-token-sha256",
+          tokens[a].sha256,
           "--yes",
         ]);
         const second = await must(ctx, [
@@ -1021,11 +1018,10 @@ export function checkSteps() {
           ctx.location,
           "--admin",
           staffEmail(ctx, b),
-          "--admin-token-file",
-          tokens[b].file,
+          "--admin-token-sha256",
+          tokens[b].sha256,
           "--yes",
         ]);
-        for (const { file } of Object.values(tokens)) rmSync(file, { force: true });
         const list = await clientList(ctx);
         for (const id of [a, b]) {
           if (list[id]?.status !== "active") fail(`${id} is ${list[id]?.status} after its add`);

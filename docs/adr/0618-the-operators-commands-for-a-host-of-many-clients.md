@@ -361,24 +361,24 @@ hits on its first day, found by the step 9 scoping pass.*
 - **The bootstrap order is the difficulty.** A new client cannot send mail: its sender domain and
   its "host's mail" connection are set up in the app by its admin. So the first admin cannot be
   sent a sign-in code; a link given to the operator is the only channel that exists on day one.
-- **Decided.** On a host of many clients the operator names the first admin
-  (`cos client add <id> --admin <email>`, or `cos client first-admin <id> <email>` later, which
-  replaces the last token) and **supplies the setup token** (`--admin-token-file`,
-  `--token-file`): one the owner made himself (`openssl rand -hex 32`), kept as a GitHub
-  environment secret (`CLIENT_<ID>_FIRST_ADMIN_TOKEN`) and handed to `cos` as a 0600 file. `cos`
-  refuses a token that is not at least 32 random bytes as hex (64 to 128 of `0-9 a-f`, at least
-  10 different) or base64url (43 to 128 of `A-Z a-z 0-9 - _`, at least 16 different), or that
-  holds a space or a line break; it writes the registry setting `COS_FIRST_ADMIN` = the address,
-  the token's SHA-256 and an expiry 72 hours on, and **prints neither the token nor the link**
-  (only `open https://<staff hostname>/sign-in#first-admin=<your token>`, with the placeholder),
-  in every path: a dry run, a refusal, an error (the token is added to the command's redactor as
-  soon as it is read). Why: the fleet's commands run in a GitHub Actions workflow of a public
-  repository, whose logs anyone can read, and the owner holds no Cloudflare token on a machine.
-  The owner builds the link from his token and sends it. `--print-link` (cos makes the token and
-  prints the link once) stays for a person at a terminal, and is refused when `CI` or
-  `GITHUB_ACTIONS` is set. The token is stored nowhere; it rides in the link's fragment, which no
-  server or log sees; the sign-in page
-  sends it with the sign-up in the `cos-first-admin-token` header. The host (Better Auth's
+- **Decided** (the setup token's part decided by the coordinator after the review of #552). On a
+  host of many clients the operator names the first admin, and **gives only the setup token's
+  SHA-256**: `cos client add <id> --admin <email> --admin-token-sha256 <hex>`, or `cos client
+  first-admin <id> --email <email> --token-sha256 <hex>` later, which replaces the last. A value
+  that is not 64 lowercase hex characters is refused. The token is made by the owner on his own
+  machine with `cos client first-admin-token --staff-hostname <host>` (no registry, no Cloudflare
+  token; refused when `CI` or `GITHUB_ACTIONS` is set), which prints the link and the hash; the
+  owner keeps the link and sends it himself. So no secret ever reaches GitHub: the fleet's
+  commands run in a workflow of a public repository whose logs anyone reads, and with only a hash
+  in it nothing there can make the client's first account. With the hash the command prints
+  neither a token, a link nor the admin's address (a client's personal data, in a public log):
+  only that the setting is stored and its expiry; `cos client setting list` shows it as set, with
+  its expiry, and the address only with `--show-email`. `--print-link` (cos makes the token and
+  prints the link once) stays for a self-hosted operator at a terminal, and is refused in CI. The
+  registry setting `COS_FIRST_ADMIN` holds the address, the hash and an expiry 72 hours on, written
+  only by `setFirstAdmin`. The token is stored nowhere; it rides in the link's fragment, which no
+  server or log sees, and the sign-in page drops it from the address bar and the history once read
+  (`history.replaceState`); the sign-in page sends it with the sign-up in the `cos-first-admin-token` header. The host (Better Auth's
   user-create hook, `firstAdminMaySignUp`) makes the first account only for that address, by
   password sign-up, with a token whose SHA-256 matches (compared in constant time), before the
   expiry; every other first account is refused, and with no admin named, or a value that does not
@@ -397,15 +397,22 @@ hits on its first day, found by the step 9 scoping pass.*
 `cos client setting list|set|unset <id> [NAME] [value]`, over the registry only (never the
 operator's Worker). The names it changes, each with its check (`OPERATOR_SETTINGS`,
 `@composable-os/db/registry`): `COS_PACKS`, `API_ALLOWED_ORIGINS` (https origins only),
-`NATIVE_REDIRECT_URIS` (an app scheme, https, or a loopback address with no port),
+`NATIVE_REDIRECT_URIS` (see below),
 `APPROVAL_EXPIRY_DAYS` (1 to 90) and `COS_PRODUCT_LABEL`. Every other client setting says why not
-(`NOT_OPERATOR_SETTINGS`): `APPROVAL_FLOOR` and `IDENTITY_PROVIDER` are set at `add` (a running
-client's policy or identity changed is a reviewed change of its own, and a floor that does not
-parse stops the client); `AUTH_ALLOW_SIGNUP` is never right on a fleet's public hostname;
+(`NOT_OPERATOR_SETTINGS`): `APPROVAL_FLOOR` and `IDENTITY_PROVIDER` are the deployment's (a
+client's own policy or identity is a reviewed change of its own, and a floor that does not parse
+stops the client); `AUTH_ALLOW_SIGNUP` is never right on a fleet's public hostname;
 `COS_ORG_EXTENSIONS` is the client repository's deploy's; `AI_MODEL_ROLES` and `AI_PROVIDERS` wait
 for per-client AI; `COS_FIRST_ADMIN` is `first-admin`'s. `add`'s `--setting` values get the same
-checks. Replacing or removing a value asks for the client's id. A change is served within
-`REGISTRY_REFRESH_MS` (10 seconds).
+checks. *Corrected after the review of #552 (S2, S3):* `add`'s `--setting` takes exactly the same
+names, every other one refused (as first built it let the refused names through at `add`), and the
+list and the checks are also where the write is: `setClientSetting` refuses any other name and any
+value its check refuses, `newClientProblems` does the same for `add`'s rows, and `COS_FIRST_ADMIN`
+is written only by `setFirstAdmin`. Two checks need the fleet: an allowed origin under the fleet's
+registrable domain must be one of the client's own hostnames (S4), and a native redirect is the
+client's app's `<scheme>://staff-sign-in`, cos's `http://127.0.0.1/cos-sign-in`, or https on one
+of the client's own hostnames (S5). Replacing or removing a value asks for the client's id. A
+change is served within `REGISTRY_REFRESH_MS` (10 seconds).
 
 **Widening `COS_PACKS` is a plain setting change, with three checks.** The host installs every
 pack its environment lists at the client's next staff or API request (`ensureShippedExtensions`,
@@ -454,3 +461,19 @@ sign-in codes, invites and every notification name the client's product, never a
   kept by every later upload: `keep_bindings: ["secret_text", "secret_key"]`). All five or none,
   each checked, nothing of the two secrets printed; a re-run with them replaces them. Never a
   client's: `cos client secret` does not take them.
+
+### Left open after the review of #552
+- **Cloudflare Access on a fleet client (F1).** With `IDENTITY_PROVIDER=cloudflare-access` the
+  first person Access lets in becomes admin (`resolveActingUser` and the trigger);
+  `COS_FIRST_ADMIN` is not consulted. `IDENTITY_PROVIDER` is not an operator setting now, so a
+  fleet client cannot be given Access by `cos`; if it ever is, the first-admin rule must apply
+  there too, or the operator must write a per-client Access policy first.
+- **A client that already has people (F6).** `first-admin` writes a token that then does nothing.
+  Whether the client has people is in its database, which the registry commands do not open
+  (only the operator's Worker does, and opening it takes the operator's session), so it is not
+  refused; the command says the token works only before the first account.
+- **Widening `COS_PACKS` (F7).** A shipped pack's tools open to `customer` or `public` callers
+  (`loadOpenTool`, a shipped source with `audiences`) are reachable at the client's API from the
+  install on, with no switch of the client's admin; what they show is the pack's records under its
+  own visibility rules, of which a newly installed pack has none until staff make them. Its
+  routine email stays off until the admin turns it on.

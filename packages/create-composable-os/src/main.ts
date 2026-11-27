@@ -204,12 +204,15 @@ A host of many clients (stage 66; docs/deploying.md "A host of many clients")
                                          a running client's settings: COS_PACKS (only wider),
                                          API_ALLOWED_ORIGINS, NATIVE_REDIRECT_URIS,
                                          APPROVAL_EXPIRY_DAYS, COS_PRODUCT_LABEL
-  cos client first-admin <id> <email> --token-file <f>
-                                         who may make its first account: a setup token you made
-                                         (openssl rand -hex 32), only its hash kept, nothing of it
-                                         printed; --print-link instead makes one and prints the
-                                         link, at a terminal only (refused in CI). add takes
-                                         --admin <email> --admin-token-file <f> and --label <name>
+  cos client first-admin-token --staff-hostname <host>
+                                         on your own machine, never in CI (refused there): a first
+                                         admin's setup token, its link to send and its SHA-256
+  cos client first-admin <id> --email <address> --token-sha256 <sha256>
+                                         who may make its first account: only the token's hash is
+                                         kept, and nothing of it or the address is printed (add
+                                         takes --admin <email> --admin-token-sha256 <sha256> and
+                                         --label <name>); --print-link makes a token and prints
+                                         the link instead, at a terminal only (refused in CI)
   Each asks for the client's id before removing or overwriting (or --yes); a re-run after a
   failure carries on where it stopped.
 
@@ -316,6 +319,7 @@ export function parseArgs(argv: string[]): { command: string; flags: Flags } {
       "draft",
       "leaving",
       "print-link",
+      "show-email",
       "without-secrets",
       "skip-staging",
       "take-over",

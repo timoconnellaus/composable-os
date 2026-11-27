@@ -155,7 +155,18 @@ function SignInPage() {
   // On a host of many clients the first account is made only with the operator's setup link
   // (stage 66 step 9): its token is in the fragment, read once the page runs.
   const [setupToken, setSetupToken] = useState<string | null>(null);
-  useEffect(() => setSetupToken(firstAdminTokenOf(window.location.hash)), []);
+  useEffect(() => {
+    const token = firstAdminTokenOf(window.location.hash);
+    setSetupToken(token);
+    // Out of the address bar and the history once read: it stays in this page's memory only.
+    if (token) {
+      window.history.replaceState(
+        window.history.state,
+        "",
+        window.location.pathname + window.location.search,
+      );
+    }
+  }, []);
   const waitingForLink = methods.firstAccount && methods.firstAdminByLink && !setupToken;
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {

@@ -1,19 +1,25 @@
 // A running client's settings and its first admin (stage 66 step 9, ADR 0618 "The first client's
 // day one"), over the registry only: these commands never open the operator's Worker.
 //
-//   cos client setting list <id>
+//   cos client setting list <id> [--show-email]
 //   cos client setting set <id> <NAME> <value>      only the names `OPERATOR_SETTINGS` lists
 //   cos client setting unset <id> <NAME>
-//   cos client first-admin <id> <email>             a new setup link, printed once
+//   cos client first-admin <id> --email <addr> --token-sha256 <hex>
+//   cos client first-admin-token --staff-hostname <host>       offline, on the owner's machine
 //
 // A change is served within the registry's refresh (10 seconds). Widening `COS_PACKS` needs
 // nothing more: the host installs a newly listed pack (its objects, its migrations, as
 // `extension.install` does) at the client's next staff or API request, as it installs a new
 // release's packs, and a pack only installs with the packs it requires, so those are named too.
+//
+// The first admin's setup token never reaches the operator's commands: the owner makes it on his
+// own machine (`first-admin-token`), keeps the link, and gives the registry command only its
+// SHA-256, so nothing that could make the client's first account is in a workflow, its inputs or
+// its log (the fleet's commands run in a public repository's Actions).
 import { createHash, randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
 import {
   type ClientId,
+  canonicalHostname,
   FIRST_ADMIN_FRAGMENT,
   FIRST_ADMIN_LINK_HOURS,
   firstAdminEmail,
@@ -23,16 +29,19 @@ import {
   OPERATOR_SETTINGS,
   operatorSettingProblem,
   parseFirstAdmin,
+  type SettingContext,
   validateClientId,
 } from "@composable-os/db/registry";
 import {
   readClient,
   readClientSettings,
   setClientSetting,
+  setFirstAdmin,
   staffHostnameOf,
 } from "@composable-os/db/registry-writes";
 import { type ClientKit, kitPacks, requiredPacks } from "../client-repo.ts";
-import { confirmFor, type FleetContext, FleetError } from "./clients.ts";
+import type { Io } from "../io.ts";
+import { confirmFor, type FleetContext, FleetError, registrableDomain } from "./clients.ts";
 
 const REFRESH_NOTE = "A running host serves the change within 10 seconds (its registry refresh).";
 
@@ -62,6 +71,11 @@ const listOf = (value: string) =>
     .split(",")
     .map((v) => v.trim())
     .filter(Boolean);
+
+/** The fleet's registrable domain, which no other client's hostname may be under. */
+export function fleetDomainOf(ctx: Pick<FleetContext, "fleet">): string {
+  return registrableDomain(ctx.fleet.domain);
+}
 
 /**
  * What is wrong with `COS_PACKS=<value>` for a client whose own row is `current` (null: it has
@@ -94,12 +108,14 @@ export function packsProblem(
 }
 
 /**
- * What is wrong with the settings `cos client add` was given, one line each: each value the
- * setting command would refuse, packs as above, and the first admin only through `--admin`.
+ * What is wrong with the settings `cos client add` was given, one line each: exactly the setting
+ * command's names and checks (every other name refused, the first admin only through `--admin`),
+ * against the hostnames the client is added with, and packs as above.
  */
 export function addSettingsProblems(
   settings: Record<string, string>,
   release: ReleasePacks,
+  context: SettingContext = {},
 ): string[] {
   const problems: string[] = [];
   for (const [name, value] of Object.entries(settings)) {
@@ -107,8 +123,7 @@ export function addSettingsProblems(
       problems.push("COS_FIRST_ADMIN: name the first admin with --admin <email>");
       continue;
     }
-    if (!Object.hasOwn(OPERATOR_SETTINGS, name)) continue;
-    const problem = operatorSettingProblem(name, value);
+    const problem = operatorSettingProblem(name, value, context);
     if (problem) problems.push(problem);
     else if (name === "COS_PACKS") {
       const packs = packsProblem(value, null, release);
@@ -118,11 +133,15 @@ export function addSettingsProblems(
   return problems;
 }
 
-/** `COS_FIRST_ADMIN` as the operator reads it: who, until when; never the hash. */
-function shown(name: string, value: string): string {
+/**
+ * `COS_FIRST_ADMIN` as the operator reads it: that it is set and until when, the address only when
+ * asked (`--show-email`: in a public log it is a client's personal data); never the hash.
+ */
+function shown(name: string, value: string, showEmail: boolean): string {
   if (name !== "COS_FIRST_ADMIN") return value;
   const admin = parseFirstAdmin(value);
-  return admin ? `${admin.email}, its setup link until ${admin.expires}` : "(not readable: none)";
+  if (!admin) return "(not readable: none)";
+  return `set${showEmail ? ` for ${admin.email}` : ""}, its setup link until ${admin.expires}`;
 }
 
 /** `cos client setting list|set|unset <id> [NAME] [value]`. */
@@ -133,6 +152,7 @@ export async function settingCommand(
   raw: string | undefined,
   name: string | undefined,
   value: string | undefined,
+  options: { showEmail?: boolean } = {},
 ): Promise<number> {
   const id = idOf(raw);
   if (verb === "list") {
@@ -140,7 +160,9 @@ export async function settingCommand(
     const own = await readClientSettings(ctx.registry, id);
     const names = Object.keys(own).filter(isClientSetting);
     if (!names.length) ctx.io.out(`${id} has no settings of its own: each is the deployment's.`);
-    for (const n of names) ctx.io.out(`  ${n}=${shown(n, own[n] as string)}`);
+    for (const n of names) {
+      ctx.io.out(`  ${n}=${shown(n, own[n] as string, Boolean(options.showEmail))}`);
+    }
     ctx.io.out(`Settings this command changes: ${Object.keys(OPERATOR_SETTINGS).join(", ")}.`);
     return 0;
   }
@@ -150,9 +172,14 @@ export async function settingCommand(
     );
   }
   const next = verb === "set" ? (value as string) : null;
-  const problem = operatorSettingProblem(name, next);
-  if (problem) throw new FleetError(problem);
+  // The name first, before any registry read.
+  const named = operatorSettingProblem(name, null);
+  if (named) throw new FleetError(named);
   if (!(await readClient(ctx.registry, id))) throw new FleetError(`No client ${id}`);
+  const fleetDomain = fleetDomainOf(ctx);
+  const ownHostnames = await clientHostnames(ctx, id);
+  const problem = operatorSettingProblem(name, next, { ownHostnames, fleetDomain });
+  if (problem) throw new FleetError(problem);
   const own = await readClientSettings(ctx.registry, id);
   const current = Object.hasOwn(own, name) ? (own[name] as string) : null;
   if (name === "COS_PACKS") {
@@ -189,7 +216,7 @@ export async function settingCommand(
   } else if (current !== null) {
     await confirmFor(ctx, id, `This will ${what}`);
   }
-  await setClientSetting(ctx.registry, id, name, next);
+  await setClientSetting(ctx.registry, id, name, next, { fleetDomain });
   ctx.io.out(`${next === null ? "Removed" : "Set"} ${id}'s ${name}. ${REFRESH_NOTE}`);
   if (name === "COS_PACKS") {
     ctx.io.out(
@@ -199,42 +226,27 @@ export async function settingCommand(
   return 0;
 }
 
-/** A new setup link's token: 32 random bytes, base64url (43 characters). */
+/** A client's hostnames in the registry, verified or not. */
+async function clientHostnames(ctx: FleetContext, id: ClientId): Promise<string[]> {
+  const { results } = await ctx.registry
+    .prepare("SELECT hostname FROM registry_hostnames WHERE client = ?")
+    .bind(id)
+    .all<{ hostname: string }>();
+  return results.map((r) => r.hostname);
+}
+
+// --- The first admin ------------------------------------------------------------------------------
+
+/** A new setup token: 32 random bytes, base64url (43 characters), what the sign-in page reads. */
 export function newSetupToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
-/**
- * What is wrong with a setup token the operator made, or null. Strong means at least 32 random
- * bytes, written as base64url (43 to 128 of `A-Z a-z 0-9 - _`, no padding) or as hex (64 to 128
- * of `0-9 a-f`), with no space or line inside, and not a run of a few characters (at least 16
- * different characters for base64url, 10 for hex). `openssl rand -hex 32` makes one.
- */
-export function setupTokenProblem(token: string): string | null {
-  if (/\s/.test(token)) return "it holds a space or a line break";
-  const hex = /^[0-9a-f]{64,128}$/.test(token);
-  const b64 = /^[A-Za-z0-9_-]{43,128}$/.test(token);
-  if (!hex && !b64) {
-    return "it is not 32 random bytes or more as hex (64 to 128 of 0-9 a-f) or base64url (43 to 128 of A-Z a-z 0-9 - _)";
-  }
-  if (new Set(token).size < (hex ? 10 : 16))
-    return "it is not random (too few different characters)";
-  return null;
-}
+const sha256Hex = (token: string) => createHash("sha256").update(token).digest("hex");
 
-/** The setup token in `path`, checked: one trailing line break is dropped, nothing else. */
-export function readSetupToken(path: string): string {
-  let text: string;
-  try {
-    text = readFileSync(path, "utf8");
-  } catch {
-    throw new FleetError(`The setup token file ${path} cannot be read`);
-  }
-  const token = text.replace(/\r?\n$/, "");
-  const problem = setupTokenProblem(token);
-  // The value is never part of an error: it is a credential.
-  if (problem) throw new FleetError(`The setup token in ${path} is refused: ${problem}`);
-  return token;
+/** What is wrong with a setup token's SHA-256 as the operator gives it, or null: 64 hex. */
+export function tokenHashProblem(value: string): string | null {
+  return /^[0-9a-f]{64}$/.test(value) ? null : "it is not a SHA-256: 64 lowercase hex characters";
 }
 
 /** Whether the command runs in CI, where what it prints lands in a log. */
@@ -243,44 +255,53 @@ export function inCi(env: { CI?: string; GITHUB_ACTIONS?: string }): boolean {
 }
 
 /**
- * Where a setup link's token comes from: a file the operator made (`--admin-token-file`,
- * `--token-file`; nothing of it is printed), or made by `cos` and printed once (`--print-link`),
- * for a person at a terminal only.
+ * Where a first admin's setup token comes from: its SHA-256 the owner made with
+ * `first-admin-token` (`--token-sha256`; nothing of the token is in the command at all), or a
+ * token `cos` makes and prints with the link (`--print-link`), for a person at a terminal only.
  */
-export type SetupTokenSource = { file: string } | { print: true };
+export type SetupTokenSource = { sha256: string } | { print: true };
 
 /**
- * The token source a command's flags name, checked before anything is written: exactly one of
- * the file or `--print-link`, and `--print-link` never in CI (`CI` or `GITHUB_ACTIONS`), where the
- * link would land in a log.
+ * The token source a command's flags name, checked before anything is written: exactly one of the
+ * hash or `--print-link`, a hash of 64 hex, and `--print-link` never in CI (`CI` or
+ * `GITHUB_ACTIONS`), where the link would land in a log.
  */
 export function setupTokenSource(
-  file: string | undefined,
+  sha256: string | undefined,
   printLink: boolean,
   env: { CI?: string; GITHUB_ACTIONS?: string },
-  fileFlag: string,
+  hashFlag: string,
 ): SetupTokenSource {
-  if (file && printLink) throw new FleetError(`Give ${fileFlag} or --print-link, not both`);
-  if (file) return { file };
+  if (sha256 !== undefined && printLink) {
+    throw new FleetError(`Give ${hashFlag} or --print-link, not both`);
+  }
+  if (sha256 !== undefined) {
+    const problem = tokenHashProblem(sha256);
+    if (problem) throw new FleetError(`${hashFlag} is refused: ${problem}`);
+    return { sha256 };
+  }
   if (printLink) {
     if (inCi(env)) {
       throw new FleetError(
-        `--print-link is refused in CI (CI or GITHUB_ACTIONS is set): the link would be in the log. Make a token yourself and pass ${fileFlag} <file>.`,
+        `--print-link is refused in CI (CI or GITHUB_ACTIONS is set): the link would be in the log. Make the token on your own machine with cos client first-admin-token, and pass ${hashFlag} <its sha256>.`,
       );
     }
     return { print: true };
   }
   throw new FleetError(
-    `The first admin's setup token: ${fileFlag} <file> (a token you made, e.g. openssl rand -hex 32), or --print-link at a terminal`,
+    `The first admin's setup token: ${hashFlag} <sha256> (from cos client first-admin-token, run on your own machine), or --print-link at a terminal`,
   );
 }
 
 /**
- * `cos client first-admin <id> <email>` (and `cos client add --admin`): names who may make the
- * client's first account. The registry keeps the address and the token's SHA-256 only; a new
- * token replaces the last. With a token file, nothing of the token is printed: the operator
- * builds the link from the token they made. With `--print-link`, `cos` makes one and prints the
- * link once. It works until it expires, and does nothing once the client has its first account.
+ * `cos client first-admin <id> --email <addr>` (and `cos client add --admin`): names who may make
+ * the client's first account. The registry keeps the address and the token's SHA-256 only; a new
+ * one replaces the last. With `--token-sha256`, nothing of the token exists here and nothing
+ * names the admin in what is printed (the address is a client's personal data, and the log may be
+ * public): only that the setting was stored, and until when. With `--print-link`, `cos` makes the
+ * token and prints the link once. It works until it expires, and does nothing once the client has
+ * its first account; whether it has one is in the client's database, which these registry
+ * commands do not read.
  */
 export async function firstAdminCommand(
   ctx: FleetContext,
@@ -291,52 +312,69 @@ export async function firstAdminCommand(
     now?: Date;
     /** The token `--print-link` uses (tests only). */
     token?: string;
-    /** Registers the token with the command's redactor, so no output can carry it. */
-    redact?: (value: string) => void;
   },
 ): Promise<number> {
   const id = idOf(raw);
   const address = email ? firstAdminEmail(email) : null;
-  if (!address) throw new FleetError("Name the first admin's email address: --admin <email>");
-  // Read and checked first, so a dry run and every refusal check it too, and never print it.
-  const supplied = "file" in options.source ? readSetupToken(options.source.file) : null;
-  if (supplied) options.redact?.(supplied);
+  if (!address) throw new FleetError("Name the first admin's email address: --email <address>");
   if (!(await readClient(ctx.registry, id))) throw new FleetError(`No client ${id}`);
   const staff = await staffHostnameOf(ctx.registry, id);
   if (!staff) throw new FleetError(`${id} has no verified staff hostname to sign up at`);
+  const hashed = "sha256" in options.source;
   if (ctx.dryRun) {
     ctx.io.out(
-      `Would name ${address} ${id}'s first admin${supplied ? ", with the token you supplied" : " and print a setup link"}. Nothing was changed (--dry-run).`,
+      `Would name ${id}'s first admin${hashed ? "" : " and print a setup link"}. Nothing was changed (--dry-run).`,
     );
     return 0;
   }
   const now = options.now ?? ctx.now?.() ?? new Date();
-  const token = supplied ?? options.token ?? newSetupToken();
+  const token = "sha256" in options.source ? null : (options.token ?? newSetupToken());
+  const sha256 = "sha256" in options.source ? options.source.sha256 : sha256Hex(token as string);
   const expires = new Date(now.getTime() + FIRST_ADMIN_LINK_HOURS * 3_600_000).toISOString();
-  await setClientSetting(
-    ctx.registry,
-    id,
-    "COS_FIRST_ADMIN",
-    firstAdminValue({
-      email: address,
-      sha256: createHash("sha256").update(token).digest("hex"),
-      expires,
-    }),
-  );
-  if (supplied) {
+  await setFirstAdmin(ctx.registry, id, firstAdminValue({ email: address, sha256, expires }));
+  if (!token) {
     ctx.io.out(
-      `${address} may make ${id}'s first account until ${expires}, with the token you made:`,
-    );
-    ctx.io.out(`  open https://${staff}/sign-in#${FIRST_ADMIN_FRAGMENT}=<your token>`);
-    ctx.io.out(
-      "  cos keeps only its hash and prints nothing of it. Send the link to them yourself. It works for that address only, and does nothing once the client has its first account.",
+      `Stored ${id}'s first admin; its setup link works until ${expires}, for the address you named, once.`,
     );
     return 0;
   }
   ctx.io.out(`${address} may make ${id}'s first account, until ${expires}, with this link:`);
   ctx.io.out(`  https://${staff}/sign-in#${FIRST_ADMIN_FRAGMENT}=${token}`);
   ctx.io.out(
-    "  It is shown once and kept nowhere: send it to them yourself. It works for that address only, and does nothing once the client has its first account. A new one replaces it: cos client first-admin <id> <email>.",
+    "  It is shown once and kept nowhere: send it to them yourself. It works for that address only, and does nothing once the client has its first account.",
+  );
+  return 0;
+}
+
+/**
+ * `cos client first-admin-token --staff-hostname <host>`: for the owner, on his own machine, never
+ * in CI (refused there). No registry and no Cloudflare token: it makes a setup token and prints
+ * the link to send the client's first admin and the SHA-256 to give `cos client add --admin …
+ * --admin-token-sha256` or `cos client first-admin … --token-sha256`.
+ */
+export function firstAdminTokenCommand(
+  io: Io,
+  env: { CI?: string; GITHUB_ACTIONS?: string },
+  staffHostname: string | undefined,
+  token: string = newSetupToken(),
+): number {
+  if (inCi(env)) {
+    throw new FleetError(
+      "cos client first-admin-token runs on your own machine, never in CI (CI or GITHUB_ACTIONS is set): what it prints makes the client's first account",
+    );
+  }
+  const host = staffHostname ? canonicalHostname(staffHostname) : null;
+  if (!host) {
+    throw new FleetError(
+      "--staff-hostname <host>: the client's staff hostname (<id>-admin.<domain>)",
+    );
+  }
+  io.out("The link, for the client's first admin only (send it to them yourself):");
+  io.out(`  https://${host}/sign-in#${FIRST_ADMIN_FRAGMENT}=${token}`);
+  io.out("The SHA-256, for the operator's command (cos keeps only this; it opens nothing):");
+  io.out(`  ${sha256Hex(token)}`);
+  io.out(
+    `Give it to cos client add <id> --admin <email> --admin-token-sha256 <sha256>, or cos client first-admin <id> --email <email> --token-sha256 <sha256>. The link then works for ${FIRST_ADMIN_LINK_HOURS} hours.`,
   );
   return 0;
 }
