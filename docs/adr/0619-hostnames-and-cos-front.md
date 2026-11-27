@@ -114,7 +114,8 @@ The fallback origin is "where Cloudflare will route traffic sent to your custom 
 proxied)", and customers point a CNAME at a target such as `customers.saasprovider.com`
 ([getting started](https://developers.cloudflare.com/cloudflare-for-platforms/cloudflare-for-saas/start/getting-started/)):
 `cos fleet install` makes `clients.<domain>` a proxied placeholder record (`AAAA 100::`) and sets
-it as the zone's fallback origin. A Worker serves custom hostnames by a route: "Use a route for the
+it as the zone's fallback origin, unless the zone already has another (a shared zone's is not the
+fleet's to change; each verified hostname's own route reaches cos-front before any origin). A Worker serves custom hostnames by a route: "Use a route for the
 specific custom hostname, such as `vanity.customer.com`", or `*/*`, which "matches all traffic
 entering your zone"; and where customers proxy their CNAME, "add the route
 `service.saasprovider.com/*`"
