@@ -1280,6 +1280,12 @@ const CRON_SETTINGS = Object.freeze([
   // packages/core/src/customers/subscriber-signup.ts): whether a plan is on sale, written only
   // while "anyone starting a subscription" is on.
   "customer_signup_subscribers_state",
+  // The runner's minute tick, the duplicate scan (runDuplicateCron → duplicate.scan → runScan,
+  // packages/core/src/duplicates/cron.ts and scan.ts): its one state row (backfill, cursors, a full
+  // scan in progress, the last nightly run), saved by every call. A call runs on any tick while
+  // work is pending (the name-key backfill, a full scan, a backlog: a client's first scan is a
+  // full one) and once a night from 02:00 in the org's timezone (staging run 46047280283).
+  "duplicate_scan",
 ]);
 
 /**
@@ -1290,6 +1296,9 @@ const CRON_SETTINGS = Object.freeze([
 const CRON_AUDITS = Object.freeze([
   // The runner's minute tick, customer sign-up's watch (subscriber-signup.ts): a plan went on sale.
   "customer.signupOpened",
+  // The runner's minute tick, the duplicate scan (cron.ts): each call runs `duplicate.scan`
+  // through the pipeline as the system, so each is one audit row (staging run 46047280283).
+  "duplicate.scan",
 ]);
 
 /**
@@ -1297,7 +1306,8 @@ const CRON_AUDITS = Object.freeze([
  * each with the narrowest difference allowed between an export and the re-export of its import:
  * `name` picks the row's name in `by` (null: not the host's), `add`/`change`/`remove` what may
  * happen to a row so named. Every other table, and every other row of these, must be in both
- * exactly as it was, no more and no fewer (review of #562, S1).
+ * exactly as it was, no more and no fewer (review of #562, S1). `FILLED` names the columns a
+ * cron may fill in an existing row.
  */
 export const HOST_WRITTEN = Object.freeze({
   // The runner's minute tick (runAutomationCron → onceFor, apps/runner/src/automations/
@@ -1338,6 +1348,31 @@ export const HOST_WRITTEN = Object.freeze({
     add: true,
     change: true,
   },
+  // The duplicate scan (runScan → queueUpsertPairs, queueDropStalePairs, and a full scan's end,
+  // packages/core/src/duplicates/scan.ts and pairs.ts): open pairs found are upserted (rules,
+  // details, updated_at), open pairs not found again or of records gone are deleted. A dismissed
+  // or merged pair is a person's decision and is never written by it.
+  core_duplicate_pair: {
+    by: "object/a_id/b_id",
+    name: (unit) =>
+      columnOf(unit, "status") === "open"
+        ? `${columnOf(unit, "object")}/${columnOf(unit, "a_id")}/${columnOf(unit, "b_id")}`
+        : null,
+    add: true,
+    change: true,
+    remove: true,
+  },
+});
+
+/**
+ * Columns a cron may fill in an existing row, from NULL only, every other column the same: the
+ * duplicate scan's backfill (`backfillChunk`, packages/core/src/duplicates/scan.ts) sets
+ * `name_key` on people and organisations written before migration 0320, without touching
+ * `updated_at`.
+ */
+export const FILLED = Object.freeze({
+  core_person: ["name_key"],
+  core_organisation: ["name_key"],
 });
 
 /**
@@ -1570,12 +1605,13 @@ export function compareExports(a, b) {
       }
       // A row is named by its key: the rule's, the table's primary key, or its id. A row lost and
       // one added under the same key is a changed row, named with the columns that differ.
-      const keyColumns = rule ? [rule.by] : (keys[table] ?? ["id"]);
+      const keyColumns = rule ? rule.by.split("/") : (keys[table] ?? ["id"]);
       const keyOf = (u) => {
         const parts = keyColumns.map((c) => columnOf(u, c) ?? rowOf(u)?.[c] ?? null);
         return parts.every((p) => p !== null && p !== undefined) ? parts.join("/") : null;
       };
       const changed = [];
+      const filled = [];
       const pairedExtra = [];
       missing = missing.filter((u) => {
         const k = keyOf(u);
@@ -1583,10 +1619,24 @@ export function compareExports(a, b) {
           k === null ? undefined : extra.find((v) => !pairedExtra.includes(v) && keyOf(v) === k);
         if (!match) return true;
         pairedExtra.push(match);
-        changed.push(`${k} (columns ${(differing(u, match) ?? ["?"]).join(", ")})`);
+        const columns = differing(u, match) ?? ["?"];
+        const before = rowOf(u);
+        // Filled by a cron: only its columns differ, each NULL in the export.
+        if (
+          FILLED[table] &&
+          columns.every((c) => FILLED[table].includes(c) && before?.[c] === "NULL")
+        ) {
+          filled.push(`${k} (columns ${columns.join(", ")})`);
+          return false;
+        }
+        changed.push(`${k} (columns ${columns.join(", ")})`);
         return false;
       });
       extra = without(extra, pairedExtra);
+      if (filled.length)
+        allowed.push(
+          `${table}: ${filled.length} filled by the duplicate scan's backfill: ${filled.join("; ")}`,
+        );
       const named = (units) => {
         const ks = units.map(keyOf).filter((k) => k !== null);
         return ks.length ? ` (${keyColumns.join("/")} ${tally(ks)})` : "";
@@ -2198,7 +2248,7 @@ export function checkSteps() {
           problems.push(`the picture uploaded at ${a} is not in its export`);
         if (problems.length)
           fail(
-            `the export or the import is not as it should be: ${problems.slice(0, 5).join("; ")}`,
+            `the export or the import is not as it should be: ${problems.slice(0, 5).join("; ")}${compared.allowed.length ? `; allowed, the host's own since: ${compared.allowed.join("; ")}` : ""}`,
           );
         const notes = [
           `${a} exported (${Object.keys(first.counts).length} tables, ${rows} rows, ${first.files.length} files, every hash recomputed from the bytes), imported as ${imported}, exported again: every row of the export in it as it was and nothing else but the host's own writes, the same file hashes and packs (COS_PACKS=${first.packs})${compared.allowed.length ? `; what the host wrote to ${imported} since: ${compared.allowed.join("; ")}` : ""}`,
