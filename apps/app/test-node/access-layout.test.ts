@@ -97,6 +97,9 @@ describe("every route of cos-app is accounted for behind Access", () => {
       // Stage 66 step 7 (ADR 0618): a host of many clients' own health, on its callback hostname
       // only (never a client's): a single-client deployment's /api/health is TanStack Start's.
       HOST_HEALTH_PATH: "/api/health",
+      // Stage 75 step 3 (ADR 0961): a screen version's files, sent by `cos` with a staff device
+      // token: inside the bypassed surface, as `cos content import`'s uploads are; no cookie is taken.
+      isScreenVersionsPath: `/api/v1/screens/versions/scv_${"0".repeat(26)}/files/${"a".repeat(64)}`,
     };
 
     expect([...dispatched].sort()).toEqual(Object.keys(known).sort());
@@ -114,6 +117,7 @@ describe("every route of cos-app is accounted for behind Access", () => {
       isDeskPath: "staff",
       isFormPagePath: "bypass",
       HOST_HEALTH_PATH: "bypass",
+      isScreenVersionsPath: "bypass",
     });
     // A personal link's page is the other path of the form page; the staff app has neither.
     expect(bypassFor("/form")?.path).toBe("/form");
