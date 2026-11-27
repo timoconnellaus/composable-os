@@ -1351,6 +1351,7 @@ describe("cos fleet install for the staging check (fleet-staging-check.yml)", ()
       expect([...world.cf.scripts.keys()].sort()).toEqual([
         "demo-app-staging",
         "demo-client-db-staging",
+        "demo-front-staging",
         "demo-operator-staging",
         "demo-runner-staging",
       ]);
