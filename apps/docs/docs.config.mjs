@@ -26,4 +26,13 @@ export default {
    * fails the run, and its source is reworded.
    */
   privateNames: ["Ghetto Movement", "Ghetto"],
+  /**
+   * Products of the repository that are no solution, by id, with why: they get no page under
+   * Solutions. A product not listed here gets one.
+   */
+  notSolutions: {
+    // The neutral product a host of many clients is installed as (stage 66, ADR 0618): the
+    // platform's own name over every pack, not a composition offered to a business (review of #553).
+    composable: "the hosted product a host of many clients is installed as",
+  },
 };

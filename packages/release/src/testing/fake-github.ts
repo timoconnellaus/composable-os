@@ -3,7 +3,7 @@
 // by the release workflow at the release's tag, shaped like actions/attest-build-provenance's.
 
 import { RELEASE_WORKFLOW_PATH, SLSA_PROVENANCE_V1 } from "../attestation.ts";
-import { releaseAssetNames } from "../bundle.ts";
+import { formatSums, releaseAssetNames } from "../bundle.ts";
 import { sha256Hex, toBase64 } from "../hash.ts";
 import type { FixtureRelease } from "./fixture-release.ts";
 
@@ -67,6 +67,44 @@ export class FakeGitHub {
     });
     if (options.attest !== false) {
       this.attest(release.digest, `v${release.version}`, options.workflow ?? {});
+    }
+  }
+
+  /**
+   * One tag carrying several products' releases of one version, as the release workflow publishes
+   * them (`--products all`): each product's bundle and manifest, one SHA256SUMS listing them all,
+   * and an attestation of each bundle.
+   */
+  async publishProducts(releases: FixtureRelease[], options: Omit<PublishOptions, "tamper"> = {}) {
+    const [first] = releases;
+    if (!first || releases.some((r) => r.version !== first.version)) {
+      throw new Error("publishProducts: releases of one version");
+    }
+    const assets = new Map<string, Uint8Array>();
+    const sums = new Map<string, string>();
+    for (const release of releases) {
+      const names = releaseAssetNames(release.manifest.product, release.version);
+      assets.set(names.bundle, release.bundle);
+      assets.set(names.manifest, new TextEncoder().encode(release.manifestText));
+      sums.set(names.bundle, release.digest);
+      sums.set(names.manifest, await sha256Hex(new TextEncoder().encode(release.manifestText)));
+    }
+    assets.set(
+      releaseAssetNames(first.manifest.product, first.version).sums,
+      new TextEncoder().encode(formatSums(sums)),
+    );
+    this.releases.push({
+      tag: `v${first.version}`,
+      prerelease: first.version.includes("-"),
+      draft: options.draft ?? false,
+      notes: options.notes ?? `## What's changed\n\n- Release ${first.version}`,
+      assets,
+      publishedAt: new Date(Date.UTC(2026, 10, this.releases.length + 1)).toISOString(),
+    });
+    if (options.attest !== false) {
+      for (const release of releases) {
+        this.attest(release.digest, `v${first.version}`, options.workflow ?? {});
+      }
     }
   }
 

@@ -43,6 +43,7 @@ import {
   locationChoice,
   parseArgs,
   productOf,
+  refuseOtherProduct,
   type Session,
   session,
   str,
@@ -56,6 +57,7 @@ import {
   FleetError,
   importClient,
   listClientsCommand,
+  packCatalogue,
   pauseClient,
   removeClient,
   removeSecret,
@@ -102,10 +104,12 @@ cos client: the clients of a host of many clients (each takes --env <live|stagin
   cos client secret set <id> <NAME> [--value-file <f>] | secret remove <id> <NAME>
   cos client export <id> [--out <dir>] [--leaving]
   cos client import <id> --from <dir> [--without-secrets] [--staff-hostname h] [--web-hostname h]
+                 [--setting COS_PACKS=…] (needed for an export that does not carry its packs)
   cos client remove <id>
   cos client sender add|verify|unverify|remove <id> <domain>
                  a client's sender domains; verify is your confirmation that the domain is
                  onboarded to Email Sending in this account with valid records
+Every command takes --product <id>: a fleet is installed as the hosted product, --product composable.
 Every command that removes or overwrites asks for the client's id (or --yes); --dry-run changes nothing.
 One command at a time uses the operator's Worker; --take-over takes it from one that was killed.`;
 
@@ -153,7 +157,7 @@ function databaseName(s: Session, environment: FleetEnvironment): string {
     : s.product.names.database;
 }
 
-async function locateFleet(s: Session, environment: FleetEnvironment) {
+async function locateFleet(s: Session, environment: FleetEnvironment, deps: Deps) {
   const located = await locateDeployment(s.api, s.accountId, databaseName(s, environment));
   const state = located?.state;
   if (!located || !state?.fleet) {
@@ -166,6 +170,7 @@ async function locateFleet(s: Session, environment: FleetEnvironment) {
       `The ${databaseName(s, environment)} deployment is ${state.fleet.environment}'s`,
     );
   }
+  refuseOtherProduct(state, s.product, deps, databaseName(s, environment));
   return { databaseId: located.databaseId, state };
 }
 
@@ -247,6 +252,7 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
       "That deployment is a single-client one: a fleet is installed apart from it",
     );
   }
+  refuseOtherProduct(existing?.state, s.product, deps, databaseName(s, environment));
   const version =
     str(flags, "version") ?? existing?.state?.version ?? (await latestVersion(s, "stable"));
   refuseReinstall(existing?.state, { version, domain: fleetDomain, callbackHostname });
@@ -347,7 +353,7 @@ async function fleetUpgrade(flags: Flags, deps: Deps): Promise<number> {
   const forced = forcedFailure(deps.env, { environment, product: productOf(flags, deps) });
   const keys = await readKeys(flags, deps, environment);
   const s = await session(flags, deps);
-  const { databaseId, state } = await locateFleet(s, environment);
+  const { databaseId, state } = await locateFleet(s, environment, deps);
   const mismatch = keysMismatch(state.fleet as NonNullable<typeof state.fleet>, keys);
   if (mismatch) {
     throw new CliError(
@@ -370,7 +376,11 @@ async function fleetUpgrade(flags: Flags, deps: Deps): Promise<number> {
   }
   const target = await verified(s, to, deps);
   // The new release's fleet gatekeepers (ADR 0618): a fleet installed before them gains them here.
-  const upgraded = { ...state, gatekeepers: fleetGatekeepers(target.bundle.manifest) };
+  const upgraded = {
+    ...state,
+    product: target.bundle.manifest.product,
+    gatekeepers: fleetGatekeepers(target.bundle.manifest),
+  };
   let previous: ReleaseBundle | null = null;
   const fleet = fleetInput(keys, environment);
   return withContext(`fleet upgrade ${environment}`, flags, deps, s, state, async (context) => {
@@ -478,6 +488,7 @@ async function withContext(
       operator,
       fleet,
       migrations: bundleMigrations(installed.bundle),
+      packs: packCatalogue(installed.bundle.clientFiles),
       io: deps.io,
       yes: Boolean(flags.yes),
       dryRun: Boolean(flags["dry-run"]),
@@ -540,7 +551,7 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
   try {
     const environment = environmentOf(flags);
     const s = await session(flags, deps);
-    const { state } = await locateFleet(s, environment);
+    const { state } = await locateFleet(s, environment, deps);
     return await withContext(`client ${command}`, flags, deps, s, state, async (ctx) => {
       switch (command) {
         case "add":
@@ -585,6 +596,7 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
             id: positional[0] as string,
             from,
             withoutSecrets: Boolean(flags["without-secrets"]),
+            settings: settingsOf(flags),
             ...(str(flags, "staff-hostname")
               ? { staffHostname: str(flags, "staff-hostname") as string }
               : {}),

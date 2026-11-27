@@ -196,7 +196,7 @@ describe("notification.send", () => {
         { to: [{ userId: other.id }], title: "x", type: "approval.pending" },
         context(admin),
       ),
-    ).rejects.toThrow(/sent by the CRM itself/);
+    ).rejects.toThrow(/sent by the host itself/);
   });
 });
 

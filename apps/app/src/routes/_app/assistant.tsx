@@ -86,7 +86,7 @@ function AssistantPage() {
         <div className="mx-auto max-w-3xl">
           {thread.items.length === 0 && !thread.running && !thread.loading ? (
             <p className="text-sm text-muted-foreground">
-              Ask {name} anything about your CRM, or to change it. This is one chat that keeps
+              Ask {name} anything about your records, or to change them. This is one chat that keeps
               going: the sidebar shows it too. Changes that need approval show here with Approve and
               Reject.
             </p>

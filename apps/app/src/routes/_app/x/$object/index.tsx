@@ -62,7 +62,7 @@ function ExtensionListPage() {
         <EmptyState
           icon={BoxIcon}
           title="No such object"
-          description={`${name} is not an object in this CRM. Its extension may have been removed.`}
+          description={`${name} is not an object here. Its extension may have been removed.`}
         />
       </PageLayout>
     );

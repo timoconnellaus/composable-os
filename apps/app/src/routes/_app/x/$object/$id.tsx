@@ -52,7 +52,7 @@ function ExtensionRecordPage() {
       <EmptyState
         icon={BoxIcon}
         title="No such object"
-        description={`${name} is not an object in this CRM.`}
+        description={`${name} is not an object here.`}
         className="mx-4 my-6 sm:mx-auto sm:max-w-xl"
       />
     );

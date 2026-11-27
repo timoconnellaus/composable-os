@@ -224,7 +224,7 @@ const messageSchema = z
     html: body.optional(),
     replyTo: address.optional(),
     relatedRecords: z
-      .array(z.string().regex(RECORD_ID, "must be a CRM record id"))
+      .array(z.string().regex(RECORD_ID, "must be a record id"))
       .max(MAX_RELATED_RECORDS)
       .optional(),
     // One event, or two (a move: the old class's cancel and the new class's event).

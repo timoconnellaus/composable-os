@@ -19,6 +19,7 @@ import type { ReleaseBundle } from "./bundle.ts";
 import type { CloudflareClient } from "./cloudflare.ts";
 import {
   applyBundleMigrations,
+  assertSameProduct,
   type DeploymentState,
   deployWorkers,
   type Log,
@@ -157,6 +158,7 @@ export async function runUpdate(input: UpdateInput): Promise<UpdateOutcome> {
   const automations = input.automations ?? noAutomationControl;
   const { api, databaseId, target } = input;
   const state = input.state;
+  assertSameProduct(state, target.manifest.product);
   const outcome: UpdateOutcome = {
     status: "failed",
     from: state.version,
@@ -227,6 +229,7 @@ export async function runUpdate(input: UpdateInput): Promise<UpdateOutcome> {
 
     const next: DeploymentState = {
       ...switched,
+      product: target.manifest.product,
       version: target.manifest.version,
       ...(input.targetDigest ? { bundleDigest: input.targetDigest } : {}),
       updatedAt: new Date().toISOString(),
@@ -280,6 +283,7 @@ export async function runRollback(input: {
   automations?: AutomationControl;
   log?: Log;
 }): Promise<{ version: string; restoredBookmark: string | null }> {
+  assertSameProduct(input.state, input.previous.manifest.product);
   const automations = input.automations ?? noAutomationControl;
   const log = input.log ?? (() => {});
   await automations.pause();
