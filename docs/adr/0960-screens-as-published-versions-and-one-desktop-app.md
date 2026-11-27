@@ -113,3 +113,17 @@ From the owner's answers to stages 75 and 76 the same day:
   any code that is not ours.
 - What this note says of the admin's screens, regions, custom blocks and the build service is
   specified in [stage 77](../stages/77-admin-screens.md), moved out of stage 75 the same day.
+
+## Amended 2026-11-27: a custom block is drawn in the desktop app (stage 77)
+The owner decided in [stage 77](../stages/77-admin-screens.md)'s interview that a custom block
+is written as JSX and run on the host, in the organisation's extension sandbox, and hands back a
+tree that the admin draws with our components. This replaces "built by a build service of ours
+in a sandbox" in the note above: there is no build service.
+- **The rule on code stands.** Code that is not ours runs in the desktop app only once
+  Electrobun's internal bridge can be switched off for a view, by an option of its own or a fork
+  we keep.
+- **A custom block is no longer code in the app.** The app receives a tree from a closed list of
+  our components, checks it and draws it. So a custom block is shown in the desktop app from the
+  start, where the note above kept it out.
+- **A block that brings its own page,** if one is ever allowed, is code in the app, and the rule
+  applies to it.
