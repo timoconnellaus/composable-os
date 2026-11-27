@@ -9,7 +9,7 @@
     "build": "vite build",
     "build:browser": "vite build -c vite.browser.config.ts",
     "types": "wrangler types --include-runtime=false",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run"
   },
   "dependencies": {

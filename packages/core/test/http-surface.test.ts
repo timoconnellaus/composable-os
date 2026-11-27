@@ -379,7 +379,9 @@ describe("cross-origin calls", () => {
 
   it("never let in Origin: null, even when an origin that is not http(s) is listed (issue #540)", async () => {
     // A desktop view's address, a file: page: each one's origin is the opaque "null".
-    const listed = parseAllowedOrigins("views://client-a/index.html, file:///tmp/x, https://shop.example");
+    const listed = parseAllowedOrigins(
+      "views://client-a/index.html, file:///tmp/x, https://shop.example",
+    );
     expect(listed).toEqual(["https://shop.example"]);
     const withNull = surfaceOver(fixtureRegistry, PUBLIC_CTX, { allowedOrigins: ["null"] });
     for (const method of ["POST", "OPTIONS"]) {

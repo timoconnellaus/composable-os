@@ -42,10 +42,11 @@ The template's web screens build twice from the same routes
 ([ADR 0960](../adr/0960-screens-as-published-versions-and-one-desktop-app.md)): `pnpm build`
 makes the Worker, and `COS_HOST_URL=https://<host> pnpm build:browser` makes static files in
 `dist/browser/` (an `index.html`, hashed assets and `build.json`, which lists each file's SHA-256
-and size and the API contract version). The static build holds no server code: its screens call
+and size and the API contract version, written only when the build succeeds). `COS_HOST_URL` is
+required: the build stops without it. The static build holds no server code: its screens call
 the host's `/api/v1` with the typed client, sign in with an emailed code for a device session's
-tokens (kept in the tab's `sessionStorage`, never a cookie, every request `credentials: "omit"`)
-and route by hash. Screens reach the host through the ScreenHost from the router's context
+tokens (kept in the tab's `sessionStorage`, never a cookie, every request `credentials: "omit"`;
+a duplicated tab starts signed out) and route by hash. Screens reach the host through the ScreenHost from the router's context
 (`useScreenHost()`), whichever build they are in. Served from an address other than the host's,
 its origin must be in the client's `API_ALLOWED_ORIGINS`. Nothing stores, publishes or serves the
 build yet.

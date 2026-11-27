@@ -5,6 +5,7 @@
 // for: the same screens built for the Worker hold a server function and the cookie routes.
 import { createHash } from "node:crypto";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -19,7 +20,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   type BuildSummary,
   contractVersion,
-  refuseServerModules,
+  hostUrlOf,
   SUMMARY_FILE,
 } from "../vite.browser.config.ts";
 import { SERVER_MARKS, serverCodeIn } from "./server-code.ts";
@@ -41,18 +42,28 @@ const scripts = (dir: string) =>
     .map((file) => readFileSync(file, "utf8"))
     .join("\n");
 
-beforeAll(async () => {
-  process.env.COS_HOST_URL = HOST_URL;
+/**
+ * A build with the real config (vite.browser.config.ts, its plugins and its checks), of the
+ * app's screens or of another root's, with COS_HOST_URL set to `host` (null: not set at all).
+ */
+async function realBuild(root: string, outDir: string, host: string | null = HOST_URL) {
+  const before = process.env.COS_HOST_URL;
+  if (host === null) delete process.env.COS_HOST_URL;
+  else process.env.COS_HOST_URL = host;
   try {
     await build({
       configFile: join(app, "vite.browser.config.ts"),
       logLevel: "silent",
-      build: { outDir: join(out, "browser") },
+      ...(root === app ? {} : { root }),
+      build: { outDir, emptyOutDir: true },
     });
   } finally {
-    delete process.env.COS_HOST_URL;
+    if (before === undefined) delete process.env.COS_HOST_URL;
+    else process.env.COS_HOST_URL = before;
   }
-});
+}
+
+beforeAll(() => realBuild(app, join(out, "browser")));
 
 describe("the browser-only build", () => {
   it("is an index.html and hashed assets, and nothing that runs on a server", () => {
@@ -98,22 +109,69 @@ describe("the browser-only build", () => {
     }
   });
 
-  it("refuses a screen that imports server code, naming the file", async () => {
-    const root = mkdtempSync(join(tmpdir(), "cos-browser-refuse-"));
-    writeFileSync(join(root, "index.html"), '<script type="module" src="./main.ts"></script>');
-    writeFileSync(
-      join(root, "main.ts"),
-      'import { env } from "cloudflare:workers";\nconsole.log(env);\n',
-    );
-    await expect(
-      build({
-        configFile: false,
-        root,
-        logLevel: "silent",
-        plugins: [refuseServerModules()],
-        build: { outDir: join(root, "dist") },
-      }),
-    ).rejects.toThrow(/cloudflare:workers \(imported by .*main\.ts\) is server code/);
+  it("refuses, with the real config, a screen that imports server code, naming the file, and writes no build.json", async () => {
+    for (const module of [
+      "cloudflare:workers",
+      "@tanstack/react-start/server",
+      "@tanstack/start-server-core",
+      "@cloudflare/vite-plugin",
+      "wrangler",
+      "node:fs",
+    ]) {
+      const root = mkdtempSync(join(tmpdir(), "cos-browser-refuse-"));
+      writeFileSync(join(root, "index.html"), '<script type="module" src="./main.ts"></script>');
+      writeFileSync(join(root, "main.ts"), `import * as x from "${module}";\nconsole.log(x);\n`);
+      const fresh = join(root, "fresh");
+      const reused = join(root, "reused");
+      // A folder an earlier build wrote: its summary must not survive a build that fails.
+      mkdirSync(join(reused, "assets"), { recursive: true });
+      writeFileSync(join(reused, "assets", "old-00000000.js"), "old");
+      writeFileSync(join(reused, SUMMARY_FILE), "{}");
+      for (const outDir of [fresh, reused]) {
+        const error = await realBuild(root, outDir).then(
+          () => null,
+          (e: unknown) => e,
+        );
+        expect(String(error), module).toMatch(
+          new RegExp(
+            `${module.replace(/[/.]/g, "\\$&")} \\(imported by .*main\\.ts\\) is server code`,
+          ),
+        );
+        expect(existsSync(join(outDir, SUMMARY_FILE)), `${module} into ${outDir}`).toBe(false);
+      }
+    }
+  });
+
+  it("refuses to build without the host's address, or with one that is not a plain origin", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cos-browser-host-"));
+    for (const value of [null, "", "   "]) {
+      await expect(realBuild(app, join(root, "out"), value)).rejects.toThrow(
+        /needs the host's address\. Set COS_HOST_URL/,
+      );
+    }
+    for (const value of [
+      "admin.example.com",
+      "http://admin.example.com",
+      "https://admin.example.com/app",
+      "https://user:pass@admin.example.com",
+      "https://admin.example.com?x=1",
+      "views://desktop",
+    ]) {
+      expect(() => hostUrlOf(value), value).toThrow(/COS_HOST_URL/);
+    }
+    expect(hostUrlOf("https://admin.example.com/")).toBe("https://admin.example.com");
+    expect(hostUrlOf("http://localhost:5179")).toBe("http://localhost:5179");
+    expect(existsSync(join(root, "out", SUMMARY_FILE))).toBe(false);
+  });
+
+  it("lists only what this build wrote, never a file an earlier build left", async () => {
+    const outDir = join(mkdtempSync(join(tmpdir(), "cos-browser-stale-")), "out");
+    mkdirSync(join(outDir, "assets"), { recursive: true });
+    writeFileSync(join(outDir, "assets", "stale-11111111.js"), "stale");
+    await realBuild(app, outDir);
+    const summary = JSON.parse(readFileSync(join(outDir, SUMMARY_FILE), "utf8")) as BuildSummary;
+    expect(summary.files.map((f) => f.path)).not.toContain("assets/stale-11111111.js");
+    expect(existsSync(join(outDir, "assets", "stale-11111111.js"))).toBe(false);
   });
 
   it("reads the contract version from the generated client, and refuses one without it", () => {

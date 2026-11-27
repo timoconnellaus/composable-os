@@ -52,10 +52,7 @@ interface PdfOptions {
 }
 
 /** Serves one request to the download routes. */
-export async function handleAgreementPdf(
-  request: Request,
-  options: PdfOptions,
-): Promise<Response> {
+export async function handleAgreementPdf(request: Request, options: PdfOptions): Promise<Response> {
   if (!options.allowedOrigins) return serve(request, options);
   const origin = apiOriginCheck(request, options.allowedOrigins, "content-disposition");
   if (!origin.ok) return failure(new ForbiddenError("This origin may not call the API"));
