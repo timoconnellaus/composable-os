@@ -23,6 +23,55 @@ export class CloudflareApiError extends Error {
   }
 }
 
+/**
+ * Cloudflare's answers on a zone that has not enabled Cloudflare for SaaS: 1456 ("Access to
+ * configure this resource has not been granted for this zone. This feature is available with SSL
+ * for SaaS", HTTP 401) on the fallback origin, and 1404 ("No quota has been allocated for this zone
+ * or for this account", HTTP 403) on custom hostnames. Seen on the fleet's real zone, 2026-11-27.
+ */
+export const SAAS_NOT_ENABLED_CODES = Object.freeze([1456, 1404]);
+
+/** A custom-hostname call on a zone without Cloudflare for SaaS. */
+export class SaasNotEnabledError extends Error {
+  override name = "SaasNotEnabledError";
+}
+
+export function isSaasNotEnabled(error: unknown): boolean {
+  return (
+    error instanceof SaasNotEnabledError ||
+    (error instanceof CloudflareApiError &&
+      error.codes.some((c) => SAAS_NOT_ENABLED_CODES.includes(c)))
+  );
+}
+
+/** A custom-hostname call, its "not enabled" answer as `SaasNotEnabledError`. */
+async function saasCall<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (error) {
+    if (isSaasNotEnabled(error)) {
+      throw new SaasNotEnabledError(
+        "Cloudflare for SaaS (custom hostnames) is not enabled on this zone",
+      );
+    }
+    throw error;
+  }
+}
+
+/** A route of a pattern that is another Worker's. */
+export class RouteTakenError extends Error {
+  override name = "RouteTakenError";
+  readonly pattern: string;
+  readonly script: string | null;
+  constructor(pattern: string, script: string | null) {
+    super(
+      `the route ${pattern} is ${script ? `${script}'s` : "another Worker's"}: never re-pointed (another deployment's, or someone's own)`,
+    );
+    this.pattern = pattern;
+    this.script = script;
+  }
+}
+
 /** The call's result, or null when Cloudflare answers 404. */
 async function unless404<T>(call: Promise<T>): Promise<T | null> {
   try {
@@ -62,6 +111,21 @@ const CONTENT_TYPES: Record<ModulePart["type"], string> = {
 export interface ScriptInfo {
   id: string;
   migration_tag?: string;
+}
+
+/** A Cloudflare for SaaS custom hostname, as much of it as cos reads. */
+export interface CustomHostname {
+  id: string;
+  hostname: string;
+  /** `pending` until its ownership is proved, then `active` (or `moved`, `blocked`, …). */
+  status: string;
+  /** The TXT record that proves the hostname's owner controls it. */
+  ownership_verification?: { type?: string; name?: string; value?: string };
+  ssl?: {
+    /** `initializing`, `pending_validation`, …, `active`. */
+    status?: string;
+    validation_records?: { txt_name?: string; txt_value?: string }[];
+  };
 }
 
 /** An AI Gateway as the API returns it (the fields this package reads or writes back). */
@@ -661,6 +725,163 @@ export class CloudflareClient {
         { hostname, ssl: { method: "http", type: "dv" } },
       )
     ).result;
+  }
+
+  /**
+   * A client's own domain on a host of many clients (stage 66 step 8, ADR 0619): a custom
+   * hostname validated in real time (it turns active once the client's CNAME to the fleet's
+   * target exists) with an HTTP-validated certificate, so it works for a client whose zone is
+   * itself on Cloudflare, where pre-validation by TXT is not supported.
+   */
+  async createCustomHostnameForCname(zoneId: string, hostname: string): Promise<CustomHostname> {
+    return saasCall(
+      async () =>
+        (
+          await this.request<CustomHostname>("POST", `/zones/${zoneId}/custom_hostnames`, {
+            hostname,
+            ssl: { method: "http", type: "dv" },
+          })
+        ).result,
+    );
+  }
+
+  /**
+   * A custom hostname whole (status, certificate), or null. The `hostname` filter is read every
+   * page, and only an exact match counts.
+   */
+  async findCustomHostname(zoneId: string, hostname: string): Promise<CustomHostname | null> {
+    const all = await saasCall(() =>
+      this.all<CustomHostname>(
+        `/zones/${zoneId}/custom_hostnames?hostname=${encodeURIComponent(hostname)}`,
+      ),
+    );
+    return all.find((h) => h.hostname === hostname) ?? null;
+  }
+
+  async deleteCustomHostname(zoneId: string, id: string) {
+    await saasCall(() =>
+      unless404(this.request("DELETE", `/zones/${zoneId}/custom_hostnames/${id}`)),
+    );
+  }
+
+  /**
+   * Whether the zone has Cloudflare for SaaS (custom hostnames): false when Cloudflare answers
+   * 1456 ("This feature is available with SSL for SaaS") or 1404 ("No quota has been allocated"),
+   * as a Free zone that has not enabled it does (stage 66 step 8, the fleet's zone, 2026-11-27).
+   */
+  async saasEnabled(zoneId: string): Promise<boolean> {
+    try {
+      await this.request("GET", `/zones/${zoneId}/custom_hostnames?per_page=5`);
+      return true;
+    } catch (error) {
+      if (isSaasNotEnabled(error)) return false;
+      throw error;
+    }
+  }
+
+  /** The zone's Cloudflare for SaaS fallback origin, or null when none is set. */
+  async getFallbackOrigin(zoneId: string): Promise<string | null> {
+    const found = await saasCall(() =>
+      unless404(
+        this.request<{ origin?: string } | null>(
+          "GET",
+          `/zones/${zoneId}/custom_hostnames/fallback_origin`,
+        ),
+      ),
+    );
+    return found?.result?.origin ?? null;
+  }
+
+  /** The zone's Cloudflare for SaaS fallback origin: where custom hostnames' traffic is sent. */
+  async putFallbackOrigin(zoneId: string, origin: string) {
+    await saasCall(() =>
+      this.request("PUT", `/zones/${zoneId}/custom_hostnames/fallback_origin`, { origin }),
+    );
+  }
+
+  /** Removes the zone's fallback origin (the staging check's own, at its teardown). */
+  async deleteFallbackOrigin(zoneId: string) {
+    await saasCall(() =>
+      unless404(this.request("DELETE", `/zones/${zoneId}/custom_hostnames/fallback_origin`)),
+    );
+  }
+
+  // ---- Workers routes and DNS records (stage 66 step 8) ---------------------------------------
+
+  listRoutes(zoneId: string) {
+    return this.request<{ id: string; pattern: string; script?: string }[]>(
+      "GET",
+      `/zones/${zoneId}/workers/routes`,
+    ).then((r) => r.result);
+  }
+
+  /**
+   * Puts `pattern` on `script`, made once. A route of that pattern for another Worker is never
+   * re-pointed: it is another deployment's (a live fleet's beside a staging one on one zone) or
+   * someone's own, and `RouteTakenError` says whose.
+   */
+  async putRoute(zoneId: string, pattern: string, script: string) {
+    const existing = (await this.listRoutes(zoneId)).find((r) => r.pattern === pattern);
+    if (existing) {
+      if (existing.script === script) return;
+      throw new RouteTakenError(pattern, existing.script ?? null);
+    }
+    await this.request("POST", `/zones/${zoneId}/workers/routes`, { pattern, script });
+  }
+
+  /** Removes the route of `pattern`, only when it is `script`'s (another Worker's is kept). */
+  async deleteRoute(zoneId: string, pattern: string, script: string): Promise<boolean> {
+    const existing = (await this.listRoutes(zoneId)).find((r) => r.pattern === pattern);
+    if (!existing || existing.script !== script) return false;
+    await unless404(this.request("DELETE", `/zones/${zoneId}/workers/routes/${existing.id}`));
+    return true;
+  }
+
+  listDnsRecords(zoneId: string, name: string) {
+    return this.request<
+      { id: string; type: string; name: string; content: string; proxied?: boolean }[]
+    >("GET", `/zones/${zoneId}/dns_records?name=${encodeURIComponent(name)}`).then((r) => r.result);
+  }
+
+  /** Every DNS record of a zone (the staging check's inventory). */
+  listAllDnsRecords(zoneId: string) {
+    return this.all<{ id: string; type: string; name: string; content: string }>(
+      `/zones/${zoneId}/dns_records`,
+    );
+  }
+
+  /** A DNS record as given (the staging check writes a client's own records with it). */
+  async createDnsRecord(
+    zoneId: string,
+    record: { type: string; name: string; content: string; proxied?: boolean; ttl?: number },
+  ) {
+    return (await this.request<{ id: string }>("POST", `/zones/${zoneId}/dns_records`, record))
+      .result;
+  }
+
+  async deleteDnsRecord(zoneId: string, id: string) {
+    await unless404(this.request("DELETE", `/zones/${zoneId}/dns_records/${id}`));
+  }
+
+  /** Every custom hostname of a zone. */
+  listCustomHostnames(zoneId: string) {
+    return saasCall(() => this.all<CustomHostname>(`/zones/${zoneId}/custom_hostnames`));
+  }
+
+  /**
+   * A proxied `AAAA 100::` record for `name` (the documented placeholder for a hostname a Worker
+   * answers), made once: an existing record of that name is left as it is.
+   */
+  async ensureProxiedPlaceholder(zoneId: string, name: string): Promise<"made" | "there"> {
+    if ((await this.listDnsRecords(zoneId, name)).length) return "there";
+    await this.request("POST", `/zones/${zoneId}/dns_records`, {
+      type: "AAAA",
+      name,
+      content: "100::",
+      proxied: true,
+      comment: "Composable OS fleet (stage 66): answered by a Worker",
+    });
+    return "made";
   }
 
   // ---- AI Gateway logs (metering, ADR 0213) --------------------------------------------------

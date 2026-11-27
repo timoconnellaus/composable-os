@@ -169,11 +169,29 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   decision of 2026-11-27), not the CRM: `cos fleet install --product composable` takes that
   product's bundle (`composable-os-composable-<version>.tar.gz`) from a published, attested
   release, so its Workers are `composable-app`, `composable-runner`, `composable-client-db`,
-  `composable-operator` and `composable-gatekeeper-email-send`; every later `cos fleet` and
+  `composable-operator`, `composable-front` and `composable-gatekeeper-email-send`; every later `cos fleet` and
   `cos client` command names the product too. A tag's release carries a bundle of every product
   in `products/index.ts` (`build-release.ts --products all`), each built as it would be alone, with
   one `SHA256SUMS`; `npm create composable-os` and a single-client `cos install` still take the
   CRM's by its name.
+
+- **Hostnames and cos-front** (stage 66 step 8,
+  [ADR 0619](adr/0619-hostnames-and-cos-front.md)): `cos fleet install` learns the zone the fleet's
+  domain is on; `cos` attaches every hostname the registry records. A client's staff and desk
+  hostnames and the callback hostname, on the fleet's domain, reach cos-app (a Workers Custom
+  Domain each, or one wildcard route at a zone's apex); cos-app serves the staff and desk
+  surfaces. A client's own web domain is a Cloudflare for SaaS custom hostname on the fleet's
+  zone, proved by the client's CNAME and named by its `_cos-client` TXT record, verified in the
+  registry only once Cloudflare reports it active and the record names the client,
+  then routed to **cos-front** (`apps/front`, `@composable-os/db/front`): a fleet Worker with the
+  registry and two vars only, which looks the hostname up exactly, removes every header that
+  could name a client, and hands the request to the client's web target (`WebTarget`) with the
+  client fixed from the registry; today its one target is a holding page, and stage 75 step 5
+  adds the client's published version. Since there is no Public Suffix listing of the fleet's
+  domain, three rules keep clients apart there: client code runs only on a client's own domain;
+  on a many-client host every state-changing request comes from the exact same origin
+  (`apps/app/src/server/same-origin-writes.ts`, with the existing token, allowed-origin and
+  callback exceptions); and only `__Host-` cookies are read (`scripts/check-host-cookies.mjs`).
 
 - **The registry and the client's environment** (stage 66 step 3,
   [ADR 0613](adr/0613-the-registry-and-the-clients-environment.md)): a host that serves many

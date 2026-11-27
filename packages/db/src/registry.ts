@@ -244,6 +244,44 @@ export function canonicalHostname(host: string | null | undefined): string | nul
   return name;
 }
 
+/**
+ * Second-level labels under which a country's names are registered (`example.co.uk`), so the
+ * registrable domain there is three labels. A short list, not the Public Suffix List; where it
+ * misses one, `registrableDomain` gives two labels, which refuses more, never less.
+ */
+const COUNTRY_SECOND_LEVELS = new Set([
+  "co",
+  "com",
+  "net",
+  "org",
+  "gov",
+  "edu",
+  "ac",
+  "id",
+  "or",
+  "ne",
+  "go",
+]);
+
+/**
+ * The registrable domain of a canonical hostname, as near as this can tell without the Public
+ * Suffix List (stage 66: the fleet's domain is not on it, and will not be, ADR 0616 "Cookies"):
+ * two labels, three under a country's `co`, `com`, `org` and the like. Where the rules of a cookie
+ * matter (a client's web hostname kept off the fleet's domain), it errs towards the larger domain.
+ */
+export function registrableDomain(hostname: string): string {
+  const labels = hostname.split(".");
+  const tld = labels.at(-1) ?? "";
+  const second = labels.at(-2) ?? "";
+  const take = tld.length === 2 && COUNTRY_SECOND_LEVELS.has(second) && labels.length >= 3 ? 3 : 2;
+  return labels.slice(-take).join(".");
+}
+
+/** Whether `hostname` is `domain` or a name under it. */
+export function isUnder(hostname: string, domain: string): boolean {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
 // --- Settings ------------------------------------------------------------------------------
 
 /** What a client with no row for a setting gets. */
@@ -335,7 +373,7 @@ export function labelProblem(value: string): string | null {
  */
 export interface SettingContext {
   ownHostnames?: readonly string[];
-  /** The fleet's registrable domain (`fleet.example`): no other client's hostname is under it. */
+  /** The fleet's registrable domain (`fleet.example`): no allowed origin is under it. */
   fleetDomain?: string | null;
 }
 
@@ -395,18 +433,16 @@ export const OPERATOR_SETTINGS: Readonly<
       for (const entry of entries) {
         const origin = httpsOrigin(entry);
         if (!origin) return `${entry} is not an https origin with nothing after it`;
-        // Under the fleet's own domain only the client's own hostname: a sibling there is another
-        // client's or the fleet's (stage 66 step 8, ADR 0619). Without the fleet's domain this
-        // cannot be checked, so it is refused: the write fails closed (review of #552, S-R1).
+        // Nothing under the fleet's registrable domain, the client's own staff hostname included:
+        // a sibling there is another client's or the fleet's, and the host drops every such
+        // origin from a client's environment (`withoutFleetOrigins`, stage 66 step 8, ADR 0619),
+        // so the registry never holds one either. Without the fleet's domain this cannot be
+        // checked, so it is refused: the write fails closed (review of #552, S-R1).
         if (!context.fleetDomain) {
           return "the fleet's domain is needed to check an allowed origin, and none was given";
         }
-        const host = new URL(origin).hostname;
-        if (
-          isUnderDomain(host, context.fleetDomain) &&
-          !(context.ownHostnames ?? []).includes(host)
-        ) {
-          return `${entry} is under the fleet's domain and is not this client's hostname`;
+        if (isUnderDomain(new URL(origin).hostname, context.fleetDomain)) {
+          return `${entry} is under the fleet's domain: an allowed origin is the client's own site, never a hostname of the fleet's`;
         }
       }
       return null;

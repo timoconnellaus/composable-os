@@ -89,11 +89,9 @@ beforeEach(async () => {
   registry = nodeD1();
   await applyMigrations(registry, registryMigrations(), { table: REGISTRY_MIGRATIONS_TABLE });
   lines = [];
-  await addClient(ctx(), {
-    id: "gym-a",
-    webHostname: "www.gym-a.example",
-    settings: { COS_PACKS: "ticketing" },
-  });
+  // No web hostname: a client's own domain needs the fleet's zone (stage 66 step 8), which these
+  // registry-only tests have not got. Its staff hostname is its own verified hostname.
+  await addClient(ctx(), { id: "gym-a", settings: { COS_PACKS: "ticketing" } });
 });
 
 describe("cos client setting (G4)", () => {
@@ -134,24 +132,20 @@ describe("cos client setting (G4)", () => {
     });
   });
 
-  it("refuses an allowed origin under the fleet's domain that is not the client's own hostname (S4)", async () => {
+  it("refuses every allowed origin under the fleet's domain, the client's own staff hostname too, as the host drops them (S4)", async () => {
     await addClient(ctx(), { id: "gym-b", settings: { COS_PACKS: "" } });
     for (const origin of [
       "https://gym-b-admin.fleet.example",
+      "https://gym-a-admin.fleet.example",
       "https://fleet.example",
       "https://evil.clients.fleet.example",
     ]) {
       await expect(set("API_ALLOWED_ORIGINS", origin), origin).rejects.toThrow(
-        /under the fleet's domain and is not this client's hostname/,
+        /under the fleet's domain/,
       );
     }
-    // The client's own staff hostname, and its own domain, are fine.
-    expect(
-      await set(
-        "API_ALLOWED_ORIGINS",
-        "https://gym-a-admin.fleet.example,https://www.gym-a.example",
-      ),
-    ).toBe(0);
+    // The client's own site is fine.
+    expect(await set("API_ALLOWED_ORIGINS", "https://www.gym-a.example")).toBe(0);
   });
 
   it("takes a native redirect only as the client's app's, cos's loopback or https on its own hostname (S5)", async () => {
@@ -170,7 +164,7 @@ describe("cos client setting (G4)", () => {
       );
     }
     const good =
-      "gymapp://staff-sign-in,http://127.0.0.1/cos-sign-in,https://www.gym-a.example/app/sign-in";
+      "gymapp://staff-sign-in,http://127.0.0.1/cos-sign-in,https://gym-a-admin.fleet.example/app/sign-in";
     expect(await set("NATIVE_REDIRECT_URIS", good)).toBe(0);
     expect((await own("gym-a")).NATIVE_REDIRECT_URIS).toBe(good);
   });
@@ -211,10 +205,15 @@ describe("cos client setting (G4)", () => {
         fleetDomain: "fleet.example",
       }),
     ).rejects.toThrow(/under the fleet's domain/);
-    await addClientRows(registry, client("https://gym-c-admin.fleet.example"), {
+    await expect(
+      addClientRows(registry, client("https://gym-c-admin.fleet.example"), {
+        fleetDomain: "fleet.example",
+      }),
+    ).rejects.toThrow(/under the fleet's domain/);
+    await addClientRows(registry, client("https://www.gym-c.example"), {
       fleetDomain: "fleet.example",
     });
-    expect((await own("gym-c")).API_ALLOWED_ORIGINS).toBe("https://gym-c-admin.fleet.example");
+    expect((await own("gym-c")).API_ALLOWED_ORIGINS).toBe("https://www.gym-c.example");
   });
 
   it("holds the same list where the write is: the registry's own write refuses them too (S3)", async () => {

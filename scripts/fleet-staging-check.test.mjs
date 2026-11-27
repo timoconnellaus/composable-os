@@ -30,6 +30,7 @@ import {
   runSteps,
   STAGING_MIGRATION,
   sanitize,
+  settled,
   summaryTable,
   targetPrefix,
   teardown,
@@ -211,8 +212,14 @@ test("the inputs are checked, and AI is never on (review of #541, F1)", () => {
     location: "oc",
     ai: "off",
     zone: "",
+    clientZone: "",
     sendingDomain: "",
   });
+  assert.throws(
+    () => checkOptions({ run: "9", zone: "z.example", "client-zone": "z.example" }),
+    /apart/,
+  );
+  assert.throws(() => checkOptions({ run: "9", "client-zone": "x;y" }), /client-zone/);
   assert.equal(checkOptions({ run: "9", ai: "off" }).ai, "off");
   assert.throws(() => checkOptions({ run: "9", ai: "on" }), /without AI only/);
   assert.throws(() => checkOptions({ run: "9", location: "mars" }), /location/);
@@ -578,6 +585,68 @@ test("where a kind cannot be listed, teardown deletes the run's recorded names o
   assert.equal(result.unlisted.length, 3);
 });
 
+test("on the zones the run used, teardown deletes the routes, DNS records and custom hostnames cos made, and nothing else (stage 66 step 8)", async () => {
+  const { cf, api } = world();
+  await seed(cf, api);
+  const target = `clients.${PREFIX}.fleet.example`;
+  cf.addScript(`${PREFIX}-front-staging`);
+  await api.ensureProxiedPlaceholder(ZONE, target);
+  // The run's install made its target the zone's fallback origin: reset at the teardown (S1).
+  await api.putFallbackOrigin(ZONE, target);
+  await api.putRoute(ZONE, `${target}/*`, `${PREFIX}-front-staging`);
+  await api.createCustomHostnameForCname(ZONE, `www.${PREFIX}.client.example`);
+  // Another site's on the same zone, and a near miss of the label.
+  await api.ensureProxiedPlaceholder(ZONE, "www.fleet.example");
+  await api.putRoute(ZONE, "www.fleet.example/*", "crm-app");
+  await api.putRoute(ZONE, `x.${PREFIX}4.fleet.example/*`, "crm-app");
+  await api.createCustomHostnameForCname(ZONE, "shop.someone.example");
+  // A zone the run never recorded is not looked at.
+  const recorded = [{ kind: "dns", name: `${target}#AAAA`, id: "x", zone: ZONE }];
+  const result = await teardown(api, ACCOUNT, PREFIX, recorded);
+  assert.equal(result.remaining.length, 0, JSON.stringify(result.remaining));
+  assert.deepEqual(
+    cf.routes.map((r) => r.pattern).sort(),
+    [`x.${PREFIX}4.fleet.example/*`, "www.fleet.example/*"].sort(),
+  );
+  assert.deepEqual(
+    cf.dnsRecords.filter((r) => !r.readOnly).map((r) => r.name),
+    ["www.fleet.example"],
+  );
+  assert.deepEqual(
+    cf.customHostnames.map((h) => h.hostname),
+    ["shop.someone.example"],
+  );
+  assert.equal(cf.fallbackOrigins.has(ZONE), false);
+  assert.ok(result.deleted.some((d) => d.kind === "fallback_origin" && d.name === target));
+  // Another's fallback origin is left as it is.
+  cf.fallbackOrigins.set(ZONE, "www.fleet.example");
+  await teardown(api, ACCOUNT, PREFIX, recorded);
+  assert.equal(cf.fallbackOrigins.get(ZONE), "www.fleet.example");
+  // Without the zone recorded or named, its routes are never listed.
+  cf.addScript(`${PREFIX}-front-staging`);
+  await api.ensureProxiedPlaceholder(ZONE, target);
+  await api.putRoute(ZONE, `${target}/*`, `${PREFIX}-front-staging`);
+  await teardown(api, ACCOUNT, PREFIX, []);
+  assert.ok(cf.routes.some((r) => r.pattern === `${target}/*`));
+});
+
+test("a Custom Domain goes before DNS records, so its own read-only record goes with it (F5); a zone without Cloudflare for SaaS lists none of its custom hostnames", async () => {
+  const { cf, api } = world();
+  await seed(cf, api);
+  cf.saasOff.add(ZONE);
+  const recorded = [{ kind: "domain", name: `alpha-admin.${PREFIX}.fleet.example`, zone: ZONE }];
+  const result = await teardown(api, ACCOUNT, PREFIX, recorded);
+  assert.deepEqual(result.failed, []);
+  assert.deepEqual(result.unlisted, []);
+  assert.equal(result.remaining.length, 0, JSON.stringify(result.remaining));
+  assert.ok(!cf.dnsRecords.some((r) => r.name === `alpha-admin.${PREFIX}.fleet.example`));
+  // Not deleted out of order first and found gone later: no delete was refused on the way.
+  assert.deepEqual(
+    result.gone.filter((g) => g.before),
+    [],
+  );
+});
+
 test("domains: only a hostname with a label exactly the prefix, or a run's Worker's", async () => {
   const { cf, api } = world();
   await seed(cf, api);
@@ -644,6 +713,7 @@ test("a run that fails half-way: the later steps are skipped, the summary says w
     install: "partial",
     add: "fail",
     requests: "skipped",
+    front: "skipped",
     sender: "skipped",
     // The install's gatekeeper is checked on the account, apart from the failed add.
     gatekeeper: "pass",
@@ -797,9 +867,11 @@ function stepCtx({
   fetch,
   zone = true,
   gatekeeper = gatekeeperBindings(),
+  saas = true,
 }) {
   const hosts = hostnamesOf(PREFIX, zone ? "fleet.example" : "");
   return {
+    zone: zone ? "fleet.example" : "",
     prefix: PREFIX,
     run: "123",
     zoneId: zone ? ZONE : null,
@@ -808,6 +880,7 @@ function stepCtx({
     accountId: ACCOUNT,
     api: {
       listScripts: async () => Object.keys(gatekeeper.scripts).map((id) => ({ id })),
+      saasEnabled: async () => saas,
       scriptBindings: async (_account, name) =>
         gatekeeper.scripts[name] ?? [
           { type: "plain_text", name: "COS_RELEASE_VERSION", text: version() },
@@ -904,6 +977,153 @@ test("the upgrade step: its three runs pass only as they should (review of #541,
     stepCtx({ answer: noZone.answer, version: () => noZone.state.version, zone: false }),
   );
   assert.equal(partial.status, "partial");
+});
+
+test("a new hostname is waited for until it answers steadily, the wait reported; one that never does fails its step naming it (the third real run)", async () => {
+  // Answers once, then nothing (status 0, as bravo did), then steadily.
+  const seq = [200, 0, 200, 200, 200];
+  const flapping = await settled(
+    {
+      fetch: async () => {
+        const status = seq.shift() ?? 200;
+        if (status === 0) throw new TypeError("fetch failed");
+        return new Response("ok", { status });
+      },
+      waitMs: 600000,
+      sleep: async () => {},
+    },
+    "bravo-admin.cosstg-123.fleet.example",
+  );
+  assert.equal(flapping.ok, true);
+  assert.equal(seq.length, 0);
+  // The add step: cos told not to wait (the check measures), each hostname's wait in the note.
+  const commands = [];
+  const answer = (args) => {
+    commands.push(args.join(" "));
+    if (args[1] === "list") {
+      return {
+        code: 0,
+        out: `2 clients (staging):\n  alpha  active  standard  schema 1450\n  bravo  active  standard  schema 1450`,
+        ms: 1,
+      };
+    }
+    return { code: 0, out: "Added x in 1.0 s", ms: 1 };
+  };
+  const ctx = stepCtx({ answer, fetch: async () => new Response("ok") });
+  ctx.api.listDomains = async () =>
+    [CLIENTS.a, CLIENTS.b].map((id) => ({
+      id: `d-${id}`,
+      hostname: ctx.hosts.staff[id],
+      service: `${PREFIX}-app-staging`,
+    }));
+  const added = await step("add").run(ctx);
+  assert.match(added.note, /each staff hostname answering steadily after: alpha 0 s, bravo 0 s/);
+  assert.ok(
+    commands.filter((c) => c.startsWith("client add")).every((c) => c.includes("--no-wait")),
+  );
+  // One that never answers: the step fails, naming it, not a status 0 on a later assertion.
+  const dead = stepCtx({
+    answer,
+    fetch: async () => {
+      throw new TypeError("fetch failed");
+    },
+  });
+  dead.api.listDomains = ctx.api.listDomains;
+  await assert.rejects(
+    step("add").run(dead),
+    /alpha-admin\.cosstg-123\.fleet\.example did not answer steadily within 0 s \(last: 0/,
+  );
+});
+
+test("the cos-front step: an unknown hostname's 404, a sibling's change refused, and a client's own domain proved and served (stage 66 step 8)", async () => {
+  const front = step("front");
+  const ownPolicy = "default-src 'none'; frame-ancestors 'none'";
+  const fetchFor =
+    (over = {}) =>
+    async (url, init = {}) => {
+      if (url.startsWith("https://clients.")) {
+        return new Response("Not found", {
+          status: over.target ?? 404,
+          headers: { "content-security-policy": ownPolicy },
+        });
+      }
+      if (init.method === "POST") return new Response("{}", { status: over.sibling ?? 403 });
+      return new Response("<h1>Coming soon</h1>", { status: 200 });
+    };
+  // No client zone: what it can check passes, and the step is partial.
+  const partial = await front.run(
+    stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }), fetch: fetchFor() }),
+  );
+  assert.equal(partial.status, "partial");
+  assert.match(partial.note, /refused \(403\)/);
+  // A zone without Cloudflare for SaaS: rule (b) still checked, cos-front partial, never failed.
+  const noSaas = await front.run(
+    stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }), fetch: fetchFor(), saas: false }),
+  );
+  assert.equal(noSaas.status, "partial");
+  assert.match(
+    noSaas.note,
+    /refused \(403\).*Cloudflare for SaaS is not enabled on fleet\.example/,
+  );
+  // A sibling's change let through, or the target answering, fails it.
+  await assert.rejects(
+    front.run(
+      stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }), fetch: fetchFor({ sibling: 200 }) }),
+    ),
+    /not 403/,
+  );
+  await assert.rejects(
+    front.run(
+      stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }), fetch: fetchFor({ target: 200 }) }),
+    ),
+    /did not answer 404/,
+  );
+  // With a client zone: the printed records written there, verified once proved, served, removed.
+  const written = [];
+  const commands = [];
+  let verifies = 0;
+  const own = `www.${PREFIX}.client.example`;
+  const ctx = stepCtx({
+    fetch: fetchFor(),
+    answer: (args) => {
+      commands.push(args.slice(0, 3).join(" "));
+      if (args[2] === "add") {
+        return {
+          code: 0,
+          // As cos prints it (clients.ts `dnsInstructions`).
+          out: `Added ${own} to alpha:\n  ${own}: unverified, served nowhere yet. The client adds, at its DNS provider:\n    CNAME ${own}  clients.${PREFIX}.fleet.example    (sends its visitors to the host; DNS only (grey cloud), not proxied)\n    TXT   _cos-client.${own}  cos-client=staging:alpha    (says which client of the host, and which environment, the domain is for)\n  then: cos client hostname verify alpha ${own}\n`,
+          ms: 1,
+        };
+      }
+      if (args[2] === "verify")
+        return { code: ++verifies >= 2 ? 0 : 1, out: "not proved yet", ms: 1 };
+      return { code: 0, out: "", ms: 1 };
+    },
+  });
+  ctx.clientZone = "client.example";
+  ctx.clientZoneId = "zone-client";
+  ctx.api.createDnsRecord = async (zone, record) => {
+    written.push({ zone, ...record });
+    return { id: `r${written.length}` };
+  };
+  const full = await front.run(ctx);
+  assert.equal(full.status ?? "pass", "pass");
+  assert.deepEqual(
+    written.map((r) => [r.zone, r.type, r.name, r.content]),
+    [
+      ["zone-client", "CNAME", own, `clients.${PREFIX}.fleet.example`],
+      ["zone-client", "TXT", `_cos-client.${own}`, "cos-client=staging:alpha"],
+    ],
+  );
+  // The CNAME DNS only, never proxied (no Orange-to-Orange).
+  assert.equal(written.find((r) => r.type === "CNAME")?.proxied, false);
+  assert.equal(verifies, 2);
+  assert.deepEqual(commands, [
+    "client hostname add",
+    "client hostname verify",
+    "client hostname verify",
+    "client hostname remove",
+  ]);
 });
 
 test("the gatekeeper step: the fleet's email-send Worker deployed, sending per client and bound to the runner (ADR 0618)", async () => {
@@ -1252,7 +1472,17 @@ test("each client's first admin is named at add with only its token's hash: no l
   const base = stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }) });
   const ctx = {
     ...base,
-    api: { ...base.api, putDomain: async () => {} },
+    api: {
+      ...base.api,
+      putDomain: async () => {},
+      // cos attached both staff hostnames to the app Worker (stage 66 step 8).
+      listDomains: async () =>
+        [CLIENTS.a, CLIENTS.b].map((id) => ({
+          id: `d-${id}`,
+          hostname: base.hosts.staff[id],
+          service: `${PREFIX}-app-staging`,
+        })),
+    },
     cos: cosRunner({
       cli,
       productFile: "/p.json",

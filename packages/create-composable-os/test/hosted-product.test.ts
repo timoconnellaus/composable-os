@@ -95,6 +95,7 @@ describe("cos fleet install --product composable", () => {
       expect(names.scripts).toEqual([
         "composable-app",
         "composable-client-db",
+        "composable-front",
         "composable-gatekeeper-email-send",
         "composable-operator",
         "composable-runner",

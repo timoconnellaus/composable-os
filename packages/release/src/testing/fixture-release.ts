@@ -401,6 +401,23 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
           queueConsumers: [],
           dependsOn: [],
         }),
+        await finish({
+          name: "demo-front",
+          package: "apps/front",
+          role: "fleet",
+          optional: true,
+          mainModule: "front.js",
+          modules: [await add("front.js", "export default {}")],
+          compatibilityDate: "2026-09-04",
+          compatibilityFlags: [],
+          durableObjectMigrations: [],
+          bindings: [],
+          secrets: [],
+          crons: [],
+          public: false,
+          queueConsumers: [],
+          dependsOn: [],
+        }),
       ];
   extra.push(...fleetWorkers);
 

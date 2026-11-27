@@ -25,6 +25,8 @@ import type {
 export const FLEET_PACKAGES = Object.freeze({
   clientDb: "apps/client-db",
   operator: "apps/operator",
+  /** cos-front: clients' own web hostnames (stage 66 step 8, ADR 0619). */
+  front: "apps/front",
 });
 
 export type FleetEnvironment = "live" | "staging";
@@ -44,6 +46,37 @@ export interface FleetState {
    * #526, S2). It says nothing of the keys: each is 32 random bytes.
    */
   keysFingerprint?: string;
+  /**
+   * The zone the fleet's domain is on, learnt by `cos fleet install` (stage 66 step 8, ADR 0619):
+   * where its staff, desk and callback hostnames are attached and where clients' own domains are
+   * custom hostnames. Absent on a fleet installed before step 8: nothing is attached until
+   * `cos fleet install` runs again.
+   */
+  zone?: { id: string; name: string };
+  /**
+   * How the fleet's own hostnames reach the app: a Workers Custom Domain each (`custom-domains`,
+   * the default: any depth, at most 100 a zone), or one wildcard route and DNS record for the
+   * whole domain (`wildcard`: only on a zone that is the fleet's alone, its domain the zone's
+   * apex, which Universal SSL covers one level down). ADR 0619.
+   */
+  attach?: FleetAttach;
+  /**
+   * Whether clients' own domains can be served: the zone has Cloudflare for SaaS (enabled in the
+   * dashboard, with a payment method on file) and `cos fleet install` set up `clients.<domain>`.
+   * False or absent: the fleet's own hostnames work, and `cos client hostname add` refuses until
+   * Cloudflare for SaaS is enabled and `cos fleet install` runs again (ADR 0619).
+   */
+  clientDomains?: boolean;
+}
+
+export type FleetAttach = "custom-domains" | "wildcard";
+
+/**
+ * The hostname clients' own domains point a CNAME at, and the zone's Cloudflare for SaaS
+ * fallback origin: `clients.<domain>`. No client's hostname (the fleet's commands refuse it).
+ */
+export function fleetClientTarget(domain: string): string {
+  return `clients.${domain}`;
 }
 
 /** The host's keys, from the operator's keys file: each 32 random bytes as base64url. */
@@ -90,7 +123,8 @@ export function isFleetWorker(worker: Pick<WorkerEntry, "package" | "role">): bo
   return (
     worker.role === "fleet" ||
     worker.package === FLEET_PACKAGES.clientDb ||
-    worker.package === FLEET_PACKAGES.operator
+    worker.package === FLEET_PACKAGES.operator ||
+    worker.package === FLEET_PACKAGES.front
   );
 }
 
@@ -310,6 +344,15 @@ export function fleetBindings(
     }
   } else if (worker.name === clientDb.name) {
     add.push(env("COS_HOST_ENVIRONMENT", f.environment));
+  } else if (worker.package === FLEET_PACKAGES.front) {
+    // cos-front (ADR 0619): the registry to look a hostname up, the environment it serves and the
+    // fleet's domain, under whose registrable domain it serves nothing. No client's database, no
+    // secret, no key.
+    add.push(
+      registry,
+      env("COS_HOST_ENVIRONMENT", f.environment),
+      env("COS_FLEET_DOMAIN", f.domain),
+    );
   } else if (worker.name === operator.name) {
     const blobs = bindingOf(app, "BLOBS");
     const kv = bindingOf(app, "OAUTH_KV");

@@ -214,10 +214,13 @@ export async function settingCommand(
   return 0;
 }
 
-/** A client's hostnames in the registry, verified or not. */
+/**
+ * A client's verified hostnames in the registry (as #543's registry holds them: canonical, one row
+ * each): only a verified one is the client's own to name in a setting.
+ */
 async function clientHostnames(ctx: FleetContext, id: ClientId): Promise<string[]> {
   const { results } = await ctx.registry
-    .prepare("SELECT hostname FROM registry_hostnames WHERE client = ?")
+    .prepare("SELECT hostname FROM registry_hostnames WHERE client = ? AND verified = 1")
     .bind(id)
     .all<{ hostname: string }>();
   return results.map((r) => r.hostname);
