@@ -101,6 +101,9 @@ try {
   run("pnpm", ["--dir", "apps/web", "typecheck"], shop);
   run("pnpm", ["--dir", "apps/mobile", "typecheck"], shop);
   run("pnpm", ["--dir", "apps/web", "build"], shop);
+  // The same screens as static files (stage 75 step 2): no server code, checked by its tests.
+  run("pnpm", ["--dir", "apps/web", "build:browser"], shop);
+  run("pnpm", ["--dir", "apps/web", "test"], shop);
   console.log(
     `\nnpm packages ${version}: a fresh client repo installs them, type-checks and builds.`,
   );
