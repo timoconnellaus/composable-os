@@ -79,7 +79,9 @@ describe("a client product's listed packs (ADR 0420, amended)", () => {
       ticketing: "unchanged",
     });
     // (Deals is in the release too, and this product now lists it.)
-    expect(outcomes(await boot("bookings,content,deals,programs,ticketing")).deals).toBe("installed");
+    expect(outcomes(await boot("bookings,content,deals,programs,ticketing")).deals).toBe(
+      "installed",
+    );
   });
 
   it("a product that drops a pack leaves it installed with its data; nothing is deleted", async () => {

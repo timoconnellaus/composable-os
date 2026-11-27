@@ -84,6 +84,11 @@ only assigns a class program to it. So:
   (`packages/core/src/staffing/kinds.ts`); no code names Programs, so it follows the relation. The
   pay minutes are read from the kind's own field or, as before, a field its extension adds to it
   (`packages/core/src/staffing/pay.ts`, `payMinuteFields`).
+- **Routine mail's tie to the run's record** (`tiedToTrigger`, `packages/core/src/routine-mail/`)
+  counted a relation to one of the extension's own objects as a tie, and said "sharing a class
+  type is not enough" only because the class type was another pack's. Now that it is Bookings'
+  own, a **read-only relation** (a value the host copied, like a booking's class type) never ties:
+  another member's booking of the same class type stays refused, and the class still ties.
 - `cos programs import` keeps reading `classtypes.csv` from the programs folder and writes Bookings'
   class types: Programs requires Bookings, so they are always there, and a gym's converter does
   not change. A Bookings import (stage 31 step 10) may read the same file later.
