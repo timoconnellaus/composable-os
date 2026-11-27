@@ -222,24 +222,41 @@ describe("the browser build's token store, with Web Locks (review of #542, S2)",
     expect(await reloaded.load()).toMatchObject({ refreshToken: "refresh-1" });
   });
 
-  it("never takes a reload for a copy, however late the old page lets go, and takes the lock when it does (review of #548, F-d)", async () => {
+  it("gives a reload longer for its old page to let go, and keeps it signed in (review of #548, F-d)", async () => {
     const origin = fakeLocks();
     const before = origin.tab(1);
     const storage = memoryStorage();
     await sessionTokenStore(storage, fakePage(), { locks: before.locks, waitMs: WAIT }).save(
       tokens(1),
     );
-    // The old document still holds the lock past the wait.
+    // The old document lets go after the usual wait, inside a reload's longer one.
+    setTimeout(before.kill, WAIT * 3);
     const reloaded = sessionTokenStore(carried(storage), fakePage(), {
       locks: origin.tab(2).locks,
       waitMs: WAIT,
       reloaded: true,
+      reloadWaitMs: 1_000,
     });
     expect(await reloaded.load()).toMatchObject({ refreshToken: "refresh-1" });
-    expect(origin.holder("ses_1")).toBe(1);
-    before.kill();
-    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(origin.holder("ses_1")).toBe(2);
+  });
+
+  it("does not trust the navigation type alone: a 'reload' whose session another live tab holds is a copy (review of #554, S2)", async () => {
+    const origin = fakeLocks();
+    const storage = memoryStorage();
+    await sessionTokenStore(storage, fakePage(), { locks: origin.tab(1).locks, waitMs: WAIT }).save(
+      tokens(1),
+    );
+    const copy = carried(storage);
+    const copied = sessionTokenStore(copy, fakePage(), {
+      locks: origin.tab(2).locks,
+      waitMs: WAIT,
+      reloaded: true,
+      reloadWaitMs: WAIT * 2,
+    });
+    expect(await copied.load()).toBeNull();
+    expect(copy.items.has(SESSION_KEY)).toBe(false);
+    expect(origin.holder("ses_1")).toBe(1);
   });
 
   it("keeps the session through the back-forward cache: the page and its lock are kept", async () => {

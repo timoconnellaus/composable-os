@@ -93,8 +93,14 @@ export interface TabLike {
    * is reloading lets go as it is unloaded; a live tab never does. Default 1000.
    */
   waitMs?: number;
-  /** The page was loaded by a reload (`performance` navigation type "reload"): never a copy. */
+  /**
+   * The page was loaded by a reload (`performance` navigation type "reload"). Not trusted alone
+   * (no source says what a browser reports for a duplicated or restored tab): it only makes the
+   * tab wait longer, `reloadWaitMs`, for its old document to let the lock go.
+   */
   reloaded?: boolean;
+  /** How long a reloaded page waits for the lock, in ms. Default 5000. */
+  reloadWaitMs?: number;
 }
 
 /** The lock a tab holds while it uses a session. */
@@ -134,23 +140,20 @@ export function sessionTokenStore(
   const discarded = tab.wasDiscarded ?? defaultWasDiscarded();
   const waitMs = tab.waitMs ?? 1000;
   const reloaded = tab.reloaded ?? defaultReloaded();
+  const reloadWaitMs = tab.reloadWaitMs ?? 5000;
   const here = storage ? pageState(storage) : { marked: false, holds: new Set<string>() };
   let held: Tokens | null = null;
   let holding: { sessionId: string; letGo: () => void } | null = null;
 
-  /**
-   * Takes the session's lock for this page, waiting `wait` ms for another to let it go, or until
-   * it does ("forever": a reloaded page whose old document is slow to let go, F-d).
-   */
-  async function claim(sessionId: string, wait: number | "forever" = waitMs): Promise<boolean> {
+  /** Takes the session's lock for this page, waiting `wait` ms for another to let it go. */
+  async function claim(sessionId: string, wait: number = waitMs): Promise<boolean> {
     if (!locks || here.holds.has(sessionId)) return true;
     let letGo = () => {};
     const kept = new Promise<void>((resolve) => {
       letGo = resolve;
     });
     const timeout = (AbortSignal as { timeout?: (ms: number) => AbortSignal }).timeout;
-    const options =
-      wait === "forever" ? {} : timeout ? { signal: timeout(wait) } : { ifAvailable: true };
+    const options = timeout ? { signal: timeout(wait) } : { ifAvailable: true };
     const got = await new Promise<boolean>((resolve) => {
       locks
         .request(lockName(sessionId), options, (lock) => {
@@ -161,11 +164,6 @@ export function sessionTokenStore(
         .catch(() => resolve(false));
     });
     if (!got) return false;
-    if (wait === "forever" && held?.sessionId !== sessionId) {
-      // The session changed while this page waited: the lock is not this page's to keep.
-      letGo();
-      return false;
-    }
     release();
     here.holds.add(sessionId);
     holding = {
@@ -191,15 +189,10 @@ export function sessionTokenStore(
 
   /** Whether the session found at start is another live tab's (this tab is its copy). */
   async function copied(stored: Tokens): Promise<boolean> {
-    // A reload is this same tab, never a copy (F-d): its old document may still be letting the
-    // lock go, so the lock is taken when it does.
-    if (reloaded) {
-      if (locks && !(await claim(stored.sessionId))) {
-        void claim(stored.sessionId, "forever");
-      }
-      return false;
-    }
-    if (locks) return !(await claim(stored.sessionId));
+    // A reload's old document may be slow to let the lock go (F-d): such a page waits longer.
+    // Still a copy if another tab holds the lock after that: the navigation type alone is not
+    // trusted (review of #554, S2).
+    if (locks) return !(await claim(stored.sessionId, reloaded ? reloadWaitMs : waitMs));
     if (discarded || here.marked) return false;
     return quietly(() => storage?.getItem(LIVE_KEY)) != null;
   }

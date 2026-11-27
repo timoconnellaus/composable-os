@@ -3385,7 +3385,7 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
   (emailed code, ADR 0455), every request `credentials: "omit"`, the tokens in memory mirrored to
   the tab's `sessionStorage`. One device session per tab: the tab using a session holds a Web
   Lock named for it, and a tab whose copied session's lock another live tab still holds
-  (Duplicate Tab) starts signed out, while a discarded, killed or reloaded tab finds it free (a reload is never a copy) and
+  (Duplicate Tab) starts signed out, while a discarded, killed or reloaded tab finds it free (a reload waits longer for its old page to let go) and
   stays signed in (without Web Locks, a mark in the tab's storage stands in, and
   `document.wasDiscarded` is never a copy). Calls go through `tokenSession`'s `fetch`: a call
   waits for a refresh in flight (one per store, however many sessions are made over it; a refresh
