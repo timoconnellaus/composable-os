@@ -61,3 +61,25 @@ and in Workers (the self-updater) alike. No wrangler at runtime.
   cosine, `object` string metadata index). Missing metadata indexes are created on every run, so the
   step is idempotent (`POST …/vectorize/v2/indexes/{name}/metadata_index/create`,
   [docs](https://developers.cloudflare.com/api/resources/vectorize/subresources/indexes/subresources/metadata_index/methods/create/)).
+
+## Amended 2026-11-27: upload order and Workflows (the second real staging run)
+
+- **Workers are uploaded in the order their bindings need**, read from the bindings as uploaded
+  (`bindingOrder`, `boundWorkers` in `packages/release/src/deploy.ts`), not only the release's
+  `dependsOn`, which knows nothing of the bindings the engine adds (a gatekeeper on the runner, a
+  fleet's client-db). Cloudflare refuses a Worker or a version whose service binding names a Worker
+  that does not exist (400, 10143, seen on a real run). A new Worker that an existing Worker's new
+  version binds (a gatekeeper added to a host) is uploaded while staging, before that version. A
+  cycle of bindings is refused by name; none exists. A rollback never deletes a Worker, so it
+  cannot leave a binding to one it removed.
+- **Each Workflow is created by its own call**, `PUT /accounts/{id}/workflows/{name}` with
+  `class_name` and `script_name`, after the Worker that exports its class is switched. Uploading
+  the Worker does not create it: wrangler's deploy makes the same call (workers-sdk,
+  `packages/deploy-helpers/src/triggers/deploy.ts`, `triggersDeploy`), and the Workflows API
+  reference describes the call as "Creates a new workflow or updates an existing workflow
+  definition" (developers.cloudflare.com/api/resources/workflows/methods/update/). Hosts installed
+  before this have no Workflows; their next upgrade or install re-run creates them. Not done in a
+  dispatch namespace (ADR 0210), whose Workflows were not checked.
+- The fake Cloudflare API refuses as the real one does: a missing service binding (10143) and a
+  missing D1 database (10181); and it creates a Workflow only by that call, listing them paged by
+  `total_count` with no `total_pages`, as the API reference documents, which `all()` now follows.
