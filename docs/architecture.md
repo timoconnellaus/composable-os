@@ -153,6 +153,14 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   upgrade` (pause, bookmark and migrate each client, upload once, smoke, resume; a failed migration
   restores and uploads nothing), `cos client export`/`import`/`remove`, and `cos install --import`
   for a client leaving to its own account. Each records its progress in `registry_operations`.
+  For a client's first day (stage 66 step 9, ADR 0618 "The first client's day one"): `cos client
+  setting` changes a fixed list of a running client's settings over the registry alone (each value
+  checked; `COS_PACKS` only wider, the host installing a new pack at the next request); `cos
+  client add --admin` and `cos client first-admin` name the client's first admin, whose setup link
+  (`/sign-in#first-admin=<token>`, the token's hash in `COS_FIRST_ADMIN`) is the only way its
+  first account is made on a host of many clients (Better Auth's user-create hook); `--label` sets
+  the client's `COS_PRODUCT_LABEL`, which `productName` reads from the client scope the code runs
+  in, so the client's screens and mail name its product.
 
 - **The registry and the client's environment** (stage 66 step 3,
   [ADR 0613](adr/0613-the-registry-and-the-clients-environment.md)): a host that serves many
@@ -527,7 +535,9 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   it; a runtime extension's tool or automation, a run that used a model or read outside text, and a
   tool called by such a run write as an AI. The daily caps (20 per mailbox, 2,000 for the
   organisation) are counted where a row is claimed. Each kind has a human admin's switch (Settings →
-  Routine email), with the log, kept 12 months by default.
+  Routine email), with the log, kept 12 months by default. A routine email's one Reply-To is the
+  business's own reply address a human admin sets there (stage 66 step 9, ADR 0618): the host's
+  routine queue names it to the email-send gatekeeper, which gives the routine kind to no other.
 - **Routine messages** ([ADR 0670](adr/0670-routine-messages-text-and-push-on-the-routine-mail-path.md),
   stage 30): routine mail grown to text and push. A kind may declare a text's words and a push's
   (a title and a line, opening a screen of the business's app), checked at declaration to fit with

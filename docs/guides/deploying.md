@@ -64,3 +64,20 @@ the steps are in [docs/deploying.md](../deploying.md), "A host of many clients")
   an unverify or a removal takes effect within 10 seconds; nothing is sent while a client is
   paused, and nothing after it is removed
   ([ADR 0616](../adr/0616-secrets-and-addresses-per-client.md), "Email sending per client").
+- **The first admin.** `cos client add <id> --admin <email>` (or later `cos client first-admin
+  <id> <email>`) names who may make the client's first account, and prints a setup link once:
+  only that address, with that link, by password, within 72 hours, makes the first account, which
+  is the admin. With no admin named, nobody can. The link is a credential: send it yourself. A
+  single-client install is as before (its installer signs up at `/setup`).
+- **A client's settings after `add`.** `cos client setting list|set|unset <id> [NAME] [value]`
+  changes `COS_PACKS`, `API_ALLOWED_ORIGINS`, `NATIVE_REDIRECT_URIS`, `APPROVAL_EXPIRY_DAYS` and
+  `COS_PRODUCT_LABEL`, each checked; a running host serves the change within 10 seconds.
+  `COS_PACKS` only widens, with packs the release carries and those they require; the host installs
+  a new pack at the client's next request. The approval floor, the identity provider and open
+  sign-up are not changed this way.
+- **A client's own label.** `--label <name>` at `add`, or the `COS_PRODUCT_LABEL` setting: the
+  client's screens, sign-in page and mail name the product so, never another client's.
+- **Replies to routine mail** go to the address the client's admin sets on Settings → Routine
+  email; routine mail keeps going on its own with it. Sign-in codes carry no reply address.
+  ([ADR 0618](../adr/0618-the-operators-commands-for-a-host-of-many-clients.md), "The first
+  client's day one".)

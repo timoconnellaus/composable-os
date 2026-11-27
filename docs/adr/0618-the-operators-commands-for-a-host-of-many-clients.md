@@ -348,3 +348,88 @@ installing the gatekeeper.*
 - Nothing here was run on Cloudflare: D1's REST API with a batch of many statements, Durable Object
   point-in-time restore through the operator's Worker, R2 lifecycle rules
   and a fleet's uploads are proved locally and against the fake API only.
+
+## The first client's day one (amendment, 2026-11-27; stage 66 step 9, `feat/stage-66-first-client-gaps`)
+*Recorded here because stage 66's ADR numbers (0610 to 0619) are all taken. Four gaps a real client
+hits on its first day, found by the step 9 scoping pass.*
+
+### The first admin (G5)
+- **The danger.** The first person to sign up at a deployment becomes its admin (migration 0020's
+  `core_user_first_admin`). A fleet client's staff hostname (`<id>-admin.<domain>`) is predictable
+  and appears in certificate transparency logs as soon as `cos client add` attaches it, so whoever
+  found it first could take the client.
+- **The bootstrap order is the difficulty.** A new client cannot send mail: its sender domain and
+  its "host's mail" connection are set up in the app by its admin. So the first admin cannot be
+  sent a sign-in code; a link given to the operator is the only channel that exists on day one.
+- **Decided.** On a host of many clients the operator names the first admin
+  (`cos client add <id> --admin <email>`, or `cos client first-admin <id> <email>` later, which
+  replaces the last link). `cos` makes a 32-byte random token, prints
+  `https://<staff hostname>/sign-in#first-admin=<token>` once, and writes the registry setting
+  `COS_FIRST_ADMIN` = the address, the token's SHA-256 and an expiry 72 hours on. The token is
+  stored nowhere; it rides in the link's fragment, which no server or log sees; the sign-in page
+  sends it with the sign-up in the `cos-first-admin-token` header. The host (Better Auth's
+  user-create hook, `firstAdminMaySignUp`) makes the first account only for that address, by
+  password sign-up, with a token whose SHA-256 matches (compared in constant time), before the
+  expiry; every other first account is refused, and with no admin named, or a value that does not
+  read, nobody's (fails closed). Once a person has an account the link does nothing.
+- **Not by code, not by Google.** A sign-in code needs the mail the admin has not set up; Google
+  sign-up cannot carry the token. Under Cloudflare Access (a client setting), Access's own policy
+  decides who reaches the app, as before.
+- **Identity stays out of the AI's reach.** `COS_FIRST_ADMIN` is a registry setting, written only by
+  the operator's command; `cos client setting` refuses it.
+- **A single-client deployment is unchanged**: its installer signs up at `/setup` right after the
+  deploy, on a hostname they chose, with no window worth a guard. Fixed for both: the first-account
+  check counted every `core_user` row, so an installed pack's principal (kind `extension`) closed
+  sign-up before the first person signed up; it now counts people only, as the trigger does.
+
+### A running client's settings (G4)
+`cos client setting list|set|unset <id> [NAME] [value]`, over the registry only (never the
+operator's Worker). The names it changes, each with its check (`OPERATOR_SETTINGS`,
+`@composable-os/db/registry`): `COS_PACKS`, `API_ALLOWED_ORIGINS` (https origins only),
+`NATIVE_REDIRECT_URIS` (an app scheme, https, or a loopback address with no port),
+`APPROVAL_EXPIRY_DAYS` (1 to 90) and `COS_PRODUCT_LABEL`. Every other client setting says why not
+(`NOT_OPERATOR_SETTINGS`): `APPROVAL_FLOOR` and `IDENTITY_PROVIDER` are set at `add` (a running
+client's policy or identity changed is a reviewed change of its own, and a floor that does not
+parse stops the client); `AUTH_ALLOW_SIGNUP` is never right on a fleet's public hostname;
+`COS_ORG_EXTENSIONS` is the client repository's deploy's; `AI_MODEL_ROLES` and `AI_PROVIDERS` wait
+for per-client AI; `COS_FIRST_ADMIN` is `first-admin`'s. `add`'s `--setting` values get the same
+checks. Replacing or removing a value asks for the client's id. A change is served within
+`REGISTRY_REFRESH_MS` (10 seconds).
+
+**Widening `COS_PACKS` is a plain setting change, with three checks.** The host installs every
+pack its environment lists at the client's next staff or API request (`ensureShippedExtensions`,
+once per client environment, and a changed registry is a new environment), through
+`extension.install`: its objects, its migrations, its principal; a pack that needs another is
+tried again after the rest. So the command checks: each pack is carried by the installed release
+(its client kit's `packs.json`); the packs they require (`roles.json`) are named too; and the
+client's own list never narrows (a pack taken out stays installed and is no longer updated by a
+release, so it is refused; `unset` too). A client that had the deployment's packs asks first. The
+app and the runner each refresh the registry on their own: an install whose results lack a pack
+the app's list names is not held, so the next request installs it.
+
+### The product label per client (G8)
+`COS_PRODUCT_LABEL` is a client setting (inherited from the deployment's label when absent), set by
+`cos client add --label` or the setting command. `productName` (packages/product) reads the label
+of the client scope the code runs in (core's `ClientScope.label`, set from the client's
+environment by every entry of the app and the runner, the same scope ADR 0617 keeps per client);
+outside every client's scope, the deployment's label. So the sign-in page, the staff screens, the
+sign-in codes, invites and every notification name the client's product, never another client's
+(the app's and the runner's two-client suites).
+
+### Reply-To on host mail (G9)
+- **Sign-in codes carry no Reply-To**, as before: the sign-in kind still refuses one.
+- **Routine mail may carry the business's own reply address** and keep its routine kind. The
+  address is the client's human admin's (`routineMail.settings.update` `replyTo`, Settings →
+  Routine email, "Replies"), stored in its database beside the site the links may point to. The
+  host puts it on the message, and its routine queue names it to the email-send gatekeeper
+  (`hostRoutineMail` answers `replyTo`); the gatekeeper gives the routine kind only to a message
+  whose Reply-To is that address or absent. A Reply-To from anywhere else, or one the queue does
+  not name, makes the email an ordinary send held for a person. Chosen over an operator setting:
+  the address is the business's to choose, as its site is, and it works on a single-client
+  deployment too.
+
+### Not here
+- **Videos on a fleet (G10)** are not a client's secret: they use the operator's Stream token and
+  signing key. The two secrets set by hand survive an upgrade (`keep_bindings`); the three vars
+  (`STREAM_ACCOUNT_ID`, `STREAM_CUSTOMER_CODE`, `STREAM_SIGNING_KEY_ID`) do not, so `cos fleet
+  install` and `upgrade` must carry them in the deployment's state. Not built.
