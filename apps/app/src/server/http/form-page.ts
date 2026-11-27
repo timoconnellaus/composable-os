@@ -10,7 +10,7 @@
 // cookie or makes it the public, never staff, and keeps each send's Idempotency-Key. Only the
 // customer's session cookie is passed on; nothing else of the request is. Whether a form is open,
 // the spam checks, the caps, who may answer and once only are the door's.
-import { CUSTOMER_COOKIE_PREFIX } from "@composable-os/auth";
+import { CUSTOMER_COOKIE_PREFIX, hostOnlyCookies, isSessionCookie } from "@composable-os/auth";
 import { formPage, formPageClient, isFormPagePath } from "@composable-os/pack-forms/page";
 import type { ApiEnv } from "./api.ts";
 
@@ -24,13 +24,15 @@ export interface FormPageEnv extends ApiEnv {
   TURNSTILE_SITE_KEY?: string;
 }
 
-/** The request's customer session cookie (its parts), or null: never a staff cookie. */
-function customerCookie(request: Request): string | null {
+/**
+ * The request's customer session cookie (its parts), or null: never a staff cookie. On a host of
+ * many clients only its `__Host-` names (stage 66, ADR 0619 rule (c), `isSessionCookie`).
+ */
+function customerCookie(request: Request, env: object): string | null {
+  const hostOnly = hostOnlyCookies(env);
   const parts = (request.headers.get("cookie") ?? "")
     .split(/;\s*/)
-    .filter((part) =>
-      part.replace(/^__(Secure|Host)-/, "").startsWith(`${CUSTOMER_COOKIE_PREFIX}.`),
-    );
+    .filter((part) => part && isSessionCookie(part, CUSTOMER_COOKIE_PREFIX, hostOnly));
   return parts.length ? parts.join("; ") : null;
 }
 
@@ -81,7 +83,7 @@ export function handleFormPage(
   door: (request: Request) => Promise<Response>,
   visitor: FormPageVisitor,
 ): Promise<Response> {
-  const cookie = customerCookie(request);
+  const cookie = customerCookie(request, env);
   const address = visitor.address?.trim();
   return formPage(request, {
     client: formPageClient({

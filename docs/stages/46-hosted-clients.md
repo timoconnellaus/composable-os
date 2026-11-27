@@ -127,7 +127,7 @@ first.
 | --- | --- | --- |
 | 13 | **Hosted hostnames are on `composableos.app`,** a domain used for nothing else | question 1 |
 | 14 | **The fleet's account is the one `composableos.dev` is on today.** Workers for Platforms is on there and `composableos.app` is registered there. A separate account for the business was offered and not chosen | added in the interview |
-| 15 | **The first client's DNS is on Cloudflare in its own account, and its site answers on the bare domain.** Its domain is connected by custom hostname; Cloudflare DNS allows the CNAME on a bare domain, so the zone does not move | question 2 |
+| 15 | **The first client's DNS is on Cloudflare in its own account, and its site answers on the bare domain.** Its domain is connected by custom hostname; Cloudflare DNS allows the CNAME on a bare domain, so the zone does not move. _Amended 2026-11-27 (the owner, stage 66 step 8, ADR 0619): a bare domain is refused as a client's own domain on the fleet; the site stays in the client's own account for now, and later is `www` through cos-front with the apex redirected in the client's own zone_ | question 2 |
 | 16 | **No fair-use numbers yet.** Usage is reported for two months, then the limits are set from it | question 3 |
 | 17 | **A moved host's source is kept, stopped, for 90 days** | question 4, proposed 30 |
 | 18 | **A move may take a client's site and app down for up to an hour, overnight on a weeknight,** and is meant to succeed in one run | question 5 |

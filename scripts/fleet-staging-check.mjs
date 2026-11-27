@@ -6,10 +6,18 @@
 //   node scripts/fleet-staging-check.mjs prepare  --run <id>            no secret: the throwaway
 //        product's files, and two releases built for it (0.1.0, then 0.1.1 with one more migration)
 //   node scripts/fleet-staging-check.mjs check    --run <id> [--location oc] [--zone z]
-//        [--sending-domain d]                                          steps 0 to 8, each timed
+//        [--client-zone z2] [--sending-domain d]                        steps 0 to 8, each timed
 //   node scripts/fleet-staging-check.mjs teardown --run <id>            step 9: delete it all
 //   node scripts/fleet-staging-check.mjs remove   --target <run id | cosstg-<run id>>
+//        [--zone z] [--client-zone z2]
 //        what a failed run left, by the same rule, and what remains
+//
+// cos attaches the fleet's hostnames itself (stage 66 step 8): `cos fleet install --zone` the
+// callback hostname and `clients.<domain>`, `cos client add` each staff hostname; the check only
+// confirms them. Step 3b checks cos-front (an unknown hostname's 404, a change from a sibling
+// client refused, and with --client-zone a client's own domain proved by its CNAME, named by its TXT and
+// served). On those zones the teardown also deletes the run's routes, DNS records and custom
+// hostnames, by a hostname label exactly the prefix.
 //
 // Everything the run makes is named from one throwaway prefix, `cosstg-<run id>` (the product's id,
 // so every Worker, database, bucket, queue, namespace and index is `cosstg-<run id>-…`), and the
@@ -38,7 +46,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CloudflareClient } from "../packages/release/src/cloudflare.ts";
+import { CloudflareClient, isSaasNotEnabled } from "../packages/release/src/cloudflare.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** The workflow's environment: RUNNER_TEMP, GITHUB_*, and the two Cloudflare secrets. */
@@ -94,13 +102,13 @@ export function owned(name, prefix) {
   return typeof name === "string" && (name === prefix || name.startsWith(`${prefix}-`));
 }
 
-/** The throwaway product: names only, as a product.ts holds them. */
 /**
  * The packs every client of the check is given: a fleet client has exactly the packs it is given,
  * and `cos client add` requires them (review of #553). What `"*"` installed at boot before.
  */
 export const CLIENT_PACKS = Object.freeze(["--setting", "COS_PACKS=deals,leads"]);
 
+/** The throwaway product: names only, as a product.ts holds them. */
 export function productDefinition(run, repository = "timoconnellaus/composable-os") {
   const prefix = prefixOf(run);
   return {
@@ -265,7 +273,7 @@ export function verdict(results) {
  * kind that cannot be listed is named in `unlisted` (the token may lack its permission, or the API
  * may refuse): nothing of that kind is known to be gone.
  */
-export async function inventory(api, accountId, prefix) {
+export async function inventory(api, accountId, prefix, zones = []) {
   const items = [];
   const unlisted = [];
   const unlistedKinds = [];
@@ -326,6 +334,36 @@ export async function inventory(api, accountId, prefix) {
       (g) => (owned(g.id, prefix) ? { name: g.id, id: g.id } : null),
     ],
   ];
+  // On each zone the run used (stage 66 step 8: cos puts these itself): Workers routes, DNS
+  // records and Cloudflare for SaaS custom hostnames, each by a label exactly the prefix (or, for
+  // a route, a run's Worker). Only the zones named: another zone is never listed or touched.
+  for (const zone of [...new Set(zones.filter(Boolean))]) {
+    kinds.push(
+      [
+        "route",
+        () => api.listRoutes(zone),
+        (r) =>
+          labelled(r.pattern.replace(/\/.*$/, ""), prefix) || owned(r.script ?? "", prefix)
+            ? { name: r.pattern, id: r.id, zone }
+            : null,
+      ],
+      [
+        "dns",
+        () => api.listAllDnsRecords(zone),
+        (d) => (labelled(d.name, prefix) ? { name: `${d.name}#${d.type}`, id: d.id, zone } : null),
+      ],
+      [
+        "custom_hostname",
+        // A zone without Cloudflare for SaaS has none to list (1456/1404): nothing of the run's.
+        () =>
+          api.listCustomHostnames(zone).catch((error) => {
+            if (isSaasNotEnabled(error)) return [];
+            throw error;
+          }),
+        (h) => (labelled(h.hostname, prefix) ? { name: h.hostname, id: h.id, zone } : null),
+      ],
+    );
+  }
   for (const [kind, list, pick] of kinds) {
     let found;
     try {
@@ -343,9 +381,24 @@ export async function inventory(api, accountId, prefix) {
   return { items, unlisted, unlistedKinds };
 }
 
+/** Whether a hostname (or a DNS record's `name#type`) has a label exactly the prefix. */
+function labelled(name, prefix) {
+  return String(name).split("#")[0].split(".").includes(prefix);
+}
+
+/** The zones the run used, from what it recorded (each zone-held item carries its zone). */
+export function zonesOf(recorded) {
+  return [...new Set(recorded.map((i) => i.zone).filter(Boolean))];
+}
+
 /** The order things are deleted in: what routes to a Worker, the Workers, then what they bound. */
 const ORDER = [
+  "route",
+  "custom_hostname",
+  // A Custom Domain before DNS records: Cloudflare removes the Custom Domain's own (read-only)
+  // record with it (review of #543, F5).
   "domain",
+  "dns",
   "worker",
   "durable_object",
   "queue",
@@ -379,6 +432,13 @@ async function emptyBucket(api, accountId, bucket) {
 
 async function deleteItem(api, accountId, item) {
   switch (item.kind) {
+    case "route":
+      return api.request("DELETE", `/zones/${item.zone}/workers/routes/${item.id}`);
+    case "custom_hostname":
+      return api.deleteCustomHostname(item.zone, item.id);
+    case "dns":
+      // Not the client's 404-tolerant call: a record already gone is the teardown's "gone" (F5).
+      return api.request("DELETE", `/zones/${item.zone}/dns_records/${item.id}`);
     case "domain":
       return api.deleteDomain(accountId, item.id);
     case "worker":
@@ -409,7 +469,10 @@ const key = (i) => `${i.kind}:${i.name}`;
 
 /** Whether an item is named with the run's prefix (a hostname: one of its labels is the prefix). */
 export function isRuns(item, prefix) {
-  return item.kind === "domain" ? item.name.split(".").includes(prefix) : owned(item.name, prefix);
+  if (item.kind === "route") return labelled(item.name.replace(/\/.*$/, ""), prefix);
+  return ["domain", "dns", "custom_hostname"].includes(item.kind)
+    ? labelled(item.name, prefix)
+    : owned(item.name, prefix);
 }
 
 /**
@@ -419,8 +482,24 @@ export function isRuns(item, prefix) {
  * not deleted on its own: it goes with its Worker. Then lists the prefix once more: `remaining` is
  * what is still there, and `unlisted` the kinds nobody could check.
  */
-export async function teardown(api, accountId, prefix, recorded = []) {
-  const now = await inventory(api, accountId, prefix);
+export async function teardown(api, accountId, prefix, recorded = [], zones = []) {
+  // The zones the run recorded using, and any named: their routes, records and custom hostnames.
+  const allZones = [...new Set([...zonesOf(recorded), ...zones])];
+  // A zone's fallback origin the run's install set (`clients.<prefix>.<zone>`) is reset, so it
+  // never points at the record the teardown deletes (review of #543, S1). Another's is left.
+  const resetOrigins = [];
+  for (const zone of allZones) {
+    try {
+      const origin = await api.getFallbackOrigin(zone);
+      if (origin && labelled(origin, prefix)) {
+        await api.deleteFallbackOrigin(zone);
+        resetOrigins.push(origin);
+      }
+    } catch (error) {
+      if (!isSaasNotEnabled(error)) throw error;
+    }
+  }
+  const now = await inventory(api, accountId, prefix, allZones);
   const byKey = new Map(now.items.map((i) => [key(i), i]));
   const failed = [];
   // A recorded item of a kind the account listed, and no longer listed, is gone already. One that
@@ -487,10 +566,13 @@ export async function teardown(api, accountId, prefix, recorded = []) {
     todo = failing.map((f) => f.item);
   }
   failed.push(...failing.map(({ item: _item, ...f }) => f));
-  const after = await inventory(api, accountId, prefix);
+  const after = await inventory(api, accountId, prefix, allZones);
   const left = new Set(after.items.map(key));
   return {
-    deleted,
+    deleted: [
+      ...resetOrigins.map((origin) => ({ kind: "fallback_origin", name: origin })),
+      ...deleted,
+    ],
     gone: gone.filter((g) => !left.has(key(g))),
     failed,
     remaining: after.items.map((i) => ({ kind: i.kind, name: i.name })),
@@ -607,6 +689,38 @@ export async function request(fetchImpl, url, init = {}, timeoutMs = 20000) {
   }
 }
 
+/**
+ * Waits until a hostname answers over HTTPS (any HTTP status) `times` times running, and returns
+ * how long that took. One answer is not enough: in the third real run bravo's new staff hostname
+ * answered its sign-in page, then gave no answer at all (status 0) to a request seconds later, as
+ * its DNS and certificate reached Cloudflare's edges one by one.
+ */
+export async function settled(ctx, hostname, { times = 3 } = {}) {
+  const start = Date.now();
+  let streak = 0;
+  let last;
+  for (;;) {
+    last = await request(ctx.fetch, `https://${hostname}/`);
+    streak = last.status > 0 ? streak + 1 : 0;
+    const seconds = (Date.now() - start) / 1000;
+    if (streak >= times) return { ok: true, seconds };
+    // Time runs out only while it does not answer: a run of answers is let finish.
+    if (streak === 0 && Date.now() - start >= ctx.waitMs) return { ok: false, seconds, last };
+    await ctx.sleep(streak ? 3000 : 10000);
+  }
+}
+
+/** `settled`, or this step's failure naming the hostname: the seconds it took. */
+async function settledOrFail(ctx, hostname) {
+  const got = await settled(ctx, hostname);
+  if (!got.ok) {
+    fail(
+      `${hostname} did not answer steadily within ${(ctx.waitMs / 1000).toFixed(0)} s (last: ${said(got.last)}): its DNS or certificate was not ready`,
+    );
+  }
+  return got.seconds;
+}
+
 /** An answer in words for a step's result: its status, or what the fetch threw. */
 export function said(answer) {
   return answer.status === 0 ? `0 (no answer: ${answer.error})` : String(answer.status);
@@ -634,6 +748,19 @@ export async function waitFor(
     if (Date.now() > until) return { ...last, ok: false };
     await sleep(intervalMs);
   }
+}
+
+/**
+ * The DNS records `cos client hostname add` printed for a client's own domain: `TXT <name> <value>`
+ * and `CNAME <name> <target>` lines (packages/create-composable-os clients.ts `dnsInstructions`).
+ */
+export function printedRecords(out) {
+  const records = [];
+  for (const line of String(out).split("\n")) {
+    const m = /^\s+(TXT|CNAME)\s+(\S+)\s+(\S+)\s+\(/.exec(line);
+    if (m) records.push({ type: m[1], name: m[2], content: m[3] });
+  }
+  return records;
 }
 
 function cookiesOf(response) {
@@ -712,12 +839,22 @@ async function must(ctx, args, options) {
   return run;
 }
 
-/** Attaches the hostnames to the app Worker as Custom Domains (cos attaches none). */
-async function attach(ctx, hostnames) {
+/**
+ * Checks that cos attached the hostnames to the app Worker as Custom Domains (stage 66 step 8: the
+ * fleet's domain is below its zone's apex, so `custom-domains`), and records them for the teardown.
+ */
+async function attached(ctx, hostnames) {
   if (!ctx.zoneId) return;
+  const app = workerName(ctx.prefix, "app");
+  const domains = await ctx.api.listDomains(ctx.accountId);
   for (const hostname of hostnames) {
-    await ctx.api.putDomain(ctx.accountId, hostname, workerName(ctx.prefix, "app"), ctx.zoneId);
-    ctx.record({ kind: "domain", name: hostname });
+    const found = domains.find((d) => d.hostname === hostname);
+    if (!found || found.service !== app) {
+      fail(
+        `cos did not attach ${hostname} to ${app} (${found ? `it is ${found.service}'s` : "no Custom Domain"})`,
+      );
+    }
+    ctx.record({ kind: "domain", name: hostname, id: found.id });
   }
 }
 
@@ -959,10 +1096,21 @@ export function checkSteps() {
           notes.push(`zone ${ctx.zone} found; the fleet's domain is ${ctx.hosts.domain}`);
         } else {
           notes.push(
-            "no zone given: cos attaches no hostname to the host, so without a zone no client is reachable, and the steps that need one are partial",
+            "no zone given: cos has no zone to attach the fleet's hostnames on, so no client is reachable, and the steps that need one are partial",
           );
         }
-        const before = await inventory(ctx.api, ctx.accountId, ctx.prefix);
+        if (ctx.clientZone) {
+          const zones = await ctx.api.listZones(ctx.accountId);
+          const zone = zones.find((z) => z.name === ctx.clientZone);
+          if (!zone)
+            fail(`The client zone ${ctx.clientZone} is not an active zone of this account.`);
+          ctx.clientZoneId = zone.id;
+          notes.push(`client zone ${ctx.clientZone} found, for a client's own domain`);
+        }
+        const before = await inventory(ctx.api, ctx.accountId, ctx.prefix, [
+          ctx.zoneId,
+          ctx.clientZoneId,
+        ]);
         if (before.unlisted.length)
           fail(
             `the account cannot be fully listed (${before.unlisted.join("; ")}): the teardown could not prove it left nothing, so nothing is made`,
@@ -995,6 +1143,8 @@ export function checkSteps() {
           ctx.location,
           "--ai",
           "off",
+          // The zone the fleet's domain is on: cos attaches its hostnames there (stage 66 step 8).
+          ...(ctx.zone ? ["--zone", ctx.zone] : []),
           "--yes",
         ]);
         await ctx.snapshot();
@@ -1002,7 +1152,7 @@ export function checkSteps() {
         if (version !== VERSIONS.from) fail(`the app Worker runs ${version}, not ${VERSIONS.from}`);
         const flows = await workflowProblems(ctx.api, ctx.accountId, ctx.prefix);
         if (flows.length) fail(flows.join("; "));
-        await attach(ctx, [ctx.hosts.callback]);
+        await attached(ctx, [ctx.hosts.callback]);
         const notes = [
           `the runner's Workflows ${WORKFLOWS.map((w) => `${ctx.prefix}-${w}-staging`).join(" and ")} exist`,
           `installed ${VERSIONS.from} in ${(install.ms / 1000).toFixed(0)} s (AI off, location ${ctx.location}); the app Worker runs it`,
@@ -1027,34 +1177,37 @@ export function checkSteps() {
       needs: ["install"],
       name: "2. cos client add, two clients",
       async run(ctx) {
-        const first = await must(ctx, [
-          "client",
-          "add",
-          a,
-          "--location",
-          ctx.location,
-          "--web-hostname",
-          ctx.hosts.web,
-          ...CLIENT_PACKS,
-          "--yes",
-        ]);
-        const second = await must(ctx, [
-          "client",
-          "add",
-          b,
-          "--location",
-          ctx.location,
-          ...CLIENT_PACKS,
-          "--yes",
-        ]);
+        // A client's own domain is step 4b's (cos-front): `--web-hostname` would make a custom
+        // hostname on a domain nobody can prove (`.example`).
+        // `--no-wait`: the check measures each hostname's wait itself, below.
+        const add = (id) =>
+          must(ctx, [
+            "client",
+            "add",
+            id,
+            "--location",
+            ctx.location,
+            "--no-wait",
+            ...CLIENT_PACKS,
+            "--yes",
+          ]);
+        const first = await add(a);
+        const second = await add(b);
         const list = await clientList(ctx);
         for (const id of [a, b]) {
           if (list[id]?.status !== "active") fail(`${id} is ${list[id]?.status} after its add`);
         }
-        await attach(ctx, [ctx.hosts.staff[a], ctx.hosts.staff[b]]);
+        await attached(ctx, [ctx.hosts.staff[a], ctx.hosts.staff[b]]);
         const reported = (out) => /Added \S+ in ([\d.]+) s/.exec(out)?.[1];
+        // Each new staff hostname, until it answers steadily: the third real run's bravo answered
+        // its sign-in page once and then not at all on a later request (status 0).
+        const waits = [];
+        for (const id of [a, b]) {
+          if (!ctx.zoneId) break;
+          waits.push(`${id} ${(await settledOrFail(ctx, ctx.hosts.staff[id])).toFixed(0)} s`);
+        }
         return {
-          note: `${a}: ${reported(first.out) ?? "?"} s inside cos, ${(first.ms / 1000).toFixed(1)} s for the command (with --web-hostname ${ctx.hosts.web}, accepted without DNS); ${b}: ${reported(second.out) ?? "?"} s, ${(second.ms / 1000).toFixed(1)} s; both active, schema ${list[a]?.schema}`,
+          note: `${a}: ${reported(first.out) ?? "?"} s inside cos, ${(first.ms / 1000).toFixed(1)} s for the command, its staff hostname attached by cos; ${b}: ${reported(second.out) ?? "?"} s, ${(second.ms / 1000).toFixed(1)} s; both active, schema ${list[a]?.schema}${waits.length ? `; each staff hostname answering steadily after: ${waits.join(", ")}` : ""}`,
         };
       },
     },
@@ -1076,9 +1229,7 @@ export function checkSteps() {
         for (const id of [a, b]) {
           const answer = await page(ctx, id);
           if (!answer.ok)
-            fail(
-              `${id}'s staff sign-in page did not answer 200 (last: ${answer.status}${answer.error ? ` ${answer.error}` : ""})`,
-            );
+            fail(`${id}'s staff sign-in page did not answer 200 (last: ${said(answer)})`);
         }
         notes.push("both staff sign-in pages answer 200");
         for (const id of [a, b]) {
@@ -1156,6 +1307,107 @@ export function checkSteps() {
           fail(`the picture upload at ${a} answered ${said(upload)}`);
         ctx.uploaded = sha256(PROBE_PNG);
         notes.push(`a picture uploaded at ${a}`);
+        return { note: notes.join("; ") };
+      },
+    },
+    {
+      id: "front",
+      needs: ["add"],
+      name: "3b. cos-front, and a change from a sibling client refused",
+      async run(ctx) {
+        if (!ctx.zoneId) return { status: "partial", note: noZone };
+        const notes = [];
+        // Rule (b): a POST to A's staff hostname from B's is refused before any route.
+        const refused = await request(
+          ctx.fetch,
+          `https://${ctx.hosts.staff[a]}/api/v1/op/person.list`,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              origin: `https://${ctx.hosts.staff[b]}`,
+            },
+            body: "{}",
+          },
+        );
+        if (refused.status !== 403)
+          fail(`a POST to ${a} from ${b}'s hostname answered ${refused.status}, not 403`);
+        notes.push(`a POST to ${a} from ${b}'s hostname is refused (403)`);
+        // A zone without Cloudflare for SaaS: cos sets up nothing of clients' own domains there
+        // (stage 66 step 8, M3), so cos-front is reached by nothing. Partial, never failed.
+        if (!(await ctx.api.saasEnabled(ctx.zoneId))) {
+          return {
+            status: "partial",
+            note: `${notes.join("; ")}; cos-front and a client's own domain are not checked: Cloudflare for SaaS is not enabled on ${ctx.zone}`,
+          };
+        }
+        // A hostname cos-front reaches that is no client's: the CNAME target itself.
+        const target = `https://clients.${ctx.hosts.domain}/`;
+        const unknown = await waitFor(ctx.fetch, target, (x) => x.status === 404, {
+          timeoutMs: ctx.waitMs,
+          sleep: ctx.sleep,
+        });
+        if (!unknown.ok) fail(`${target} did not answer 404 (last: ${unknown.status})`);
+        const policy = unknown.response?.headers.get("content-security-policy") ?? "";
+        if (!policy.includes("frame-ancestors 'none'"))
+          fail(`cos-front's 404 has no frame-ancestors policy (${policy || "none"})`);
+        notes.push("an unknown hostname at cos-front answers 404 with its policy");
+        if (!ctx.clientZoneId) {
+          return {
+            status: "partial",
+            note: `${notes.join("; ")}; a verified client's own domain is not checked: give --client-zone (a second spare zone)`,
+          };
+        }
+        // A client's own domain: added, its records written into the client zone, verified once
+        // Cloudflare proves it, then served by cos-front, then removed.
+        const own = `www.${ctx.prefix}.${ctx.clientZone}`;
+        const added = await must(ctx, ["client", "hostname", "add", a, own]);
+        const records = printedRecords(added.out);
+        if (!records.some((r) => r.type === "CNAME"))
+          fail(`cos client hostname add printed no CNAME for ${own}`);
+        for (const r of records) {
+          const made = await ctx.api.createDnsRecord(ctx.clientZoneId, {
+            type: r.type,
+            name: r.name,
+            content: r.content,
+            ttl: 60,
+            ...(r.type === "CNAME" ? { proxied: false } : {}),
+          });
+          ctx.record({
+            kind: "dns",
+            name: `${r.name}#${r.type}`,
+            id: made.id,
+            zone: ctx.clientZoneId,
+          });
+        }
+        const until = Date.now() + ctx.waitMs;
+        for (;;) {
+          const verified = await ctx.cos([
+            "client",
+            "hostname",
+            "verify",
+            a,
+            own,
+            "--no-wait",
+            "--yes",
+          ]);
+          if (verified.code === 0) break;
+          if (Date.now() > until)
+            fail(`${own} was not proved in time: ${firstError(verified.out)}`);
+          await ctx.sleep(30000);
+        }
+        const served = await waitFor(ctx.fetch, `https://${own}/`, (x) => x.status === 200, {
+          timeoutMs: ctx.waitMs,
+          sleep: ctx.sleep,
+        });
+        if (!served.ok) fail(`${own} did not answer 200 once verified (last: ${served.status})`);
+        const body = (await served.response?.text()) ?? "";
+        if (!body.includes("Coming soon")) fail(`${own} did not serve the holding page`);
+        notes.push(
+          `${a}'s own domain, proved by its CNAME and named by its _cos-client TXT, serves the holding page`,
+        );
+        await must(ctx, ["client", "hostname", "remove", a, own, "--yes"]);
+        notes.push("and is removed again");
         return { note: notes.join("; ") };
       },
     },
@@ -1296,8 +1548,17 @@ export function checkSteps() {
       name: "6. cos client export, then import as a third client",
       async run(ctx) {
         await must(ctx, ["client", "export", a, "--out", ctx.exportDir, "--yes"]);
-        await must(ctx, ["client", "import", imported, "--from", ctx.exportDir, "--yes"]);
-        await attach(ctx, [ctx.hosts.staff[imported]]);
+        await must(ctx, [
+          "client",
+          "import",
+          imported,
+          "--from",
+          ctx.exportDir,
+          "--no-wait",
+          "--yes",
+        ]);
+        await attached(ctx, [ctx.hosts.staff[imported]]);
+        if (ctx.zoneId) await settledOrFail(ctx, ctx.hosts.staff[imported]);
         await must(ctx, ["client", "export", imported, "--out", ctx.reexportDir, "--yes"]);
         const first = exportFacts(ctx.exportDir);
         const again = exportFacts(ctx.reexportDir);
@@ -1525,7 +1786,21 @@ export function checkOptions(opts) {
   const sendingDomain = (opts["sending-domain"] || "").trim().toLowerCase();
   if (sendingDomain && !hostname.test(sendingDomain))
     throw new Error("--sending-domain is a domain name");
-  return { run: String(opts.run), prefix: prefixOf(opts.run), location, ai, zone, sendingDomain };
+  // A second spare zone of the account, for a client's own domain (stage 66 step 8): never the
+  // fleet's zone, since a client's web hostname is never under the fleet's registrable domain.
+  const clientZone = (opts["client-zone"] || "").trim().toLowerCase();
+  if (clientZone && !hostname.test(clientZone)) throw new Error("--client-zone is a domain name");
+  if (clientZone && clientZone === zone)
+    throw new Error("--client-zone is a zone apart from --zone");
+  return {
+    run: String(opts.run),
+    prefix: prefixOf(opts.run),
+    location,
+    ai,
+    zone,
+    clientZone,
+    sendingDomain,
+  };
 }
 
 /** `check`: steps 1 to 8, each into the summary; the ledger and results are kept for teardown. */
@@ -1545,6 +1820,7 @@ export async function check(options, deps) {
     fetch: fetchImpl,
     hosts: hostnamesOf(options.prefix, options.zone),
     zoneId: null,
+    clientZoneId: null,
     keysFile: join(dir, "keys.json"),
     exportDir: join(dir, "export-a"),
     reexportDir: join(dir, "export-c"),
@@ -1563,7 +1839,10 @@ export async function check(options, deps) {
       saveLedger();
     },
     async snapshot() {
-      for (const item of (await inventory(api, accountId, options.prefix)).items) record(item);
+      const zones = [this.zoneId, this.clientZoneId];
+      for (const item of (await inventory(api, accountId, options.prefix, zones)).items) {
+        record(item);
+      }
       saveLedger();
     },
   };
@@ -1602,7 +1881,12 @@ export async function teardownCommand(prefix, deps) {
   const ledgerFile = dir ? join(dir, "ledger.json") : null;
   const recorded =
     ledgerFile && existsSync(ledgerFile) ? JSON.parse(readFileSync(ledgerFile, "utf8")) : [];
-  const result = await teardown(api, accountId, prefix, recorded);
+  // Zones named for a run whose ledger is gone (`remove --zone z --client-zone z2`), by their ids.
+  const named = (deps.zones ?? []).filter(Boolean);
+  const zoneIds = named.length
+    ? (await api.listZones(accountId)).filter((z) => named.includes(z.name)).map((z) => z.id)
+    : [];
+  const result = await teardown(api, accountId, prefix, recorded, zoneIds);
   // Cloudflare's errors name the account in their paths: cut out, as everywhere (review of #541, F8).
   const report = sanitize(teardownReport(result, prefix), [...(deps.secrets ?? [])]);
   log(report);
@@ -1667,6 +1951,8 @@ async function main(argv) {
       accountId,
       dir: null,
       secrets,
+      // The zones the run used: their routes, records and custom hostnames are looked at too.
+      zones: [opts.zone, opts["client-zone"]],
       writeSummary: summary,
       log,
     });

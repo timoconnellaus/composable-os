@@ -1,0 +1,14 @@
+// cos-front (stage 66 step 8, ADR 0619): the Worker of a host of many clients that receives the
+// requests for clients' own web hostnames (Cloudflare for SaaS custom hostnames, each routed to it
+// by `cos client hostname verify`) and serves each client's web target. Deployed on a fleet
+// deployment only (a release's `fleet` Worker, never on a single-client deployment). The deploy
+// engine adds its bindings there (packages/release fleet.ts): the registry, COS_HOST_ENVIRONMENT
+// and COS_FLEET_DOMAIN. It holds no client's database and no secret. It is not on workers.dev:
+// it is reached only by the routes cos puts on the fleet's zone.
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "cos-front",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": false
+}

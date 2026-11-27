@@ -24,6 +24,7 @@
     "./operator": "./src/operator.ts",
     "./registry-senders": "./src/registry-senders.ts",
     "./callbacks": "./src/callbacks.ts",
+    "./front": "./src/front.ts",
     "./testing/vitest": "./testing/vitest.ts",
     "./testing/conformance": "./testing/conformance.ts",
     "./testing/contents": "./testing/contents.ts"

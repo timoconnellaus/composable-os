@@ -57,6 +57,24 @@ describe("the host's own address", () => {
     expect(sent.headers.get("cf-connecting-ip")).toBeNull();
   });
 
+  it("on a host of many clients passes only the `__Host-` customer cookie, never one a sibling could plant (stage 66 step 8, rule (c))", async () => {
+    const { calls, door } = recordingDoor();
+    await handleFormPage(
+      new Request("https://gym-a-admin.fleet.example/f/newsletter", {
+        headers: {
+          cookie:
+            "cos-customer.session_token=planted.sig; __Secure-cos-customer.session_token=s.sig; __Host-cos-customer.session_token=c.sig",
+        },
+      }),
+      { ...hostEnv, COS_CLIENT_ID: "gym-a" } as FormPageEnv,
+      door,
+      { address: "198.51.100.63", sameOrigin: "page" },
+    );
+    expect((calls[0] as Request).headers.get("cookie")).toBe(
+      "__Host-cos-customer.session_token=c.sig",
+    );
+  });
+
   it("refuses a send from a sibling subdomain, with a signed-in customer's cookie, before any call", async () => {
     const { calls, door } = recordingDoor();
     const sent = await handleFormPage(
