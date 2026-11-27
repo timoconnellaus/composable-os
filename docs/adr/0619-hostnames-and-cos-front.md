@@ -205,7 +205,10 @@ and subrequest limit").
   - with neither `Origin` nor `Sec-Fetch-Site` and no `Cookie`, a caller that is not a browser
     (a native app, a provider);
   - gatekeeper callbacks on the callback hostname, answered before any client is decided.
-  A single-client deployment never runs it; its rules are unchanged. The agreement PDF's GET and
+  The same holds for reading: the client's environment never carries an origin under the fleet's
+  registrable domain in `API_ALLOWED_ORIGINS` (`withoutFleetOrigins`, packages/db), so the HTTP
+  surface's CORS check (`apiOriginCheck`), the media routes and the video host never let a
+  sibling in either. A single-client deployment never runs it; its rules are unchanged. The agreement PDF's GET and
   OPTIONS are untouched (another change gives them CORS, issue #540).
 - **(c) No cookie without `__Host-`** (`scripts/check-host-cookies.mjs`, in `pnpm lint`). Every
   place the app's and auth's code reads a request's cookies is listed with how it reads only

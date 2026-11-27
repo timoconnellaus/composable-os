@@ -19,7 +19,7 @@ import {
   hostMode,
   keepRateLimitApart,
 } from "../src/client-environment.ts";
-import { buildClientEnvironment } from "../src/client-environment-build.ts";
+import { buildClientEnvironment, withoutFleetOrigins } from "../src/client-environment-build.ts";
 import { bindingProof, PROOF } from "../src/client-proofs.ts";
 import { CORE_SCHEMA_VERSION } from "../src/migrate.ts";
 import { type ClientId, type ClientRecord, readRegistry } from "../src/registry.ts";
@@ -209,6 +209,21 @@ describe("buildClientEnvironment", () => {
     // DB is a client's database, not the D1 binding.
     expect(built.DB).not.toBe(real.DB);
     expect(clientOf(built)).toBe("gym-a");
+  });
+
+  it("never lets an origin under the fleet's registrable domain into a client's allowed origins (stage 66 step 8)", () => {
+    const host = { ...manyClientEnv(), COS_CALLBACK_HOSTNAME: "callback.fleet.example" };
+    const built = buildClientEnvironment(host, {
+      client: gymA,
+      settings: {
+        API_ALLOWED_ORIGINS:
+          "https://www.gym-a.example, https://gym-b-admin.fleet.example https://fleet.example,https://a.b.fleet.example",
+      },
+    }) as unknown as Record<string, unknown>;
+    expect(built.API_ALLOWED_ORIGINS).toBe("https://www.gym-a.example");
+    expect(withoutFleetOrigins("https://x.fleet.example", undefined)).toBe(
+      "https://x.fleet.example",
+    );
   });
 
   it("never carries another client's own setting, even one the deployment has", () => {

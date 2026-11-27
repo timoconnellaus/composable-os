@@ -30,8 +30,11 @@ import {
   type ClientAddresses,
   type ClientId,
   type ClientRecord,
+  canonicalHostname,
   clientStamp,
   isClientId,
+  isUnder,
+  registrableDomain,
 } from "./registry.ts";
 
 /** What this module needs of a Worker's `env`: its D1 binding, and on a many-client host more. */
@@ -305,6 +308,29 @@ function frozen<T>(value: T): T {
 }
 
 /**
+ * A client's `API_ALLOWED_ORIGINS` with every origin under the fleet's registrable domain (that
+ * of the callback hostname, which is on the fleet's domain) left out; anything that is not an
+ * http(s) origin is left for the surface's own parser to refuse. With no callback hostname, as is.
+ */
+export function withoutFleetOrigins(value: string, callback: string | undefined): string {
+  const host = canonicalHostname(callback);
+  if (!host) return value;
+  const fleet = registrableDomain(host);
+  return value
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .filter((entry) => {
+      try {
+        const name = canonicalHostname(new URL(entry).hostname);
+        return !(name && isUnder(name, fleet));
+      } catch {
+        return true;
+      }
+    })
+    .join(",");
+}
+
+/**
  * The client's environment on a host that serves many clients: a new, frozen object shaped like
  * `env`, holding only what `envNameUse` lets through.
  *
@@ -360,6 +386,15 @@ export function buildClientEnvironment<E extends HostBindings>(env: E, part: Cli
     const value =
       own ?? (absent === "inherit" ? (env as unknown as Record<string, unknown>)[name] : undefined);
     if (typeof value === "string") out[name] = value;
+  }
+  // No origin under the fleet's registrable domain is ever a client's allowed origin (stage 66
+  // step 8, ADR 0619): a sibling hostname there is another client's or ours, never the client's own
+  // site, so the HTTP surface's CORS check, the media routes and the video host never let one in.
+  if (typeof out.API_ALLOWED_ORIGINS === "string") {
+    out.API_ALLOWED_ORIGINS = withoutFleetOrigins(
+      out.API_ALLOWED_ORIGINS,
+      (env as unknown as { COS_CALLBACK_HOSTNAME?: string }).COS_CALLBACK_HOSTNAME,
+    );
   }
   // The client's own secrets: each only into a name `ENV_NAMES` says that kind fills, so a
   // derived name never takes a given value (auth secrets are derived, not stored) and the other

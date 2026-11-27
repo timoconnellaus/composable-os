@@ -19,6 +19,7 @@ import {
   handleMedia,
   isApiPath,
   isMediaPath,
+  parseAllowedOrigins,
   type RoutineDeliveryMessage,
 } from "@composable-os/core";
 import { isCallbackHostname, isCallbackRequest } from "@composable-os/db/callbacks";
@@ -138,7 +139,10 @@ export function dispatch(
   // operations decide who may have one; the route draws it. Before the surface, as media is.
   if (isAgreementPdfPath(pathname)) {
     const api = env as unknown as ApiEnv;
-    return handleAgreementPdf(request, { context: (req) => apiContext(req, api) });
+    return handleAgreementPdf(request, {
+      context: (req) => apiContext(req, api),
+      allowedOrigins: parseAllowedOrigins(api.API_ALLOWED_ORIGINS),
+    });
   }
   // The media library's pictures (stage 28, ADR 0444): staff upload, and whoever may see a
   // picture is served it, as media.serve decides. Before the surface: /api/v1/media/<id> is the

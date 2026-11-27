@@ -37,6 +37,9 @@ export const NOT_STAFF_HOSTNAMES = {
   desk: "desk.gym-a.test",
 } as const;
 
+/** gym-a's `API_ALLOWED_ORIGINS`: its own screens' address (stage 75). gym-b lists none. */
+export const TWO_CLIENT_SCREENS_ORIGIN = "https://screens.gym-a.test";
+
 /** The served clients' sender domains: each verified one is its client's alone. */
 export const SENDER_DOMAINS = [
   { domain: "mail.gym-a.test", client: TWO_CLIENTS.a.id, verified: true },
@@ -104,6 +107,12 @@ async function setUp(env: TwoClientBindings): Promise<void> {
         )
         .bind(domain, client, verified ? 1 : 0, verified ? "2026-11-27T00:00:00Z" : null),
     ),
+    // gym-a's own screens' address may call its API (`API_ALLOWED_ORIGINS`); gym-b lists none.
+    registry
+      .prepare(
+        "INSERT INTO registry_settings (client, name, value) VALUES (?, 'API_ALLOWED_ORIGINS', ?)",
+      )
+      .bind(a.id, TWO_CLIENT_SCREENS_ORIGIN),
     // Staff may sign up at each served client, so the suites can sign one in by password.
     ...[a.id, b.id].map((id) =>
       registry

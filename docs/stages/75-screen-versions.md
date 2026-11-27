@@ -146,16 +146,27 @@ here (CONTRIBUTING.md, Working in parallel).
 
 - **Step 1** — not built — needs: stage 66 — The serving spike: the first client's built web app under Worker Loader, measured
 
-- **Step 2** — in progress — branch `feat/stage-75-browser-build` — The browser-only build: the
-  client template's `pnpm build:browser` (static files, hash routes, `build.json`), its screens
-  behind a ScreenHost (cookie or tokens), the token sign-in, and the e2e from a static server.
-  The first client's repository follows separately
+- **Step 2** — built — PRs #536, #542 — The browser-only build: the client template's
+  `pnpm build:browser` (static files, hash routes, `build.json` written only after a successful
+  build, `COS_HOST_URL` required), its screens behind a ScreenHost (cookie or tokens), the token
+  sign-in (one device session per tab, a duplicated tab starting signed out; a `token_expired`
+  call refreshed once and sent again), the signed-agreement PDF answering a listed origin, and
+  the e2e from a static server. Left: the first client's repository (its own PR there); from
+  issue #540, cookie-carrying CORS for listed origins a token build does not need (item 5), the
+  host address fixed into a build (item 6), the blocks (item 10). `build.json` is to become step
+  3's manifest (`@composable-os/sdk/screen-version`) once PR #538 has merged
 
 - **Step 3** — not built — The version store
 
 - **Step 4** — not built — needs: step 3 — The pointer and `screens.publish`
 
 - **Step 5** — not built — needs: step 1, step 4 — Serving the published version on the web
+  (from step 2: the browser build emits no inline script or style, so it runs under
+  `default-src 'none'; script-src 'self'; style-src 'self'; connect-src <its COS_HOST_URL>;
+  img-src 'self' <its COS_HOST_URL>; base-uri 'none'; form-action 'none'; frame-ancestors
+  'none'`; serve it on an address of its own, never the host's staff address; list that address
+  in the client's `API_ALLOWED_ORIGINS` and its order return origins; refuse a version whose
+  `hostUrl` is not the environment's host)
 
 - **Step 6** — not built — needs: step 5 — Preview
 
