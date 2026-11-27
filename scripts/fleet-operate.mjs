@@ -20,10 +20,14 @@
 // with `--value-file`. Nothing here prints either; the job summary and the log have the token, the
 // account id, its workers.dev subdomain, the keys and the value cut out.
 //
-// It operates the repository's product only (cos's default, never `--product-file`), always from a
-// published, attested release (never `--bundle-dir` or `--unverified`), and refuses anything that
-// names the staging check's throwaway prefix (`cosstg-`): the staging check and this never meet.
-import { spawn } from "node:child_process";
+// It operates the product chosen in one place (`chooseProduct`: today cos's default, never
+// `--product-file`), always from a published, attested release whose tag is on main (never
+// `--bundle-dir` or `--unverified`), and refuses anything that names the staging check's throwaway
+// prefix (`cosstg-`): the staging check and this never meet. Before anything, it refuses a run
+// whose FLEET_ENVIRONMENT secret does not name the fleet asked for: the secrets are not that
+// fleet's own environment's. FLEET_KEYS and SECRET_VALUE leave process.env before any import that
+// is not Node's own.
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -42,6 +46,20 @@ const CLIENT = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const SETTING_VALUE = /^[A-Za-z0-9,._:/@+-]{0,512}$/;
 
 /**
+ * The client settings that are identity or approval policy (packages/db registry.ts
+ * `CLIENT_SETTINGS`): who may sign in and how, where sign-in codes go, and what needs approval.
+ * AGENTS.md: identity and policy are not AI-configurable, and loosening approval is a human
+ * admin's alone; this workflow, which agents may dispatch, never sets them (review of #547, S4).
+ */
+export const POLICY_SETTINGS = Object.freeze([
+  "APPROVAL_FLOOR",
+  "APPROVAL_EXPIRY_DAYS",
+  "IDENTITY_PROVIDER",
+  "AUTH_ALLOW_SIGNUP",
+  "NATIVE_REDIRECT_URIS",
+]);
+
+/**
  * Every command offered, and how it maps to cos. `dry`: `flag` (cos takes `--dry-run`), `read`
  * (changes nothing), `none` (no dry run: only planned while dry_run is on). `confirm`: what
  * `OP_CONFIRM` must be for cos to get `--yes` (null: never given `--yes` by this workflow, except
@@ -49,8 +67,24 @@ const SETTING_VALUE = /^[A-Za-z0-9,._:/@+-]{0,512}$/;
  * command that arrives with a later PR is refused, with that said, until cos has it).
  */
 export const COMMANDS = Object.freeze({
-  "fleet-install": { dry: "none", keys: true, fields: ["version", "domain", "callback"] },
-  "fleet-upgrade": { dry: "flag", keys: true, fields: ["version"], confirm: upgradeConfirm },
+  // An install with dry_run off names the domain: a live reviewer sees what is installed where
+  // (and cos refuses an existing fleet unless it is named as it is, review of #547 M1).
+  "fleet-install": {
+    dry: "none",
+    keys: true,
+    tag: true,
+    fields: ["version", "domain", "callback"],
+    confirm: (i) => i.domain,
+    confirmWhat: "the domain",
+  },
+  "fleet-upgrade": {
+    dry: "flag",
+    keys: true,
+    tag: true,
+    fields: ["version"],
+    confirm: upgradeConfirm,
+    confirmWhat: "the version",
+  },
   "client-list": { dry: "read", fields: [] },
   "client-add": { dry: "flag", fields: ["client"] },
   "client-pause": {
@@ -58,7 +92,12 @@ export const COMMANDS = Object.freeze({
     fields: ["client"],
     confirm: (i) => (i.env === "live" ? i.client : null),
   },
-  "client-resume": { dry: "flag", fields: ["client"] },
+  // Undoes a pause someone made on purpose (review of #547, S3).
+  "client-resume": {
+    dry: "flag",
+    fields: ["client"],
+    confirm: (i) => (i.env === "live" ? i.client : null),
+  },
   "client-secret-set": {
     dry: "flag",
     fields: ["client", "secretName"],
@@ -71,14 +110,21 @@ export const COMMANDS = Object.freeze({
     fields: ["client", "secretName"],
     confirm: (i) => i.client,
   },
-  "client-export": { dry: "flag", fields: ["client"] },
+  // The client is moving, so served nowhere, while it runs (review of #547, S3).
+  "client-export": { dry: "flag", fields: ["client"], confirm: (i) => i.client },
   "client-remove": { dry: "flag", fields: ["client"], confirm: (i) => i.client },
   "sender-add": { dry: "flag", fields: ["client", "senderDomain"] },
   "sender-verify": { dry: "flag", fields: ["client", "senderDomain"], confirm: (i) => i.client },
   "sender-unverify": { dry: "flag", fields: ["client", "senderDomain"], confirm: (i) => i.client },
   "sender-remove": { dry: "flag", fields: ["client", "senderDomain"], confirm: (i) => i.client },
   "hostname-add": { dry: "flag", fields: ["client", "hostname"], needs: "cos client hostname" },
-  "hostname-verify": { dry: "flag", fields: ["client", "hostname"], needs: "cos client hostname" },
+  // Vouches for a hostname, as sender-verify does for a domain (review of #547, S3).
+  "hostname-verify": {
+    dry: "flag",
+    fields: ["client", "hostname"],
+    confirm: (i) => i.client,
+    needs: "cos client hostname",
+  },
   "hostname-remove": {
     dry: "flag",
     fields: ["client", "hostname"],
@@ -163,7 +209,11 @@ export function readInputs(env, { knownSettings, isSecretName, clientIdProblem }
   if (i.confirm && !/^[a-z0-9.-]{1,64}$/.test(i.confirm)) fail("confirm is not valid");
   for (const pair of words(env.OP_SETTINGS).split(/\s+/).filter(Boolean)) {
     const m = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(pair);
-    if (!m || !knownSettings.includes(m[1]) || !SETTING_VALUE.test(m[2])) {
+    if (m && POLICY_SETTINGS.includes(m[1])) {
+      fail(
+        `setting ${m[1]} is identity or approval policy: never set by this workflow (AGENTS.md; docs/deploying.md says how a human sets it)`,
+      );
+    } else if (!m || !knownSettings.includes(m[1]) || !SETTING_VALUE.test(m[2])) {
       fail(
         `setting ${pair.split("=")[0]} is not NAME=VALUE with a client setting's name (${knownSettings.join(", ")})`,
       );
@@ -262,12 +312,25 @@ export function plan(i) {
     return { argv: [...argv, "--dry-run"], run: true, why: "dry run: cos changes nothing" };
   }
   const wanted = c.confirm ? c.confirm(i) : null;
+  // Taking the session from another command is confirmed too, by the command's own confirm, or
+  // the client's id, the version or the environment's name (review of #547, S3).
+  if (i.takeOver) {
+    const taking = wanted ?? (i.client || i.version || i.env);
+    if (i.confirm !== taking) {
+      throw new InputError(
+        `take_over runs only with confirm set to ${taking}: it takes the operator's Worker from another command, and nothing was run`,
+      );
+    }
+  }
   if (wanted !== null && wanted !== undefined) {
-    if (i.confirm === wanted)
-      return { argv: [...argv, "--yes"], run: true, why: `confirmed (${wanted})` };
+    if (i.confirm === wanted) {
+      // An install takes no --yes (it asks nothing); the confirm is this workflow's own.
+      const yes = i.command === "fleet-install" ? [] : ["--yes"];
+      return { argv: [...argv, ...yes], run: true, why: `confirmed (${wanted})` };
+    }
     if (!c.optionalConfirm) {
       throw new InputError(
-        `${i.command}${i.env === "live" ? " on live" : ""} runs only with confirm set to ${i.command === "fleet-upgrade" ? "the version" : "the client's id"} (${wanted}): nothing was run`,
+        `${i.command}${i.env === "live" ? " on live" : ""} runs only with confirm set to ${c.confirmWhat ?? "the client's id"} (${wanted}): nothing was run`,
       );
     }
     // A secret set without confirm: a new value is stored, a stored one is not replaced (cos
@@ -376,6 +439,15 @@ export async function operate(env, deps) {
     );
     return code;
   };
+  // First of all: the secrets came from this fleet's own environment. FLEET_ENVIRONMENT is an
+  // environment secret only (`fleet`: staging; `fleet-live`: live). An environment GitHub makes on
+  // the fly, or repository secrets, have none, so the run stops here (review of #547, M2).
+  if (!env.FLEET_ENVIRONMENT || env.FLEET_ENVIRONMENT !== words(env.OP_ENV)) {
+    const why =
+      "refused: FLEET_ENVIRONMENT does not name this fleet: the run is not in that fleet's own GitHub environment (fleet for staging, fleet-live for live), so no secret here is trusted";
+    say(why);
+    return finish(2, null, null, why);
+  }
   let i;
   try {
     i = readInputs(env, deps.rules);
@@ -392,14 +464,42 @@ export async function operate(env, deps) {
     return finish(2, i, null, `refused before cos: ${error.message}`);
   }
   const shown = p.argv.join(" ");
-  if (!p.run) {
-    say(`Planned, not run (${p.why}): cos ${shown}`);
-    return finish(0, i, shown, `planned only: ${p.why}`);
-  }
   if (!env.CLOUDFLARE_API_TOKEN || !env.CLOUDFLARE_ACCOUNT_ID) {
     return finish(2, i, shown, "refused: the fleet environment's Cloudflare secrets are not set");
   }
   const command = COMMANDS[i.command];
+  // A release is installed only from a tag on main: its attestation proves which workflow built
+  // it, not that a reviewed commit did (review of #547, S2).
+  if (command.tag) {
+    const onMain = await deps.tagOnMain(i.version);
+    if (!onMain.ok) {
+      return finish(
+        2,
+        i,
+        shown,
+        `refused: v${i.version} is not a tag of a commit on main (${onMain.why})`,
+      );
+    }
+  }
+  // What an install would meet: said before anything, so a reviewer never approves it blind.
+  const notes = [];
+  if (i.command === "fleet-install") {
+    let recorded;
+    try {
+      recorded = await deps.recorded(i.env);
+    } catch (error) {
+      const why = `could not look up whether the ${i.env} fleet exists (${error.message})`;
+      say(why);
+      if (p.run) return finish(2, i, shown, `refused: ${why}`);
+      return finish(0, i, shown, `planned only: ${p.why}; ${why}`);
+    }
+    notes.push(describeRecorded(recorded, i));
+    say(notes[0]);
+  }
+  if (!p.run) {
+    say(`Planned, not run (${p.why}): cos ${shown}`);
+    return finish(0, i, shown, `planned only: ${p.why}`, notes.join("\n"));
+  }
   if (command.needs && !(await deps.help()).includes(command.needs)) {
     return finish(
       2,
@@ -472,8 +572,21 @@ export async function operate(env, deps) {
     i,
     shown,
     result.code === 0 ? "succeeded" : `failed (exit ${result.code})`,
-    output,
+    [...notes, output].join("\n"),
   );
+}
+
+/** What is installed where an install would go, in a line, and what cos would do with it. */
+export function describeRecorded(recorded, i) {
+  if (!recorded) return `No ${i.env} fleet exists yet: this is its first install.`;
+  if (!recorded.fleet) {
+    return `A single-client deployment holds this ${i.env} fleet's database name: cos refuses to install over it.`;
+  }
+  const same =
+    recorded.version === i.version &&
+    recorded.domain === i.domain &&
+    recorded.callback === i.callback;
+  return `The ${i.env} fleet exists: version ${recorded.version}, domain ${recorded.domain}, callback hostname ${recorded.callback}. ${same ? "These inputs name it as it is: a re-run, to finish an install that stopped." : "These inputs differ from it: cos refuses (an upgrade is fleet-upgrade)."}`;
 }
 
 /**
@@ -499,7 +612,45 @@ export function childEnv(env) {
 /** cos's arguments every run adds: the published, attested release, checked with gh too. */
 export const ALWAYS = Object.freeze(["--require-gh"]);
 
+/**
+ * Takes the keys and a secret value out of the process's environment, before any code but Node's
+ * own is loaded: no dependency this script imports later, and no child it starts, can read them
+ * there (review of #547, S7). Returns them, for `operate`, which writes them only to 0600 files.
+ */
+export function takeSecrets(env) {
+  const taken = { FLEET_KEYS: env.FLEET_KEYS, SECRET_VALUE: env.SECRET_VALUE };
+  delete env.FLEET_KEYS;
+  delete env.SECRET_VALUE;
+  return taken;
+}
+
+// === THE PRODUCT IS CHOSEN HERE, and nowhere else ==============================================
+// Which product the real fleet is a release of. Today: cos's default (the repository's own, the
+// CRM), so cos is given no product flag. The owner has decided the real fleet is a neutral hosted
+// product (branch feat/hosted-product): set its id here, and the flag that branch gives cos, once
+// it merges. `extraArgs` go to every cos command; `product` names what the script checks and looks
+// up (its database name, and that it is not the staging check's throwaway kind).
+export function chooseProduct({ products, defaultProduct }) {
+  const id = defaultProduct;
+  return { product: products[id], extraArgs: [] };
+}
+// ================================================================================================
+
+/** The run's git: whether `v<version>` is a tag whose commit is on origin/main. */
+function gitTagOnMain(version) {
+  const git = (...args) => spawnSync("git", args, { cwd: ROOT, encoding: "utf8" });
+  const tag = git("rev-parse", "--verify", "--quiet", `refs/tags/v${version}^{commit}`);
+  if (tag.status !== 0) return { ok: false, why: `no tag v${version} in this checkout` };
+  const sha = tag.stdout.trim();
+  const on = git("merge-base", "--is-ancestor", sha, "origin/main");
+  return on.status === 0
+    ? { ok: true, why: `v${version} is ${sha.slice(0, 12)}, on main` }
+    : { ok: false, why: `its commit ${sha.slice(0, 12)} is not on origin/main` };
+}
+
 async function main(argv) {
+  // Before any import that is not Node's own.
+  const taken = takeSecrets(ENV);
   const [command] = argv;
   const { CLIENT_SETTINGS, clientIdProblem } = await import("../packages/db/src/registry.ts");
   const { isGivenSecretName } = await import("../packages/db/src/registry-sealing.ts");
@@ -527,6 +678,8 @@ async function main(argv) {
   }
   const { DEFAULT_PRODUCT, products } = await import("../products/index.ts");
   const { CloudflareClient } = await import("../packages/release/src/cloudflare.ts");
+  const { locateDeployment } = await import("../packages/release/src/operator.ts");
+  const { product, extraArgs } = chooseProduct({ products, defaultProduct: DEFAULT_PRODUCT });
   const cli = join(ROOT, "packages/create-composable-os/dist/cli.js");
   const runCos = (args, env) =>
     new Promise((done) => {
@@ -543,32 +696,49 @@ async function main(argv) {
       });
       child.on("close", (code) => done({ code: code ?? 1, out }));
     });
-  return operate(ENV, {
-    rules,
-    product: products[DEFAULT_PRODUCT],
-    cos: (args, env) => runCos([...args, ...ALWAYS], env),
-    help: async () => {
-      const a = await runCos(["fleet", "--help"], childEnv(ENV));
-      const b = await runCos(["client", "--help"], childEnv(ENV));
-      return `${a.out}\n${b.out}`;
+  const api = () => new CloudflareClient({ token: ENV.CLOUDFLARE_API_TOKEN });
+  return operate(
+    { ...ENV, ...taken },
+    {
+      rules,
+      product,
+      cos: (args, env) => runCos([...args, ...extraArgs, ...ALWAYS], env),
+      help: async () => {
+        const a = await runCos(["fleet", "--help"], childEnv(ENV));
+        const b = await runCos(["client", "--help"], childEnv(ENV));
+        return `${a.out}\n${b.out}`;
+      },
+      subdomain: async () => api().workersSubdomain(ENV.CLOUDFLARE_ACCOUNT_ID),
+      recorded: async (environment) => {
+        const name =
+          environment === "staging" ? `${product.names.database}-staging` : product.names.database;
+        const found = await locateDeployment(api(), ENV.CLOUDFLARE_ACCOUNT_ID, name);
+        if (!found?.state) return null;
+        const fleet = found.state.fleet;
+        return fleet
+          ? {
+              fleet: true,
+              version: found.state.version,
+              domain: fleet.domain,
+              callback: fleet.callbackHostname,
+            }
+          : { fleet: false };
+      },
+      tagOnMain: async (version) => gitTagOnMain(version),
+      tmp: ENV.RUNNER_TEMP || tmpdir(),
+      log: (l) => console.log(l),
+      mask: (v) => {
+        if (v && ENV.GITHUB_ACTIONS === "true") process.stdout.write(`::add-mask::${v}\n`);
+      },
+      writeSummary: async (text) => {
+        if (ENV.GITHUB_STEP_SUMMARY) {
+          const { appendFileSync } = await import("node:fs");
+          appendFileSync(ENV.GITHUB_STEP_SUMMARY, `${text}\n`);
+        }
+      },
+      process,
     },
-    subdomain: async () =>
-      new CloudflareClient({ token: ENV.CLOUDFLARE_API_TOKEN }).workersSubdomain(
-        ENV.CLOUDFLARE_ACCOUNT_ID,
-      ),
-    tmp: ENV.RUNNER_TEMP || tmpdir(),
-    log: (l) => console.log(l),
-    mask: (v) => {
-      if (v && ENV.GITHUB_ACTIONS === "true") process.stdout.write(`::add-mask::${v}\n`);
-    },
-    writeSummary: async (text) => {
-      if (ENV.GITHUB_STEP_SUMMARY) {
-        const { appendFileSync } = await import("node:fs");
-        appendFileSync(ENV.GITHUB_STEP_SUMMARY, `${text}\n`);
-      }
-    },
-    process,
-  });
+  );
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

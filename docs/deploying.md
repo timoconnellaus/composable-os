@@ -1338,6 +1338,13 @@ step 1's Status).
   run in it, so the owner can add required reviewers there: every run then waits for approval
   before the token is handed to it. The secrets may also be moved from the repository into the
   environment. Without the environment GitHub creates it, unprotected, on the first run.
+- **Since the review of #547** the proof and the staging check run in their own environment,
+  **`fleet-check`**, never in a real fleet's `fleet`, which holds that fleet's keys and its clients'
+  secrets. Each job that reads a secret first stops unless the environment secret
+  `FLEET_ENVIRONMENT` is `check`. So `fleet-check` holds `FLEET_ENVIRONMENT=check` and the two
+  Cloudflare secrets, and nothing else (see
+  [Operating a host of many clients from GitHub](#operating-a-host-of-many-clients-from-github-stage-66),
+  the one-time set-up).
 - The account must have a `workers.dev` subdomain (Workers & Pages in the dashboard shows it; an
   account that has deployed to `workers.dev` before has one). Without it `wrangler deploy` asks for
   one and the run fails.
@@ -1592,12 +1599,11 @@ teardown fails and says which, and `remove` (or the dashboard) finishes it.
 
 - The token of [the proof above](#proving-a-clients-database-on-cloudflare-stage-66-step-1),
   with the zone's permissions for `zone`, and the account's `workers.dev` subdomain.
-- **The `fleet` environment's protection** (recommended before the first run): move both secrets
-  from the repository into the `fleet` environment, give it a deployment branch policy of `main`
-  and a required reviewer. Every job of the workflow that reads the secrets runs in that
-  environment, so it works with the secrets in either place; while they are repository secrets,
-  any workflow run on any branch by someone with write access can read them, and the zone
-  permissions widen what a leak would expose.
+- **Its own environment, `fleet-check`** (since the review of #547): the two Cloudflare secrets
+  and `FLEET_ENVIRONMENT=check`, nothing else, and a deployment branch policy of `main`. Every job
+  that reads a secret runs in it and first stops unless that marker is `check`, so repository
+  secrets are never used and the real staging fleet's `fleet` (its keys, its clients' secrets) is
+  never reached. The same token can still touch a real fleet: see "One account, one token" below.
 
 Where the install needs a feature the account does not have (Queues on its plan, a permission, the
 zone), the failing step's note says which in plain words, and the teardown still runs.
@@ -1618,83 +1624,85 @@ tested against the fake Cloudflare API (`scripts/fleet-operate.test.mjs`, run by
 **What it allows.** The command is one of a fixed list, each mapped to fixed `cos` arguments; there
 is no free-form command line:
 
-| `command` | runs | needs |
+| `command` | runs | needs (with `dry_run` off) |
 | --- | --- | --- |
 | `client-list` | `cos client list` | |
-| `client-add` | `cos client add <client> [--location] [--setting NAME=VALUE]…` | `client`, `settings` (optional) |
-| `client-pause`, `client-resume` | `cos client pause/resume <client>` | `client` (a live pause: `confirm`) |
-| `client-export` | `cos client export <client>`: into the fleet's exports bucket, kept 90 days. Never `--out`, which writes the client's secrets in plain text | `client` |
+| `client-add` | `cos client add <client> [--location] [--setting NAME=VALUE]…` | `client`, `settings` (optional; never an identity or approval setting, below) |
+| `client-pause`, `client-resume` | `cos client pause/resume <client>` | `client`; on live, `confirm` = the client's id |
+| `client-export` | `cos client export <client>`: into the fleet's exports bucket, kept 90 days. The client is served nowhere while it runs. Never `--out`, which writes the client's secrets in plain text | `client`, `confirm` |
 | `client-remove` | `cos client remove <client>` | `client`, `confirm` |
 | `client-secret-set` | `cos client secret set <client> <NAME> --value-file <file>`, the value from the environment secret `CLIENT_<ID>_<NAME>` | `client` (no hyphen), `secret_name`; `confirm` to replace a stored value |
 | `client-secret-remove` | `cos client secret remove <client> <NAME>` | `client`, `secret_name`, `confirm` |
 | `sender-add`, `sender-verify`, `sender-unverify`, `sender-remove` | `cos client sender <verb> <client> <domain>` | `client`, `sender_domain`; `confirm` for all but add |
-| `hostname-list`, `hostname-add`, `hostname-verify`, `hostname-remove` | `cos client hostname …` (they arrive with PR #543: until then they are refused, saying so) | `client`, `hostname`; `confirm` for remove |
-| `fleet-install` | `cos fleet install --keys-file … --callback-hostname --domain --version [--ai] [--location] [--zone]` | `version`, `domain`, `callback_hostname`; `zone` after #543 |
+| `hostname-list`, `hostname-add`, `hostname-verify`, `hostname-remove` | `cos client hostname …` (they arrive with PR #543: until then they are refused, saying so) | `client`, `hostname`; `confirm` for verify and remove |
+| `fleet-install` | `cos fleet install --keys-file … --callback-hostname --domain --version [--ai] [--location] [--zone]` | `version`, `domain`, `callback_hostname`, `confirm` = the domain; `zone` after #543 |
 | `fleet-upgrade` | `cos fleet upgrade --keys-file … --version` | `version`; on live, `confirm` = the version |
 
-- **Every input is checked**: first by a job of its own with no secret, then again by the script
-  before anything runs. The client id is checked against the registry's rule. A version is
-  `x.y.z[-beta.n]` and a domain a hostname. A setting must be a client setting's name with a
-  plain value, and a secret name a given secret's. An input meant for another command is
-  refused. Inputs reach the script only through the environment, never a shell line.
-- **`dry_run` is on by default.** Where `cos` has a dry run, the run makes one. `fleet install`
-  has none: it is only planned (the command line printed) until `dry_run` is off.
-- **The confirm rule.** With `dry_run` off, a command that removes, unverifies, vouches
-  (`sender-verify`) or overwrites gets `--yes` only when `confirm` is the client's id, as do
-  `client-secret-remove` and a live `client-pause`. Otherwise the run stops before `cos`.
-  `client-secret-set` without `confirm` stores a new value and never replaces a stored one. A live
-  `fleet-upgrade` needs `confirm` to be the version. `--skip-staging` is never offered.
-- **One command at a time per fleet** (a concurrency group per environment), beside `cos`'s own
-  one-session rule. `take_over` passes `--take-over` for a command that was killed.
-- **Always the repository's product** (the CRM, cos's default), **from a published, attested
-  release**: `cos` downloads it, checks `SHA256SUMS` and its build attestation, and with
-  `--require-gh` also runs `gh attestation verify`. Never `--bundle-dir`, `--unverified` or
-  `--product-file`.
-- **Output.** The job summary says who ran what, on which fleet and for which client, the `cos`
-  command line and its outcome, and `cos`'s output. The token, the account id, its `workers.dev`
-  subdomain, the keys and any secret value are masked and cut out. There are no artifacts.
+`confirm` is the client's id, the version or the domain, as the table says; `take_over` (taking the
+operator's session from a command that was killed) needs it too, or the environment's name for a
+command with neither.
 
-**The staging check and this never meet.** The staging check operates only `cosstg-<run id>`, a
-throwaway product that `cos` takes from a file only when its id and every name start with
-`cosstg-`; its teardown deletes only names with that exact prefix. This workflow passes no product
-(so the CRM's names: `crm-…`, the `crm` and `crm-staging` databases) and refuses any input or
-product that names `cosstg`. The forced-failure switch (`COS_FLEET_FORCE_FAILURE`) is never passed
-to `cos` here, and `cos` refuses it outside the staging check.
+- **First, the environment.** The first step of the job that reads a secret stops the run unless the environment secret `FLEET_ENVIRONMENT` names the fleet asked for: `staging` in `fleet`, `live` in `fleet-live`. Repository secrets have no such secret, and neither has an environment GitHub makes on the fly when a run names one that does not exist (unprotected), so neither is ever used. The job runs only from `main` (`github.ref`), as well as under the environments' own branch policy.
+- **Every input is checked**: first by a job of its own with no secret, then again by the script before anything runs. The client id is checked against the registry's rule; a version is `x.y.z[-beta.n]` and a domain a hostname. A setting must be a client setting's name with a plain value, and a secret name a given secret's. An input meant for another command is refused. Inputs reach the script only through the environment, never a shell line.
+- **`dry_run` is on by default.** Where `cos` has a dry run, the run makes one. `fleet install` has none, so while `dry_run` is on it is only planned. Its plan says whether the fleet exists and what is recorded (version, domain, callback hostname), and whether `cos` would refuse, so a live reviewer never approves it blind. `cos fleet install` itself refuses a fleet that exists unless all three equal what is installed: a re-run, to finish an install that stopped. An upgrade is `fleet-upgrade`, which migrates every client.
+- **The confirm rule** (the table). Without the right `confirm`, the run stops before `cos`. `client-secret-set` without `confirm` stores a new value and never replaces a stored one. `--skip-staging` is never offered.
+- **The release.** Always the repository's product (the CRM, `cos`'s default; the script chooses it in one marked place, `chooseProduct`), from a published, attested release:
+  - `cos` downloads it, checks `SHA256SUMS` and its build attestation, and with `--require-gh` also runs `gh attestation verify`;
+  - before an install or an upgrade, the script also checks that the tag `v<version>` is a commit on `main`, since an attestation proves which workflow built it, not that a reviewed commit did;
+  - never `--bundle-dir`, `--unverified` or `--product-file`.
+- **The keys and secret values.** `FLEET_KEYS` and a secret value are taken out of the script's environment before it loads anything but Node's own modules. They are written only to 0600 files in a 0700 folder that is deleted at the end, on an error and on a signal, and never reach `cos`'s environment or the log.
+- **Identity and approval settings are never set here**: `APPROVAL_FLOOR`, `APPROVAL_EXPIRY_DAYS`, `IDENTITY_PROVIDER`, `AUTH_ALLOW_SIGNUP` and `NATIVE_REDIRECT_URIS`. Identity and policy are not AI-configurable, and loosening approval is a human admin's alone (AGENTS.md), while agents may dispatch this workflow.
+  - A client keeps the deployment's values.
+  - Within them, the client's own human admin chooses its approval preset in the app (Settings), and a preset never goes below the floor.
+  - Changing one of these settings for a client is the owner's decision, made by him: there is no `cos` command for a client's settings after `add` yet (G4). Until there is, he makes it as a change he reviews and runs himself on live, where he is the required reviewer.
+- **One command at a time per fleet** (a concurrency group per environment), beside `cos`'s own one-session rule.
+- **Time.** A run has an hour; `fleet-upgrade` has six, a hosted runner's most, because it migrates every client in turn. An upgrade cut short (a timeout, a cancel) leaves an unfinished update recorded in the registry, with clients paused ("being updated"). `client-list` shows it as part-way. Running `fleet-upgrade` again with the same version finishes it or undoes it before anything else. The killed run's hold on the operator's Worker lapses after 30 minutes, or `take_over` with `confirm` takes it sooner.
+- **Output.** The job summary says who ran what, on which fleet and for which client, the `cos` command line and its outcome, and `cos`'s output. The token, the account id, its `workers.dev` subdomain, the keys and any secret value are masked and cut out. There are no artifacts. Third-party actions are pinned by commit.
 
-**What the owner does once** (the keys and the secrets never pass through anyone else):
+**The staging check and this never meet.**
+- The staging check runs in its own environment, `fleet-check` (marker `check`), and operates only `cosstg-<run id>`. That is a throwaway product `cos` takes from a file only when its id and every name start with `cosstg-`, and its teardown deletes only names with that exact prefix.
+- This workflow runs in `fleet` or `fleet-live` and passes no product, so it uses the CRM's names (`crm-…`, the `crm` and `crm-staging` databases). It refuses any input or product that names `cosstg`, and never passes the forced-failure switch (`COS_FLEET_FORCE_FAILURE`), which `cos` refuses outside the staging check anyway.
 
-1. **The keys files.** On his own machine, outside any git checkout, with a built `cos` (no
-   Cloudflare token is needed):
+**One account, one token: what that allows.** Staging and live are on the same Cloudflare account, and a Cloudflare token cannot be limited to one fleet's Workers or databases. So the token in `fleet`, and the one in `fleet-check`, can delete the live fleet. Anyone with write access may dispatch a workflow, and an agent may change a script on `main` and run it in `fleet` with no human approval. `main`-only branch policies do not stop that. The mitigations are the owner's to choose:
+- **a required reviewer on `fleet` (and `fleet-check`) as well as `fleet-live`**, so no run gets a token without his approval; or
+- **a separate Cloudflare account, and token, for live**, so nothing outside `fleet-live` can reach it.
+
+**What the owner does once, in order** (the keys and the secrets never pass through anyone else):
+
+1. **The keys files.** On his own machine, outside any git checkout, with a built `cos` (no Cloudflare token is needed):
    ```sh
    cos fleet keys --env staging --out ~/fleet-keys/staging.json
    cos fleet keys --env live --out ~/fleet-keys/live.json
    ```
-   Keep each in the password manager as well: losing one means a planned move of every client
-   (see the keys file, above).
-2. **The environments.** In Settings → Environments:
-   - **`fleet`** (staging):
-     - the secrets `FLEET_CLOUDFLARE_API_TOKEN`, `FLEET_CLOUDFLARE_ACCOUNT_ID` and `FLEET_KEYS`, the last being `base64 -w0 ~/fleet-keys/staging.json` (on macOS, `base64 -i … | tr -d '\n'`) on one line, so GitHub masks it whole;
-     - a deployment branch policy of `main`.
-   - **`fleet-live`** (live): the same three secrets, `FLEET_KEYS` from `live.json`; **required reviewer: the owner**; a deployment branch policy of `main` only.
-   - The two Cloudflare secrets may stay at repository level for `fleet` (the staging check uses them), but `FLEET_KEYS` must be an environment secret. Moving everything into the environments, with the branch policy, means no other branch's workflow can read them.
-3. **A client's secret values** (Stripe keys and the like), as environment secrets of the fleet
-   they are for, named `CLIENT_<ID>_<NAME>`: for example `CLIENT_GHETTO_STRIPE_SECRET_KEY`. A
-   client id with a hyphen cannot be named so: set its secrets another way, or use an id without
-   one.
-4. **The token's permissions** (one token, on the fleet's account):
-   - on the account: Workers Scripts Edit, D1 Edit, Workers R2 Storage Edit, Workers KV Storage Edit, Queues Edit, Vectorize Edit and Account Settings Read; with AI on, also AI Gateway Edit and Account API Tokens Edit;
-   - on the fleet's zone (`composableos.app`): Zone Read, Workers Routes Edit, DNS Edit, and SSL and Certificates Edit (Workers Custom Domains for the staff and callback hostnames; Cloudflare for SaaS custom hostnames for a client's own web domain, PR #543).
-5. **A release** to install. The release workflow builds one from a `vX.Y.Z` or `vX.Y.Z-beta.N`
-   tag, with the fleet's Workers in it; the fleet installs it with `version`.
+   Keep each in the password manager as well: losing one means a planned move of every client (see the keys file, above).
+2. **The token**, account-owned, on the fleet's account (Cloudflare's own names):
+   - account: Workers Scripts Edit, D1 Edit, Workers R2 Storage Edit, Workers KV Storage Edit, Queues Edit, Vectorize Edit, and Account Settings Read (what `cos`'s `--help` asks for; with the account id given it may not be needed);
+   - zone `composableos.app`: Zone Read, Workers Routes Edit, DNS Write ("DNS Edit" in the dashboard), and SSL and Certificates Edit (Workers Custom Domains for the staff and callback hostnames; Cloudflare for SaaS custom hostnames for a client's own web domain, PR #543);
+   - with AI on (the workflow's `ai=on`): also AI Gateway Edit, and API Tokens Edit to make the gateway's token. That one is a user-level permission, so an account-owned token cannot hold it: install with `ai=off`, or make the gateway's token by hand;
+   - Stream Edit, only if an import must re-stamp a client's videos.
+3. **The zone.** Turn on Cloudflare for SaaS on `composableos.app` (SSL/TLS → Custom Hostnames) before the first client's own domain is added. Its fallback origin must be a proxied DNS record and show Active; PR #543's `cos fleet install` makes `clients.<domain>` for it.
+4. **The environments.** In Settings → Environments, three:
+   - **`fleet-check`** (the staging check and the client database proof): `FLEET_ENVIRONMENT` = `check`, `FLEET_CLOUDFLARE_API_TOKEN`, `FLEET_CLOUDFLARE_ACCOUNT_ID`; deployment branch policy `main`; a required reviewer (see above).
+   - **`fleet`** (the real staging fleet): `FLEET_ENVIRONMENT` = `staging`, the two Cloudflare secrets, `FLEET_KEYS` = `base64 -w0 ~/fleet-keys/staging.json` (on macOS, `base64 -i … | tr -d '\n'`) on one line, so GitHub masks it whole; deployment branch policy `main`; **required reviewer: the owner** (see above).
+   - **`fleet-live`** (live): `FLEET_ENVIRONMENT` = `live`, the two Cloudflare secrets (or a live account's own), `FLEET_KEYS` from `live.json`; deployment branch policy `main` only; **required reviewer: the owner**.
+5. **Delete the repository-level `FLEET_CLOUDFLARE_API_TOKEN` and `FLEET_CLOUDFLARE_ACCOUNT_ID`** (Settings → Secrets and variables → Actions), once the three environments hold their own: kept only in environments, no other workflow or branch can read them. Every workflow that uses them runs in one of the three.
+6. **A tag ruleset** (Settings → Rules → Rulesets, target tags `v*`): only the owner may create, update or delete a release tag. A release is built and attested from whatever commit a tag names; the script refuses a tag that is not on `main`, and the ruleset keeps anyone else from making one at all.
+7. **A client's secret values** (Stripe keys and the like), as secrets of the environment of the fleet they are for, named `CLIENT_<ID>_<NAME>`, for example `CLIENT_GHETTO_STRIPE_SECRET_KEY`. A client id with a hyphen cannot be named so: set its secrets another way, or use an id without one.
+8. **A release** to install: a `vX.Y.Z` or `vX.Y.Z-beta.N` tag on `main`, which the release workflow builds, attests and publishes, with the fleet's Workers in it.
 
 **A staging fleet and its first client**, for example:
 
 ```sh
-# The fleet (after PR #543, so its hostnames are attached; plan it first with dry_run true):
+# The fleet (after PR #543, so its hostnames are attached). Its dry run first: what is there.
 gh workflow run fleet-operate.yml --ref main -f env=staging -f command=fleet-install \
   -f version=<x.y.z-beta.n> -f domain=staging.composableos.app \
   -f callback_hostname=callback.staging.composableos.app -f zone=composableos.app \
-  -f location=oc -f ai=off -f dry_run=false
+  -f location=oc -f ai=off
+# Then for real, confirmed by the domain.
+gh workflow run fleet-operate.yml --ref main -f env=staging -f command=fleet-install \
+  -f version=<x.y.z-beta.n> -f domain=staging.composableos.app \
+  -f callback_hostname=callback.staging.composableos.app -f zone=composableos.app \
+  -f location=oc -f ai=off -f dry_run=false -f confirm=staging.composableos.app
 # A client, with the Ticketing pack: a dry run, then for real.
 gh workflow run fleet-operate.yml --ref main -f env=staging -f command=client-add \
   -f client=ghetto -f location=oc -f settings=COS_PACKS=ticketing
@@ -1702,6 +1710,7 @@ gh workflow run fleet-operate.yml --ref main -f env=staging -f command=client-ad
   -f client=ghetto -f location=oc -f settings=COS_PACKS=ticketing -f dry_run=false
 gh workflow run fleet-operate.yml --ref main -f env=staging -f command=client-list
 ```
+
 
 ## Manual end-to-end run (needs a human)
 

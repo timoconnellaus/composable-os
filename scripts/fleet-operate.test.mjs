@@ -4,10 +4,18 @@
 // given; the account's subdomain comes from the fake Cloudflare API the CLI's tests use.
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { pathToFileURL } from "node:url";
 import { CLIENT_SETTINGS, clientIdProblem } from "../packages/db/src/registry.ts";
 import { isGivenSecretName } from "../packages/db/src/registry-sealing.ts";
 import { CloudflareClient } from "../packages/release/src/cloudflare.ts";
@@ -18,9 +26,11 @@ import {
   ALWAYS,
   COMMANDS,
   childEnv,
+  chooseProduct,
   operate,
   plan,
   readInputs,
+  takeSecrets,
   withSecretFiles,
 } from "./fleet-operate.mjs";
 
@@ -43,7 +53,13 @@ const KEYS = {
 const keys64 = (k = KEYS) => Buffer.from(JSON.stringify(k)).toString("base64");
 
 /** A run of the script: cos recorded, the summary and log kept, the fake API for the subdomain. */
-function harness({ cosAnswer, help = "cos client hostname add|verify --zone", proc } = {}) {
+function harness({
+  cosAnswer,
+  help = "cos client hostname add|verify --zone",
+  proc,
+  recorded = async () => null,
+  tagOnMain = async () => ({ ok: true, why: "on main" }),
+} = {}) {
   const cf = new FakeCloudflare({
     token: TOKEN,
     accountId: ACCOUNT,
@@ -77,6 +93,11 @@ function harness({ cosAnswer, help = "cos client hostname add|verify --zone", pr
     },
     help: async () => help,
     subdomain: () => api.workersSubdomain(ACCOUNT),
+    recorded: async (environment) => {
+      calls.recorded = (calls.recorded ?? 0) + 1;
+      return recorded(environment);
+    },
+    tagOnMain,
     tmp,
     log: (l) => written.log.push(l),
     mask: () => {},
@@ -91,6 +112,8 @@ function harness({ cosAnswer, help = "cos client hostname add|verify --zone", pr
         CLOUDFLARE_API_TOKEN: TOKEN,
         CLOUDFLARE_ACCOUNT_ID: ACCOUNT,
         GITHUB_ACTOR: "owner",
+        // The environment's marker: the run is in that fleet's own environment.
+        FLEET_ENVIRONMENT: inputs.ENV,
         ...secrets,
         ...Object.fromEntries(Object.entries(inputs).map(([k, v]) => [`OP_${k}`, v])),
       },
@@ -172,6 +195,7 @@ test("a product of the staging check's throwaway kind is refused", async () => {
     {
       OP_ENV: "staging",
       OP_COMMAND: "client-list",
+      FLEET_ENVIRONMENT: "staging",
       CLOUDFLARE_API_TOKEN: TOKEN,
       CLOUDFLARE_ACCOUNT_ID: ACCOUNT,
     },
@@ -229,6 +253,9 @@ test("the confirm rule: a destructive command gets --yes only when confirm is th
     ["sender-unverify", { CLIENT: "ghetto", SENDER_DOMAIN: "ghetto.example" }, "ghetto"],
     ["sender-remove", { CLIENT: "ghetto", SENDER_DOMAIN: "ghetto.example" }, "ghetto"],
     ["hostname-remove", { CLIENT: "ghetto", HOSTNAME: "www.ghetto.example" }, "ghetto"],
+    // Review of #547, S3: an export takes the client offline; a hostname-verify vouches.
+    ["client-export", { CLIENT: "ghetto" }, "ghetto"],
+    ["hostname-verify", { CLIENT: "ghetto", HOSTNAME: "www.ghetto.example" }, "ghetto"],
   ];
   for (const [command, extra, wanted] of destructive) {
     for (const confirm of [undefined, "someone-else"]) {
@@ -487,4 +514,206 @@ test("a command that arrives with a later PR is refused, saying so, until cos ha
   assert.equal(code, 2);
   assert.match(h.written.summary, /arrives with PR #543/);
   assert.equal(h.calls.length, 0);
+});
+
+// --- the review of #547 ---------------------------------------------------------------------------
+
+test("a run outside its fleet's own environment is refused before anything (M2)", async () => {
+  for (const marker of [undefined, "", "live", "check", "staging "]) {
+    const h = harness();
+    const code = await h.run(
+      { ENV: "staging", COMMAND: "client-list" },
+      { FLEET_ENVIRONMENT: marker },
+    );
+    assert.equal(code, 2, String(marker));
+    assert.equal(h.calls.length, 0, String(marker));
+    assert.equal(h.calls.recorded, undefined);
+    assert.match(h.written.summary, /FLEET_ENVIRONMENT does not name this fleet/);
+  }
+  // live needs live's marker.
+  const live = harness();
+  assert.equal(
+    await live.run({ ENV: "live", COMMAND: "client-list" }, { FLEET_ENVIRONMENT: "staging" }),
+    2,
+  );
+  assert.equal(live.calls.length, 0);
+});
+
+test("fleet-install: its dry run says what is installed; for real it needs confirm = the domain (M1)", async () => {
+  const install = {
+    ENV: "live",
+    COMMAND: "fleet-install",
+    VERSION: "0.1.0-beta.16",
+    DOMAIN: "fleet.composableos.app",
+    CALLBACK_HOSTNAME: "callback.fleet.composableos.app",
+  };
+  const keys = { FLEET_KEYS: keys64({ ...KEYS, environment: "live" }) };
+  // Nothing there: a first install, said.
+  const none = harness();
+  assert.equal(await none.run(install, keys), 0);
+  assert.match(none.written.summary, /No live fleet exists yet: this is its first install/);
+  assert.equal(none.calls.length, 0);
+  // A fleet there, at another version: said, and that cos refuses.
+  const there = harness({
+    recorded: async () => ({
+      fleet: true,
+      version: "0.1.0-beta.15",
+      domain: "fleet.composableos.app",
+      callback: "callback.fleet.composableos.app",
+    }),
+  });
+  assert.equal(await there.run(install, keys), 0);
+  assert.match(there.written.summary, /The live fleet exists: version 0\.1\.0-beta\.15/);
+  assert.match(there.written.summary, /cos refuses \(an upgrade is fleet-upgrade\)/);
+  // For real: the domain, and nothing else, confirms it.
+  for (const confirm of [undefined, "0.1.0-beta.16", "live"]) {
+    const h = harness();
+    const code = await h.run(
+      { ...install, DRY_RUN: "false", ...(confirm ? { CONFIRM: confirm } : {}) },
+      keys,
+    );
+    assert.equal(code, 2, String(confirm));
+    assert.equal(h.calls.length, 0);
+  }
+  const ok = harness();
+  assert.equal(
+    await ok.run({ ...install, DRY_RUN: "false", CONFIRM: "fleet.composableos.app" }, keys),
+    0,
+  );
+  assert.equal(ok.calls.length, 1);
+  assert.ok(!ok.calls[0].argv.includes("--yes"));
+  // A lookup that fails never lets an install run blind.
+  const blind = harness({
+    recorded: async () => {
+      throw new Error("D1 read refused");
+    },
+  });
+  assert.equal(
+    await blind.run({ ...install, DRY_RUN: "false", CONFIRM: "fleet.composableos.app" }, keys),
+    2,
+  );
+  assert.equal(blind.calls.length, 0);
+});
+
+test("a release not tagged on main is refused for install and upgrade (S2)", async () => {
+  const h = harness({
+    tagOnMain: async () => ({ ok: false, why: "its commit abc is not on origin/main" }),
+  });
+  const code = await h.run(
+    { ENV: "staging", COMMAND: "fleet-upgrade", VERSION: "0.1.0-beta.16" },
+    { FLEET_KEYS: keys64() },
+  );
+  assert.equal(code, 2);
+  assert.equal(h.calls.length, 0);
+  assert.match(h.written.summary, /not a tag of a commit on main/);
+});
+
+test("a live resume, and take_over on any command, need confirm too (S3)", async () => {
+  const resume = harness();
+  assert.equal(
+    await resume.run({ ENV: "live", COMMAND: "client-resume", CLIENT: "ghetto", DRY_RUN: "false" }),
+    2,
+  );
+  assert.equal(
+    await resume.run({
+      ENV: "live",
+      COMMAND: "client-resume",
+      CLIENT: "ghetto",
+      DRY_RUN: "false",
+      CONFIRM: "ghetto",
+    }),
+    0,
+  );
+  assert.equal(resume.calls.length, 1);
+  const take = harness();
+  assert.equal(
+    await take.run({
+      ENV: "staging",
+      COMMAND: "client-add",
+      CLIENT: "ghetto",
+      DRY_RUN: "false",
+      TAKE_OVER: "true",
+    }),
+    2,
+  );
+  assert.equal(
+    await take.run({
+      ENV: "staging",
+      COMMAND: "client-add",
+      CLIENT: "ghetto",
+      DRY_RUN: "false",
+      TAKE_OVER: "true",
+      CONFIRM: "ghetto",
+    }),
+    0,
+  );
+  assert.ok(take.calls[0].argv.includes("--take-over"));
+  // On a command with no client: the environment's name.
+  const list = harness();
+  assert.equal(await list.run({ ENV: "staging", COMMAND: "client-list", TAKE_OVER: "true" }), 0);
+});
+
+test("identity and approval settings are never set by this workflow (S4)", async () => {
+  for (const setting of [
+    "APPROVAL_FLOOR=autonomous",
+    "APPROVAL_EXPIRY_DAYS=30",
+    "IDENTITY_PROVIDER=cloudflare-access",
+    "AUTH_ALLOW_SIGNUP=true",
+    "NATIVE_REDIRECT_URIS=gym://x",
+  ]) {
+    const h = harness();
+    const code = await h.run({
+      ENV: "live",
+      COMMAND: "client-add",
+      CLIENT: "ghetto",
+      SETTINGS: setting,
+    });
+    assert.equal(code, 2, setting);
+    assert.equal(h.calls.length, 0, setting);
+    assert.match(h.written.summary, /identity or approval policy/, setting);
+  }
+  const packs = harness();
+  assert.equal(
+    await packs.run({
+      ENV: "staging",
+      COMMAND: "client-add",
+      CLIENT: "ghetto",
+      SETTINGS: "COS_PACKS=ticketing",
+    }),
+    0,
+  );
+});
+
+test("the keys and a secret value leave the environment before any import, and no later import or child sees them (S7)", async () => {
+  const env = { FLEET_KEYS: "k", SECRET_VALUE: "v", PATH: "/bin" };
+  const taken = takeSecrets(env);
+  assert.deepEqual(taken, { FLEET_KEYS: "k", SECRET_VALUE: "v" });
+  assert.deepEqual(Object.keys(env), ["PATH"]);
+  // In the process itself: a module imported after sees neither.
+  process.env.FLEET_KEYS = "keys-in-the-environment";
+  process.env.SECRET_VALUE = "value-in-the-environment";
+  takeSecrets(process.env);
+  const dir = mkdtempSync(join(tmpdir(), "s66-import-"));
+  const probe = join(dir, "probe.mjs");
+  writeFileSync(probe, "export const seen = [process.env.FLEET_KEYS, process.env.SECRET_VALUE];\n");
+  const { seen } = await import(pathToFileURL(probe).href);
+  assert.deepEqual(seen, [undefined, undefined]);
+  // And main takes them before its first import that is not Node's own.
+  const source = readFileSync(new URL("./fleet-operate.mjs", import.meta.url), "utf8");
+  const mainAt = source.indexOf("async function main(");
+  const takeAt = source.indexOf("takeSecrets(ENV)", mainAt);
+  const importAt = source.indexOf("await import(", mainAt);
+  assert.ok(takeAt > mainAt && takeAt < importAt);
+  // Its own static imports are Node's only.
+  for (const m of source.matchAll(/^import .* from "([^"]+)";$/gm)) {
+    assert.ok(m[1].startsWith("node:"), m[1]);
+  }
+});
+
+test("the product is chosen in one place, today cos's default with no flag", () => {
+  const chosen = chooseProduct({ products, defaultProduct: "crm" });
+  assert.equal(chosen.product.id, "crm");
+  assert.deepEqual(chosen.extraArgs, []);
+  const source = readFileSync(new URL("./fleet-operate.mjs", import.meta.url), "utf8");
+  assert.equal(source.match(/THE PRODUCT IS CHOSEN HERE/g)?.length, 1);
 });
