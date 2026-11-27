@@ -248,7 +248,11 @@ export function plannedClient(ctx: FleetContext, input: AddInput): NewClient {
 }
 
 /** The lines that tell the operator what the client adds to its DNS for its own domain. */
-export function dnsInstructions(id: string, hostname: string, state: CustomHostnameState): string[] {
+export function dnsInstructions(
+  id: string,
+  hostname: string,
+  state: CustomHostnameState,
+): string[] {
   return [
     `  ${hostname}: unverified, served nowhere yet. The client adds, at its DNS provider:`,
     ...state.records.map((r) => `    ${r.type.padEnd(5)} ${r.name}  ${r.value}    (${r.why})`),
@@ -467,13 +471,16 @@ export async function hostnameCommand(
     for (const line of dnsInstructions(id, hostname, state)) ctx.io.out(line);
     return 0;
   }
-  if (!ctx.edge) throw new FleetError("This fleet's zone is not known: run cos fleet install again");
+  if (!ctx.edge)
+    throw new FleetError("This fleet's zone is not known: run cos fleet install again");
   if (verb === "remove" && !row && !ctx.dryRun) {
     // A removal a crash stopped after the registry's row: Cloudflare's side is finished now.
     const held = await hostnamesTaken(ctx.registry, [hostname]);
     if (held.length) throw new FleetError(`${hostname} is ${held[0]?.client}'s, not ${id}'s`);
     await ctx.edge.removeCustomHostname(hostname);
-    ctx.io.out(`${hostname} is not ${id}'s in the registry; its route and custom hostname are gone.`);
+    ctx.io.out(
+      `${hostname} is not ${id}'s in the registry; its route and custom hostname are gone.`,
+    );
     return 0;
   }
   if (!row || row.surface !== "web") {

@@ -56,8 +56,12 @@ const COOKIE_PARSERS = new Set(["cookie", "cookie-es", "cookies", "js-cookie"]);
 /** The name of the function a node is in: a declaration, a method, or a variable it is bound to. */
 function enclosingName(node) {
   for (let n = node.parent; n; n = n.parent) {
-    if ((ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n)) && n.name) return n.name.getText();
-    if ((ts.isArrowFunction(n) || ts.isFunctionExpression(n)) && ts.isVariableDeclaration(n.parent)) {
+    if ((ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n)) && n.name)
+      return n.name.getText();
+    if (
+      (ts.isArrowFunction(n) || ts.isFunctionExpression(n)) &&
+      ts.isVariableDeclaration(n.parent)
+    ) {
       return n.parent.name.getText();
     }
   }

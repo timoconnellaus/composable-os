@@ -60,7 +60,7 @@ describe("keepCustomerSignedIn", () => {
       baseUrl: "https://host",
       now,
       fetch: async (_url, init) => {
-        sent.push(String((init?.headers as Record<string, string>).cookie));
+        sent.push(String((init?.headers as Record<string, string> | undefined)?.cookie));
         return {
           status: 200,
           headers: { get: () => null },

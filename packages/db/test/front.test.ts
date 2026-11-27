@@ -14,7 +14,12 @@ import {
   ownPagePolicy,
   type WebTarget,
 } from "../src/front.ts";
-import { emptyRegistry, insertClient, insertHostname, migrateRegistry } from "./registry-fixtures.ts";
+import {
+  emptyRegistry,
+  insertClient,
+  insertHostname,
+  migrateRegistry,
+} from "./registry-fixtures.ts";
 
 const registry = (env as unknown as { REGISTRY: D1Database }).REGISTRY;
 const front: FrontEnv = {
@@ -96,7 +101,13 @@ describe("cos-front with two clients", () => {
     );
     expect(await response.text()).toBe("for gym-a");
     const seen = target.seen[0]?.request as Request;
-    for (const name of ["x-cos-client", "cos-client", "x-forwarded-host", "forwarded", "x-original-host"]) {
+    for (const name of [
+      "x-cos-client",
+      "cos-client",
+      "x-forwarded-host",
+      "forwarded",
+      "x-original-host",
+    ]) {
       expect(seen.headers.has(name), name).toBe(false);
     }
     // What is the client's own is passed on.
@@ -144,7 +155,9 @@ describe("cos-front with two clients", () => {
   });
 
   it("answers a paused or moving client with 'being updated', and the other client as before", async () => {
-    await registry.prepare("UPDATE registry_clients SET status = 'paused' WHERE id = 'gym-a'").run();
+    await registry
+      .prepare("UPDATE registry_clients SET status = 'paused' WHERE id = 'gym-a'")
+      .run();
     const target = recorder();
     const paused = await frontFetch(get("https://www.gym-a.example/"), front, target);
     expect(paused.status).toBe(503);

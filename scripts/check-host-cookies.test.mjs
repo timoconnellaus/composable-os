@@ -36,9 +36,13 @@ test("every shape of cookie read is found, by its function", () => {
 });
 
 test("a read not listed fails, and so does a listed place that reads none", () => {
-  const { "apps/app/src/server/http/form-page.ts#customerCookie": _gone, ...without } = COOKIE_READS;
+  const { "apps/app/src/server/http/form-page.ts#customerCookie": _gone, ...without } =
+    COOKIE_READS;
   const problems = checkHostCookies(root, { ...without, "apps/app/src/nowhere.ts#f": "x" });
   assert.equal(problems.length, 2);
-  assert.match(problems[0], /form-page\.ts#customerCookie .* is not in scripts\/check-host-cookies/);
+  assert.match(
+    problems[0],
+    /form-page\.ts#customerCookie .* is not in scripts\/check-host-cookies/,
+  );
   assert.match(problems[1], /nowhere\.ts#f is listed but reads no cookie now/);
 });

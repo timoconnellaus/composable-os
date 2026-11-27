@@ -70,7 +70,9 @@ describe("the host's own address", () => {
       door,
       { address: "198.51.100.63", sameOrigin: "page" },
     );
-    expect((calls[0] as Request).headers.get("cookie")).toBe("__Host-cos-customer.session_token=c.sig");
+    expect((calls[0] as Request).headers.get("cookie")).toBe(
+      "__Host-cos-customer.session_token=c.sig",
+    );
   });
 
   it("refuses a send from a sibling subdomain, with a signed-in customer's cookie, before any call", async () => {

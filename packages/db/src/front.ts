@@ -87,9 +87,7 @@ const CLIENT_NAMING_HEADERS = new Set([
 
 export function isClientNamingHeader(name: string): boolean {
   const lower = name.toLowerCase();
-  return (
-    CLIENT_NAMING_HEADERS.has(lower) || lower.startsWith("cos-") || lower.startsWith("x-cos-")
-  );
+  return CLIENT_NAMING_HEADERS.has(lower) || lower.startsWith("cos-") || lower.startsWith("x-cos-");
 }
 
 /** A copy of `request` with every client-naming header removed. */
@@ -193,10 +191,7 @@ export const holdingPage: WebTarget = {
  * security policy of `frame-ancestors 'none'` when it has none. A header the response already
  * sets is kept (a target's own policy is its own; cos-front adds, never loosens).
  */
-export async function withFrontHeaders(
-  response: Response,
-  policy?: string,
-): Promise<Response> {
+export async function withFrontHeaders(response: Response, policy?: string): Promise<Response> {
   const out = new Response(response.body, response);
   const set = (name: string, value: string) => {
     if (!out.headers.has(name)) out.headers.set(name, value);

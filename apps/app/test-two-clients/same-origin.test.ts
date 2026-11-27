@@ -35,7 +35,12 @@ const parts: AppParts = { app: createAppHandler({ fetch: start }), start };
 
 async function fetchAt(hostname: string, path: string, init: RequestInit = {}) {
   const ctx = createExecutionContext();
-  const response = await hostFetch(new Request(`https://${hostname}${path}`, init), host, ctx, parts);
+  const response = await hostFetch(
+    new Request(`https://${hostname}${path}`, init),
+    host,
+    ctx,
+    parts,
+  );
   await waitOnExecutionContext(ctx);
   return response;
 }
@@ -89,7 +94,11 @@ beforeAll(async () => {
 /** Every kind of state-changing request a page on a sibling might try. */
 const WRITES: { what: string; path: string; body?: string; type?: string }[] = [
   { what: "an operation", path: "/api/v1/op/person.create", body: '{"givenName":"X"}' },
-  { what: "staff sign-in", path: "/api/auth/sign-in/email", body: '{"email":"x@y.test","password":"p"}' },
+  {
+    what: "staff sign-in",
+    path: "/api/auth/sign-in/email",
+    body: '{"email":"x@y.test","password":"p"}',
+  },
   { what: "staff sign-out", path: "/api/auth/sign-out", body: "{}" },
   {
     what: "customer sign-in",
@@ -102,7 +111,12 @@ const WRITES: { what: string; path: string; body?: string; type?: string }[] = [
     body: '{"email":"x@y.test","type":"sign-in"}',
   },
   { what: "an upload", path: "/api/v1/media", body: "x", type: "image/png" },
-  { what: "MCP consent", path: "/oauth/consent", body: "decision=allow", type: "application/x-www-form-urlencoded" },
+  {
+    what: "MCP consent",
+    path: "/oauth/consent",
+    body: "decision=allow",
+    type: "application/x-www-form-urlencoded",
+  },
   { what: "MCP itself", path: "/mcp", body: "{}" },
   { what: "a server function", path: "/_serverFn/anything", body: "{}" },
   { what: "the assistant", path: "/api/assistant/threads", body: "{}" },
@@ -120,7 +134,7 @@ describe("a state-changing request on a many-client host (rule (b))", () => {
   it("is refused from a sibling client's hostname, every kind, with the session cookie or without, before any route runs", async () => {
     const before = reached.length;
     for (const w of WRITES) {
-      for (const headers of [
+      for (const headers of <Record<string, string>[]>[
         { origin: `https://${B}`, cookie: staffCookie },
         { origin: `https://${B}` },
         // Sec-Fetch-Site alone, with no Origin: a sibling is same-site, never same-origin.
@@ -133,11 +147,15 @@ describe("a state-changing request on a many-client host (rule (b))", () => {
         { origin: `https://${B}`, cookie: staffCookie, authorization: "Bearer x" },
       ]) {
         const response = await write(A, w, headers);
-        expect(await isRefused(response), `${w.what} ${JSON.stringify(Object.keys(headers))}`).toBe(true);
+        expect(await isRefused(response), `${w.what} ${JSON.stringify(Object.keys(headers))}`).toBe(
+          true,
+        );
       }
     }
     // gym-b's sibling is refused at gym-a's, and gym-a's at gym-b's.
-    expect(await isRefused(await write(B, WRITES[0] as never, { origin: `https://${A}` }))).toBe(true);
+    expect(await isRefused(await write(B, WRITES[0] as never, { origin: `https://${A}` }))).toBe(
+      true,
+    );
     expect(reached.length).toBe(before);
   });
 
@@ -210,7 +228,10 @@ describe("a state-changing request on a many-client host (rule (b))", () => {
     // OAuth's token endpoint from a browser MCP client, with no cookie.
     const oauth = await fetchAt(A, "/oauth/token", {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", origin: "https://mcp.example" },
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin: "https://mcp.example",
+      },
       body: "grant_type=authorization_code&code=x",
     });
     expect(await isRefused(oauth)).toBe(false);
@@ -243,8 +264,8 @@ describe("a state-changing request on a many-client host (rule (b))", () => {
     expect(at({ method: "POST", headers: { "sec-fetch-site": "same-site" } })).toBe("cross-site");
     expect(at({ method: "POST", headers: { origin: "null" } })).toBe("opaque-origin");
     expect(at({ method: "POST", headers: { origin: `https://${A_WEB}` } })).toBeNull();
-    expect(at({ method: "POST", path: "/api/auth/x", headers: { origin: `https://${A_WEB}` } })).toBe(
-      "cross-origin",
-    );
+    expect(
+      at({ method: "POST", path: "/api/auth/x", headers: { origin: `https://${A_WEB}` } }),
+    ).toBe("cross-origin");
   });
 });

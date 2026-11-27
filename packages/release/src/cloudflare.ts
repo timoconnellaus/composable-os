@@ -663,10 +663,9 @@ export class CloudflareClient {
   }
 
   listDnsRecords(zoneId: string, name: string) {
-    return this.request<{ id: string; type: string; name: string; content: string; proxied?: boolean }[]>(
-      "GET",
-      `/zones/${zoneId}/dns_records?name=${encodeURIComponent(name)}`,
-    ).then((r) => r.result);
+    return this.request<
+      { id: string; type: string; name: string; content: string; proxied?: boolean }[]
+    >("GET", `/zones/${zoneId}/dns_records?name=${encodeURIComponent(name)}`).then((r) => r.result);
   }
 
   /**

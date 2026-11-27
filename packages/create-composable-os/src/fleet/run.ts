@@ -62,6 +62,7 @@ import {
   setSecret,
 } from "./clients.ts";
 import { d1OverRest } from "./d1-rest.ts";
+import { cloudflareEdge, setUpFleetZone, zoneOf } from "./hostnames.ts";
 import {
   type KeysFile,
   keysFingerprint,
@@ -70,7 +71,6 @@ import {
   readKeysFile,
   writeKeysFile,
 } from "./keys.ts";
-import { cloudflareEdge, setUpFleetZone, zoneOf } from "./hostnames.ts";
 import { openOperator } from "./operator-client.ts";
 import { lazyOperator } from "./session.ts";
 import { fleetUpdate } from "./update.ts";
@@ -278,7 +278,9 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
     );
   }
   if (zone && !callbackHostname.endsWith(`.${fleetDomain}`)) {
-    throw new CliError(`--callback-hostname ${callbackHostname} must be under --domain ${fleetDomain}`);
+    throw new CliError(
+      `--callback-hostname ${callbackHostname} must be under --domain ${fleetDomain}`,
+    );
   }
   state.fleet = {
     environment,

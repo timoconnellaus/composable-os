@@ -16,7 +16,12 @@
 //   at `clients.<domain>`, the zone's fallback origin (`fleetClientTarget`).
 //
 // Every call here finds before it makes, so a re-run of any command converges.
-import type { CloudflareClient, CustomHostname, FleetAttach, FleetState } from "@composable-os/release";
+import type {
+  CloudflareClient,
+  CustomHostname,
+  FleetAttach,
+  FleetState,
+} from "@composable-os/release";
 import { fleetClientTarget } from "@composable-os/release";
 
 /** What the client adds to its DNS for its own domain, line by line. */
@@ -177,10 +182,7 @@ export async function zoneOf(
  * it, and its route to cos-front (so a proxied CNAME from a client's Cloudflare zone, which reaches
  * the target's route, is answered by cos-front too, and the target itself is a 404 there).
  */
-export async function setUpFleetZone(
-  input: EdgeInput,
-  log: (line: string) => void,
-): Promise<void> {
+export async function setUpFleetZone(input: EdgeInput, log: (line: string) => void): Promise<void> {
   const { api, fleet, appWorker, frontWorker } = input;
   const zone = fleet.zone;
   if (!zone) return;

@@ -207,9 +207,7 @@ export async function hostFetch(
   if ("response" in decided) return decided.response;
   const clientEnv = decided.env;
   // A change is made only from the client's own pages (stage 66 step 8, ADR 0619, rule (b)).
-  if (
-    writeOriginRefusal(request, clientEnv as unknown as WriteOriginEnv, env as WriteOriginHost)
-  ) {
+  if (writeOriginRefusal(request, clientEnv as unknown as WriteOriginEnv, env as WriteOriginHost)) {
     return writeOriginResponse();
   }
   return runInClientEnv(clientEnv, () => dispatch(request, clientEnv, ctx, parts));

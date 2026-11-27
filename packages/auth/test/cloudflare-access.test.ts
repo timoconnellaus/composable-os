@@ -47,9 +47,9 @@ describe("cloudflare-access adapter", () => {
     });
     const token = await keys.sign({ sub: "user-1", email: "ada@example.com" });
     expect(await headerOnly.resolve(request({ cookie: `CF_Authorization=${token}` }))).toBeNull();
-    expect(
-      (await headerOnly.resolve(request({ [ACCESS_JWT_HEADER]: token })))?.email,
-    ).toBe("ada@example.com");
+    expect((await headerOnly.resolve(request({ [ACCESS_JWT_HEADER]: token })))?.email).toBe(
+      "ada@example.com",
+    );
     // The provider a many-client host's environment makes is that one: the cookie is never read,
     // so not even the team's keys are fetched for it.
     const fetched = vi.spyOn(globalThis, "fetch");
