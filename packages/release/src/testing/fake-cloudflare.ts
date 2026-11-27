@@ -139,7 +139,7 @@ export class FakeCloudflare {
   }[] = [];
   /** AI Gateway logs per gateway id, for metering tests (`addGatewayLog`). */
   readonly gatewayLogs = new Map<string, FakeGatewayLog[]>();
-  readonly domains: { id: string; hostname: string; service: string; zone_id: string }[] = [];
+  readonly domains: { id?: string; hostname: string; service: string; zone_id: string }[] = [];
   readonly uploadedAssets = new Set<string>();
   /** AI Gateways by id, with their settings. */
   readonly gateways = new Map<string, Record<string, unknown>>();
@@ -240,6 +240,11 @@ export class FakeCloudflare {
     const object = new RegExp(`^/accounts/${this.accountId}/r2/buckets/([^/]+)/objects/(.+)$`).exec(
       path,
     );
+    if (object && method === "DELETE") {
+      // Deleting a key that is not there succeeds, as R2's does.
+      this.r2Objects.delete(`${object[1]}/${decodeURIComponent(object[2] as string)}`);
+      return ok(null);
+    }
     if (object && method === "PUT") {
       const bucket = object[1] as string;
       if (!this.r2.has(bucket)) return fail(404, 10006, `no bucket ${bucket}`);
@@ -388,6 +393,13 @@ export class FakeCloudflare {
       const name = url.searchParams.get("name");
       return ok(this.dnsRecords.filter((r) => r.zone_id === zone && (!name || r.name === name)));
     }
+    const dnsOne = /^\/zones\/([^/]+)\/dns_records\/([^/]+)$/.exec(path);
+    if (dnsOne && method === "DELETE") {
+      const at = this.dnsRecords.findIndex((r) => r.zone_id === dnsOne[1] && r.id === dnsOne[2]);
+      if (at === -1) return fail(404, 81044, "record not found");
+      this.dnsRecords.splice(at, 1);
+      return ok({ id: dnsOne[2] });
+    }
     if (path === `${a}/workers/subdomain`) {
       if (method === "PUT") {
         this.subdomain = String(b.subdomain);
@@ -464,9 +476,31 @@ export class FakeCloudflare {
       if (typeof b.creator === "string") this.streamCreators.set(m[1] as string, b.creator);
       return ok({ uid: m[1], creator: this.streamCreators.get(m[1] as string) });
     }
+    // A bucket's keys, a page at a time (`per_page`, `cursor`: the next key's index here).
+    m = new RegExp(`^${a}/r2/buckets/([^/]+)/objects$`).exec(path);
+    if (m && method === "GET") {
+      const bucket = m[1] as string;
+      if (!this.r2.has(bucket)) return fail(404, 10006, `no bucket ${bucket}`);
+      const keys = [...this.r2Objects.keys()]
+        .filter((k) => k.startsWith(`${bucket}/`))
+        .map((k) => k.slice(bucket.length + 1))
+        .sort();
+      const from = Number(url.searchParams.get("cursor") ?? "0");
+      const size = Number(url.searchParams.get("per_page") ?? "1000");
+      const truncated = from + size < keys.length;
+      return ok(
+        keys.slice(from, from + size).map((key) => ({ key })),
+        { is_truncated: truncated, ...(truncated ? { cursor: String(from + size) } : {}) },
+      );
+    }
     m = new RegExp(`^${a}/r2/buckets/([^/]+)$`).exec(path);
     if (m && method === "DELETE") {
-      this.r2.delete(m[1] as string);
+      const bucket = m[1] as string;
+      // As R2's: a bucket that holds an object is not deleted.
+      if ([...this.r2Objects.keys()].some((k) => k.startsWith(`${bucket}/`))) {
+        return fail(409, 10008, "The bucket you tried to delete is not empty");
+      }
+      this.r2.delete(bucket);
       return ok(null);
     }
     if (path === `${a}/storage/kv/namespaces`) {
@@ -733,11 +767,12 @@ export class FakeCloudflare {
     if (path === `${a}/workers/domains` && method === "PUT") {
       const existing = this.domains.find((d) => d.hostname === b.hostname);
       if (existing) Object.assign(existing, b);
-      else
+      else {
         this.domains.push({
-          id: this.id("dom"),
           ...(b as { hostname: string; service: string; zone_id: string }),
+          id: this.id("dom"),
         });
+      }
       return ok(b);
     }
     if (path === `${a}/workers/domains` && method === "GET") {
@@ -746,11 +781,46 @@ export class FakeCloudflare {
         { page: 1, total_pages: 1 },
       );
     }
-    const domain = new RegExp(`^${a}/workers/domains/([^/]+)$`).exec(path);
-    if (domain && method === "DELETE") {
-      const at = this.domains.findIndex((d) => d.id === domain[1]);
+    m = new RegExp(`^${a}/workers/domains/([^/]+)$`).exec(path);
+    if (m && method === "DELETE") {
+      const id = m[1] as string;
+      const at = this.domains.findIndex((d) => d.id === id);
       if (at === -1) return fail(404, 100114, "domain not found");
       this.domains.splice(at, 1);
+      return ok(null);
+    }
+    // The Durable Object namespaces: one per class a Worker of the account defines (a binding
+    // with no script_name), gone with its Worker.
+    if (path === `${a}/workers/durable_objects/namespaces` && method === "GET") {
+      const namespaces = [...this.scripts.values()].flatMap((s) => {
+        const live = s.versions.find((v) => v.id === s.current);
+        const bindings = (live?.metadata.bindings ?? []) as {
+          type: string;
+          class_name?: string;
+          script_name?: string;
+        }[];
+        return bindings
+          .filter((x) => x.type === "durable_object_namespace" && !x.script_name)
+          .map((x) => ({
+            id: `ns-${s.name}-${x.class_name}`,
+            name: `${s.name}_${x.class_name}`,
+            script: s.name,
+            class: x.class_name,
+          }));
+      });
+      return ok(namespaces, { page: 1, total_pages: 1 });
+    }
+    if (path === `${a}/workflows` && method === "GET") {
+      return ok(
+        [...this.workflows.keys()].map((name) => ({ id: name, name })),
+        { page: 1, total_pages: 1 },
+      );
+    }
+    m = new RegExp(`^${a}/workflows/([^/]+)$`).exec(path);
+    if (m && method === "DELETE") {
+      if (!this.workflows.delete(decodeURIComponent(m[1] as string))) {
+        return fail(404, 10200, "workflow not found");
+      }
       return ok(null);
     }
     if (path === `${a}/workers/assets/upload`) {
@@ -868,6 +938,12 @@ export class FakeCloudflare {
     if (!script) return fail(404, 10007, `script ${name} not found`);
     if (rest === "" && method === "DELETE") {
       store.delete(name);
+      // `?force=true`, as the client sends it: the Worker's queue consumers go with it.
+      if (!namespaced) {
+        for (const queue of this.queues.values()) {
+          queue.consumers = queue.consumers.filter((c) => c.script_name !== name);
+        }
+      }
       return ok(null);
     }
     if (rest === "/versions" && method === "POST") {
@@ -908,6 +984,11 @@ export class FakeCloudflare {
     if (rest === "/subdomain" && method === "POST") {
       script.workersDev = Boolean(b.enabled);
       return ok({ enabled: script.workersDev });
+    }
+    // The deployed version's bindings (secrets show by name only, as the real API's do).
+    if (rest === "/settings" && method === "GET") {
+      const live = script.versions.find((v) => v.id === script.current);
+      return ok({ bindings: (live?.metadata.bindings ?? []) as unknown[] });
     }
     return fail(404, 7003, `no route for ${method} /scripts/${name}${rest}`);
   }

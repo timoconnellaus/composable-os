@@ -17,7 +17,7 @@ import {
   ROLE_PRESETS,
   RoleLayerError,
 } from "@composable-os/core/ai-roles";
-import { PRODUCT_LABEL_VAR, type ProductDefinition } from "@composable-os/product";
+import { defineProduct, PRODUCT_LABEL_VAR, type ProductDefinition } from "@composable-os/product";
 import { DEFAULT_PRODUCT, products } from "@composable-os/products";
 import {
   apiKillSwitchStore,
@@ -174,11 +174,12 @@ A host of many clients (stage 66; docs/deploying.md "A host of many clients")
                                          the deployment's keys, written only to <file> (mode
                                          0600, refused inside a git working tree), never printed
   cos fleet install --env <e> --keys-file <f> --callback-hostname <h> --domain <d>
-                    [--zone z] [--attach custom-domains|wildcard]
+                    [--location <hint>] [--ai on|off] [--zone z] [--attach custom-domains|wildcard]
                                          the host, its registry, cos-client-db, the operator's
-                                         Worker and cos-front, with every binding a fleet needs;
-                                         learns the domain's zone and attaches the callback
-                                         hostname and the CNAME target of clients' own domains
+                                         Worker and cos-front, with every binding a fleet needs
+                                         (--location and --ai at the first install only); learns
+                                         the domain's zone and attaches the callback hostname
+                                         and the CNAME target of clients' own domains
   cos fleet upgrade --env <e> --keys-file <f> [--version x.y.z] [--dry-run] [--yes]
                                          every client paused, bookmarked and migrated, the Workers
                                          uploaded once, smoke checked, resumed; a client whose
@@ -251,6 +252,8 @@ Options
   --update-token <t>     store a scoped token so Settings → Updates can update in place
   --store-update-token   store --token itself for one-click updates
   --product <id>         the product to install (default ${DEFAULT_PRODUCT}; one of ${Object.keys(products).join(", ")})
+  --product-file <f>     instead, the staging check's throwaway product, defined in a JSON file
+                         (id cosstg-…, every name starting with it), for a release built for it
   --repo <owner/repo>    where releases come from (default: the product's own repository)
   --no-gh                skip \`gh attestation verify\` even if gh is installed
   --require-gh           fail unless \`gh attestation verify\` passes (full Sigstore check)
@@ -345,6 +348,11 @@ export interface Env {
   COS_AI_ADMIN_TOKEN?: string;
   /** Where the operator's Worker answers instead of its workers.dev address (tests). */
   COS_OPERATOR_ORIGIN?: string;
+  /** The staging check's forced failure of `cos fleet upgrade` (fleet/forced-failure.ts). */
+  COS_FLEET_FORCE_FAILURE?: string;
+  /** Set by GitHub Actions: the forced failure is refused outside the staging check's run. */
+  GITHUB_ACTIONS?: string;
+  GITHUB_WORKFLOW_REF?: string;
 }
 
 export interface Deps {
@@ -391,8 +399,44 @@ export interface Session extends ReleaseSource {
   accountId: string;
 }
 
+/** The staging check's throwaway products' ids start with this (scripts/fleet-staging-check.mjs). */
+export const THROWAWAY_PRODUCT_PREFIX = "cosstg-";
+
+/**
+ * Why a product is not one of the staging check's throwaway ones, or null when it is: its id
+ * starts with `cosstg-`, and every name is its id or starts with its id and a hyphen.
+ */
+export function throwawayProblem(product: ProductDefinition): string | null {
+  const id = product.id;
+  if (!id.startsWith(THROWAWAY_PRODUCT_PREFIX)) {
+    return `only a throwaway product is taken from a file: its id starts with ${THROWAWAY_PRODUCT_PREFIX}`;
+  }
+  const own = (name: string) => name === id || name.startsWith(`${id}-`);
+  const strays = Object.entries(product.names).filter(([, name]) => !own(name));
+  return strays.length
+    ? `every name of a throwaway product starts with its id (${id}-): ${strays.map(([key, name]) => `names.${key} is ${name}`).join(", ")}`
+    : null;
+}
+
 /** `--product`, or the default product. */
 export function productOf(flags: Flags, deps: Deps): ProductDefinition {
+  // A product this cos does not carry, by its names in a file: the staging check's throwaway one
+  // (.github/workflows/fleet-staging-check.yml), whose release is built for it. Names only.
+  const file = str(flags, "product-file");
+  if (file) {
+    if (str(flags, "product")) throw new CliError("--product and --product-file: give one");
+    let definition: ProductDefinition;
+    try {
+      definition = defineProduct(JSON.parse(readFileSync(file, "utf8")) as ProductDefinition);
+    } catch (error) {
+      throw new CliError(`--product-file ${file}: ${(error as Error).message}`);
+    }
+    // Only a throwaway product, every name its own: a file can never name a real deployment's
+    // Workers or database and so take it over under another label (review of #541, F4).
+    const problem = throwawayProblem(definition);
+    if (problem) throw new CliError(`--product-file ${file}: ${problem}`);
+    return definition;
+  }
   const known = deps.products ?? { all: products, default: DEFAULT_PRODUCT };
   const id = str(flags, "product") ?? known.default;
   const product = known.all[id];
@@ -577,7 +621,7 @@ function registryProvider(slug: string): string | undefined {
 }
 
 /** `--ai` / COS_AI: true, false, or undefined when neither says. */
-function aiChoice(flags: Flags, env: Env): boolean | undefined {
+export function aiChoice(flags: Flags, env: Env): boolean | undefined {
   const value = (str(flags, "ai") ?? env.COS_AI)?.trim().toLowerCase();
   if (value === undefined || value === "") return undefined;
   if (value === "on" || value === "true") return true;
@@ -589,7 +633,7 @@ function aiChoice(flags: Flags, env: Env): boolean | undefined {
  * `--location`: a location hint for the stores a first install creates (ADR 0580), `none` for no
  * hint, or undefined when not given.
  */
-function locationChoice(flags: Flags): LocationHint | "none" | undefined {
+export function locationChoice(flags: Flags): LocationHint | "none" | undefined {
   const value = str(flags, "location")?.trim().toLowerCase();
   if (value === undefined || value === "") return undefined;
   if (value === "none" || isLocationHint(value)) return value;

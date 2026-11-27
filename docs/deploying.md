@@ -1196,15 +1196,18 @@ Releases are built by `.github/workflows/release.yml` on a `vX.Y.Z` / `vX.Y.Z-be
 One deployment of the host serving many clients, each with a database of its own (stage 66, ADRs
 0613 to 0619). Live and staging are two deployments, each with its own Workers, registry, queues,
 cos-client-db and keys. Nothing here changes a single-client install. Not yet run on Cloudflare:
-every command below is proved locally and against the fake API only.
+every command below is proved locally and against the fake API only, until the staging check
+([Proving a host of many clients on Cloudflare](#proving-a-host-of-many-clients-on-cloudflare-stage-66))
+is run.
 
 ```sh
 # Once per environment: the deployment's keys, into a file outside any repository (mode 0600).
 cos fleet keys --env staging --out ~/fleet-keys/staging.json
 # The host, its registry (migrated), cos-client-db, the operator's Worker, cos-front, every fleet
 # binding; the zone the domain is on, the callback hostname and clients.<domain> attached.
+# --location <hint> and --ai off are chosen here, at the first install only.
 cos fleet install --env staging --keys-file ~/fleet-keys/staging.json \
-  --callback-hostname callback.staging.<fleet domain> --domain staging.<fleet domain>
+  --callback-hostname callback.staging.<fleet domain> --domain staging.<fleet domain> --location oc
 # A client: its registry rows, its database made and migrated, its staff (and desk) hostnames
 # attached. No upload. Its own domain is recorded unverified, and the DNS records it needs printed.
 cos client add gym-a --env staging --location oc --desk --web-hostname staging.gym-a.example
@@ -1454,6 +1457,155 @@ fleet's token:
 ```sh
 pnpm --filter @composable-os/client-db-proof exec node scripts/deploy.mjs --remove
 ```
+
+## Proving a host of many clients on Cloudflare (stage 66)
+
+`.github/workflows/fleet-staging-check.yml` (*Fleet staging check*) makes a **throwaway staging
+fleet** on the fleet's account, runs every operator command of
+[A host of many clients](#a-host-of-many-clients-stage-66-step-7) on it, and deletes it. It is
+never live and never a real client. It is run by hand only (Actions, *Run workflow*); with
+`FLEET_CLOUDFLARE_API_TOKEN` or `FLEET_CLOUDFLARE_ACCOUNT_ID` missing it passes with a notice and
+makes nothing. Its logic is `scripts/fleet-staging-check.mjs`, tested against the fake Cloudflare
+API (`scripts/fleet-staging-check.test.mjs`, run by `pnpm lint`).
+
+```sh
+# A check, with the fleet's hostnames under a spare zone of the account (see "The zone" below):
+gh workflow run fleet-staging-check.yml -f mode=check -f location=oc -f zone=<spare zone>
+# What a failed run left (its run id, from the run's page or `gh run list`):
+gh workflow run fleet-staging-check.yml -f mode=remove -f target=<run id>
+```
+
+**Names.** Everything is named from one prefix, `cosstg-<run id>`. The two releases are built
+from the commit for a throwaway product whose id is that prefix, so every Worker, database,
+bucket, queue, namespace and Workflow is `cosstg-<run id>-…` (staging's names end in `-staging`),
+and the hostnames are under `cosstg-<run id>.<zone>`. Nothing that exists can share the prefix,
+and teardown deletes nothing else (see step 9).
+
+**The two releases.** `0.1.0` is the commit as it is. `0.1.1` is the same commit with one more
+core migration, `9000_staging_check_marker.sql` (a table `core_staging_check` and one row), written
+into the runner's checkout for its build and removed after. So every upgrade really migrates each
+client: a restore undoes something, and a success moves every client to schema 9000.
+
+**What runs**, in order. Each step's result and time go in the job summary, and a failed step
+does not stop the steps that do not need it. A step is `pass`, `fail`, `skipped` (what it needs
+failed), `partial` (it ran and proved less than its name says, for want of a zone, say) or `not
+checked` (something this check cannot check at all). **The summary opens with the verdict, and the
+step fails unless every step passed**: a partial one fails it as a failure does, and a run with
+no zone says first which steps are not proved.
+
+0. The account: a `workers.dev` subdomain (the operator's Worker is reached there), the zone if
+   one was given, every kind of resource listable, and nothing with the run's prefix there yet.
+1. `cos fleet keys` (the keys file in the runner's temp folder, mode 0600, never printed), then
+   `cos fleet install --env staging` of `0.1.0` with `--location <location>` and `--ai off`. The app
+   Worker's deployed bindings must name `0.1.0`. With `--zone`, `cos` attaches the callback
+   hostname to the app Worker as a Workers Custom Domain (the check confirms it), and the host's
+   health is awaited there.
+2. `cos client add alpha`, then `cos client add bravo`: both listed active, each staff hostname a
+   Custom Domain `cos` attached, and the time each add takes, as `cos` reports it and for the whole
+   command.
+3b. cos-front: `https://clients.<fleet domain>/` (no client's) answers 404 with cos-front's policy;
+   a POST to alpha's staff hostname from bravo's origin is refused, 403. With `client_zone` (a
+   second spare zone), `cos client hostname add alpha www.cosstg-<run id>.<client zone>`, the TXT
+   and CNAME records it prints written into that zone, `cos client hostname verify` until
+   Cloudflare proves it, the holding page served there, and `cos client hostname remove`. Without
+   one, 3b is partial.
+3. Requests: the app's `workers.dev` address (it answers the unknown hostname's 404: a client is
+   decided only by its hostname); each client's staff sign-in page; a staff account signed up at
+   each, whose session works at its own address and is answered at the other's as no session is
+   (the same status and error code), and whose password at the other's is the wrong-password
+   answer, 401; the host's health on the callback hostname; a picture uploaded at alpha, which must
+   succeed, for the export to carry.
+4. `cos client sender add`, `verify` and `unverify` for a made-up domain. **A send is not checked**
+   (4b, see below).
+5. `cos fleet upgrade` to `0.1.1` three times:
+   - bravo's migration made to fail after alpha's migration has applied: the update must stop
+     before any upload, name alpha and bravo restored, leave both at the schema and status they
+     had, and leave the app Worker on `0.1.0` (read from its bindings, not from `cos`'s words);
+   - the smoke check made to fail after the upload and after the real check passed: rolled back,
+     both clients as they were, the app Worker on `0.1.0` again;
+   - a real one: both clients at schema 9000 and served, the app Worker and the host's health on
+     `0.1.1`.
+6. `cos client export alpha --out`, `cos client import charlie` from it, and an export of charlie.
+   Each export's part and file hashes are recomputed from its bytes on disk; the two exports'
+   row counts and file hashes must be alike, the export must count rows, carry the picture of
+   step 3 and, after a successful upgrade, the migration's row.
+7. `cos client add delta`, and `cos client export bravo` started while the add holds the
+   operator's Worker: the second is refused ("Another operator's command"), the first finishes. If
+   the add finished before the export began, the two did not overlap and the step is partial.
+8. `cos client remove alpha`: alpha's address answers the unknown hostname's 404 within the
+   registry's refresh, bravo answers and its staff stay signed in.
+9. **Teardown, always** (its own step, run after a failure, a timeout or a cancel too):
+   - it lists the account under the prefix, every kind, the Durable Object namespaces of the
+     run's Workers among them, and deletes what it finds by exact name (an id only as that listing
+     gave it): the Custom Domains, the Workers (their namespaces, every client's database, their
+     secrets and queue consumers go with them), the queues, the Workflows, the buckets (each
+     emptied first), the D1 databases (the registry and the deployment's), KV, Vectorize and AI
+     Gateways, each tried twice;
+   - of a kind the account cannot list, it deletes the names the run recorded as it went (a
+     ledger in the runner's temp folder), only of the kinds deleted by name (Workers, Workflows,
+     buckets, indexes, gateways), never by a recorded id it cannot check against its name;
+   - then it lists the prefix again. **It fails if anything is left, if anything could not be
+     deleted, or if any kind could not be listed** (said first: the account may still hold some);
+     the summary lists what was deleted and what was not, with the account cut out of every error.
+   - Then the runner's folder (the keys file, the exports with their `secrets.json`, the releases)
+     is deleted.
+
+**The switch that makes an upgrade fail** (step 5) is `COS_FLEET_FORCE_FAILURE`:
+`migration:<client>` adds, to that client's migrate call only, a migration that fails inside its
+database; `smoke` fails the smoke check after the real one has passed. `cos` refuses it, with
+nothing done, unless the fleet is staging, the product is a throwaway one (its id starts with
+`cosstg-` and every name with its id), and it runs in GitHub Actions in this workflow
+(`GITHUB_ACTIONS` and `GITHUB_WORKFLOW_REF`). The other flags it uses are ordinary:
+`--product-file` (the throwaway product defined in a JSON file, for a release built for it; any
+other product is refused from a file), and `cos fleet install`'s `--location` and `--ai`, chosen at
+a fleet's first install only. Every command already runs without prompts given `--yes` and the
+token in the environment, so nothing about confirmations changed.
+
+**AI is off, always.** An install with AI makes an account API token (for its AI Gateway) and
+creates or changes the account's custom AI provider, which is shared by every deployment in the
+account; no teardown deletes the one or puts the other back. The workflow has no `ai` input, and
+the script refuses `--ai on`.
+
+**The zone.** The app decides a client only by the hostname a request reached, so on
+`workers.dev` alone no client can be reached. With `zone` set to an active zone of the account on
+which the token has Zone Read, Workers Routes, DNS, SSL and Custom Hostnames, `cos` (stage 66 step
+8) attaches the callback hostname and each staff hostname as Workers Custom Domains (Cloudflare
+makes their DNS records and certificates, and removes them with the domain; it never replaces a
+record that exists), and makes `clients.<fleet domain>` (a placeholder record, a route to
+cos-front, and the zone's fallback origin unless it already has one: `cos` leaves another). The
+teardown deletes the run's routes, DNS records and custom hostnames on that zone and the client
+zone, by a hostname label exactly the prefix. **Use a spare zone, not a live site's**: the certificates'
+hostnames stay in public certificate logs. Without one, steps 1, 3, 5, 6 and 8 are partial and the
+run is not proved; what can run still runs.
+
+**What it cannot check:** a send (4b). `cos fleet install` installs no gatekeeper (a fleet's state
+lists none), so no email-send Worker exists to send from or to refuse an unverified domain; the
+`sending_domain` input is recorded and not used until one can be installed on a fleet. A client's
+own web app (cos-front serves a holding page until stage 75). AI. A live fleet, a real client and the
+first client's own steps (step 9). Payments, texts and webhooks (off for every client of a fleet).
+Two endpoints are not proved against Cloudflare's own API before the first run: listing a bucket's
+objects (`GET …/r2/buckets/<bucket>/objects`) and listing Workflows; if either is refused, the
+teardown fails and says which, and `remove` (or the dashboard) finishes it.
+
+**What the owner sets up first:**
+
+- The token of [the proof above](#proving-a-clients-database-on-cloudflare-stage-66-step-1),
+  with the zone's permissions for `zone`, and the account's `workers.dev` subdomain.
+- **The `fleet` environment's protection** (recommended before the first run): move both secrets
+  from the repository into the `fleet` environment, give it a deployment branch policy of `main`
+  and a required reviewer. Every job of the workflow that reads the secrets runs in that
+  environment, so it works with the secrets in either place; while they are repository secrets,
+  any workflow run on any branch by someone with write access can read them, and the zone
+  permissions widen what a leak would expose.
+
+Where the install needs a feature the account does not have (Queues on its plan, a permission, the
+zone), the failing step's note says which in plain words, and the teardown still runs.
+
+**What a run costs, roughly:** the runner's time (about an hour and a half, most of it building the
+two releases in full; Actions minutes are free on a public repository) and, on Cloudflare, a few
+hundred Worker requests, a few thousand Durable Object, D1 and R2 operations, a few queue messages
+and kilobytes of storage for under an hour: within the usage the Workers Paid plan includes, so
+cents at most. A Custom Domain's certificate costs nothing.
 
 ## Manual end-to-end run (needs a human)
 

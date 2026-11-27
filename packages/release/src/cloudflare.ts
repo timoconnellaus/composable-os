@@ -37,7 +37,7 @@ interface Envelope<T> {
   success: boolean;
   errors?: { code: number; message: string }[];
   result: T;
-  result_info?: { page?: number; total_pages?: number; cursor?: string };
+  result_info?: { page?: number; total_pages?: number; cursor?: string; is_truncated?: boolean };
 }
 
 export interface ModulePart {
@@ -368,6 +368,29 @@ export class CloudflareClient {
     await this.request("DELETE", `/accounts/${accountId}/r2/buckets/${name}`);
   }
 
+  /** One page of a bucket's object keys, and the cursor of the next (null at the end). */
+  async listR2Objects(
+    accountId: string,
+    bucket: string,
+    cursor: string | null = null,
+  ): Promise<{ keys: string[]; cursor: string | null }> {
+    const { result, info } = await this.request<{ key: string }[]>(
+      "GET",
+      `/accounts/${accountId}/r2/buckets/${bucket}/objects?per_page=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+    );
+    return {
+      keys: result.map((o) => o.key),
+      cursor: info?.is_truncated && info.cursor ? info.cursor : null,
+    };
+  }
+
+  async deleteR2Object(accountId: string, bucket: string, key: string) {
+    await this.request(
+      "DELETE",
+      `/accounts/${accountId}/r2/buckets/${bucket}/objects/${key.split("/").map(encodeURIComponent).join("/")}`,
+    );
+  }
+
   listKv(accountId: string) {
     return this.all<{ id: string; title: string }>(`/accounts/${accountId}/storage/kv/namespaces`);
   }
@@ -679,6 +702,31 @@ export class CloudflareClient {
     >("GET", `/zones/${zoneId}/dns_records?name=${encodeURIComponent(name)}`).then((r) => r.result);
   }
 
+  /** Every DNS record of a zone (the staging check's inventory). */
+  listAllDnsRecords(zoneId: string) {
+    return this.all<{ id: string; type: string; name: string; content: string }>(
+      `/zones/${zoneId}/dns_records`,
+    );
+  }
+
+  /** A DNS record as given (the staging check writes a client's own records with it). */
+  async createDnsRecord(
+    zoneId: string,
+    record: { type: string; name: string; content: string; proxied?: boolean; ttl?: number },
+  ) {
+    return (await this.request<{ id: string }>("POST", `/zones/${zoneId}/dns_records`, record))
+      .result;
+  }
+
+  async deleteDnsRecord(zoneId: string, id: string) {
+    await unless404(this.request("DELETE", `/zones/${zoneId}/dns_records/${id}`));
+  }
+
+  /** Every custom hostname of a zone. */
+  listCustomHostnames(zoneId: string) {
+    return this.all<CustomHostname>(`/zones/${zoneId}/custom_hostnames`);
+  }
+
   /**
    * A proxied `AAAA 100::` record for `name` (the documented placeholder for a hostname a Worker
    * answers), made once: an existing record of that name is left as it is.
@@ -793,7 +841,39 @@ export class CloudflareClient {
     await this.request("DELETE", `/accounts/${accountId}/workers/domains/${id}`);
   }
 
+  /** The account's Durable Object namespaces, each with the Worker that defines its class. */
+  listDurableObjectNamespaces(accountId: string) {
+    return this.all<{ id: string; name: string; script?: string; class?: string }>(
+      `/accounts/${accountId}/workers/durable_objects/namespaces`,
+    );
+  }
+
+  /** A Worker's deployed bindings (a plain var with its text; a secret by name only). */
+  async scriptBindings(accountId: string, name: string) {
+    return (
+      await this.request<{ bindings: { type: string; name: string; text?: string }[] }>(
+        "GET",
+        `${this.scripts(accountId)}/${name}/settings`,
+      )
+    ).result.bindings;
+  }
+
+  // ---- Workflows ------------------------------------------------------------------------------
+
+  listWorkflows(accountId: string) {
+    return this.all<{ id: string; name: string }>(`/accounts/${accountId}/workflows`);
+  }
+
+  async deleteWorkflow(accountId: string, name: string) {
+    await this.request("DELETE", `/accounts/${accountId}/workflows/${encodeURIComponent(name)}`);
+  }
+
   // ---- AI Gateway (ADR 0180) -----------------------------------------------------------------
+
+  /** The account's gateways (their ids). Needs AI Gateway Read or Edit. */
+  listAiGateways(accountId: string) {
+    return this.all<{ id: string }>(`/accounts/${accountId}/ai-gateway/gateways`);
+  }
 
   /** A gateway by id, or null when there is none. Needs AI Gateway Read or Edit. */
   async getAiGateway(accountId: string, id: string): Promise<AiGateway | null> {

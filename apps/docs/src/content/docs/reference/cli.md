@@ -114,11 +114,12 @@ installing a product with no repository.
                                          the deployment's keys, written only to <file> (mode
                                          0600, refused inside a git working tree), never printed
   cos fleet install --env <e> --keys-file <f> --callback-hostname <h> --domain <d>
-                    [--zone z] [--attach custom-domains|wildcard]
+                    [--location <hint>] [--ai on|off] [--zone z] [--attach custom-domains|wildcard]
                                          the host, its registry, cos-client-db, the operator's
-                                         Worker and cos-front, with every binding a fleet needs;
-                                         learns the domain's zone and attaches the callback
-                                         hostname and the CNAME target of clients' own domains
+                                         Worker and cos-front, with every binding a fleet needs
+                                         (--location and --ai at the first install only); learns
+                                         the domain's zone and attaches the callback hostname
+                                         and the CNAME target of clients' own domains
   cos fleet upgrade --env <e> --keys-file <f> [--version x.y.z] [--dry-run] [--yes]
                                          every client paused, bookmarked and migrated, the Workers
                                          uploaded once, smoke checked, resumed; a client whose
@@ -194,6 +195,8 @@ installing a product with no repository.
   --update-token <t>     store a scoped token so Settings → Updates can update in place
   --store-update-token   store --token itself for one-click updates
   --product <id>         the product to install (default crm; one of crm)
+  --product-file <f>     instead, the staging check's throwaway product, defined in a JSON file
+                         (id cosstg-…, every name starting with it), for a release built for it
   --repo <owner/repo>    where releases come from (default: the product's own repository)
   --no-gh                skip `gh attestation verify` even if gh is installed
   --require-gh           fail unless `gh attestation verify` passes (full Sigstore check)
