@@ -362,8 +362,6 @@ export function tokenSession(options: TokenSessionOptions) {
      * reached.
      */
     async signOut(): Promise<void> {
-      // From here on, a refresh in flight keeps nothing it brings back.
-      generation += 1;
       const tokens = await options.store.load();
       try {
         if (tokens) {

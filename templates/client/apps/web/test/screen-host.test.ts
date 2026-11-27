@@ -514,6 +514,29 @@ describe("the browser build's ScreenHost", () => {
     expect(await store.load()).toMatchObject({ refreshToken: "refresh-2" });
   });
 
+  it("asks again, and signs nothing out, when the refused session is not the one the tab now holds", async () => {
+    const store = noLocks(memoryStorage());
+    await store.save(tokens(1));
+    const host = fakeHost((path, sent) => {
+      if (path === "/api/v1/auth/sign-out") return [200, { data: { ok: true } }];
+      if (sent.headers.authorization === "Bearer access-3") return [200, { data: me }];
+      return [
+        401,
+        { error: { code: "forbidden", message: "No", details: { reason: "session_idle" } } },
+      ];
+    });
+    // While the call is out, the tab takes a new session (a sign-in elsewhere in the page).
+    const fetch = async (url: string, init?: RequestInit) => {
+      const answer = await host.fetch(url, init);
+      if (answer.status === 401) await store.save({ ...tokens(3), sessionId: "ses_3" });
+      return answer;
+    };
+    const screens = tokenScreenHost({ hostUrl: HOST, store, fetch });
+    expect(await screens.me()).toMatchObject({ displayName: "Ada Lovelace" });
+    expect(host.sent.some((s) => s.url.endsWith("/api/v1/auth/sign-out"))).toBe(false);
+    expect(await store.load()).toMatchObject({ refreshToken: "refresh-3" });
+  });
+
   it("signs out on the host, and forgets, a session the host no longer takes", async () => {
     const host = fakeHost((path) =>
       path === "/api/v1/auth/sign-out"

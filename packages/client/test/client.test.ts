@@ -448,6 +448,8 @@ describe("token sessions (ADR 0419)", () => {
       expect(await first).toEqual({ id: "a", n: 7 });
       expect(await second).toEqual({ id: "a", n: 7 });
       expect(h.log.filter((line) => line === "refresh")).toHaveLength(1);
+      // Only the first call ever left with at-1: the second waited for the refresh.
+      expect(h.log.filter((line) => line === "thing.get at-1")).toHaveLength(1);
       expect(h.log).not.toContain("sign-out rt-2");
       expect(store.peek()?.refreshToken).toBe("rt-2");
     });
