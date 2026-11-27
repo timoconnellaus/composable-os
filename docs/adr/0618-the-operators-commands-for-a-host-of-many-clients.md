@@ -245,7 +245,10 @@ the control plane), as one later step. Recorded in ADR 0616 too.
 
 ### Email sending per client, wired (2026-11-28; issue #529)
 - A fleet deploy sets `SENDER_DOMAINS_PER_CLIENT=true` on the email-send gatekeeper (tested; a
-  single-client deployment's stays as it was).
+  single-client deployment's stays as it was). *Corrected 2026-11-27:* as first built, `cos fleet
+  install` deployed no gatekeeper at all (its state's `gatekeepers` was always empty), so the
+  engine had no email-send Worker to set it on and no fleet could send email. See "A fleet's
+  gatekeepers" below.
 - `cos client sender add|verify|unverify|remove <id> <domain>` over
   `@composable-os/db/registry-senders`. A domain is added unverified. `verify` asks for the
   client's id and says what the operator confirms: that the domain is onboarded to Email Sending
@@ -258,6 +261,41 @@ the control plane), as one later step. Recorded in ADR 0616 too.
   `UPDATE` of its client, an upsert or an `INSERT OR REPLACE` (issue #529, F1).
 - An export lists the client's sender domains in its manifest; an import adds each unverified (one
   another client holds is named, not added).
+
+### A fleet's gatekeepers (2026-11-27; issue #529)
+*Amendment, a correction: step 7 meant the fleet to send email per client and built everything for
+it except installing the gatekeeper.*
+- **The list is fixed by the platform, not chosen by a flag.** A gatekeeper goes on a fleet only
+  once it is made per client (ADR 0616, "Gatekeepers"); which ones those are is code, reviewed, not
+  an operator's option, and a flag would let one command put a gatekeeper holding one account for
+  every client on a shared host. Today the list is email sending alone (`FLEET_GATEKEEPERS`,
+  `packages/create-composable-os/src/fleet/gatekeepers.ts`). Payments, text, inbound webhooks and
+  email receiving stay off a fleet; the OAuth gatekeepers (Google, Microsoft, Slack, ZoomInfo)
+  stay off until the operator's apps and the checks ADR 0616 lists (items 6 and 7) are done, each
+  a change to this list.
+- **One mechanism, the single-client one.** `cos fleet install` writes the list into the
+  deployment state's `gatekeepers`, on a first install and on a re-run, exactly as `cos install
+  --gatekeepers` does; the deploy engine then uploads the gatekeeper's Worker, binds it on the
+  runner as `GATEKEEPER_EMAIL_SEND` (the runner's `gatekeeperBindings`) and, on a fleet, sets
+  `SENDER_DOMAINS_PER_CLIENT=true` (`packages/release/src/fleet.ts`). `cos fleet upgrade` takes the
+  list from the new release's manifest, uploads with it and records it with the new version, so a
+  fleet installed before this change gains the gatekeeper at its next upgrade and every later
+  upgrade keeps it. Rolling back uploads the previous release with the state as it was.
+- **A release without the email-send gatekeeper is refused** by `install` and `upgrade` before
+  anything is made: a fleet whose clients cannot be sent a sign-in code is not a working fleet.
+- **No secret.** Cloudflare Email Service is the gatekeeper's `send_email` binding in the
+  deployment's own account; it has no key. What the operator does instead is onboard each
+  client's domain to Email Sending in that account (its DNS records valid), then `cos client
+  sender add` and `verify` (above). `ALLOWED_SENDER_DOMAINS` and `INTERNAL_DOMAINS` stay as the
+  committed configuration has them (empty); the first is never read on a fleet.
+- **Isolation stays where #527 put it**, in the host and the gatekeeper, for every send whoever
+  starts it (an operation, the host's own mail, an automation's step or extension code, all through
+  the client's integration host): the gatekeeper allows a sender only on the verified domains the
+  registry gives that client, at bind, at send and again at apply; a client paused or removed is
+  refused by its integration host at its next call (every call re-reads the client's admission),
+  so a send queued before is never sent. Tests: `packages/create-composable-os/test/fleet.test.ts`
+  ("a fleet's gatekeepers") and the runner's two-client `email-sending.test.ts` ("a client
+  paused, then removed, by the operator").
 
 ## What is left out, and why
 - **Videos are not copied.** Step 5 (#522, merged) stamps each video with its client's creator
@@ -277,7 +315,8 @@ the control plane), as one later step. Recorded in ADR 0616 too.
 - **The deployment's state** stays in `core_install` of the host's own D1 database (which on a fleet
   holds no client's records), not in the registry as the spec's table listed: the deploy engine
   finds a deployment by that database, and moving it gains nothing.
-- **Payments, text, inbound webhooks and email** stay off on a host of many clients (ADR 0616); a
+- **Payments, text, inbound webhooks and email receiving** stay off on a host of many clients
+  (ADR 0616; email sending is on, "A fleet's gatekeepers" above); a
   client's Stripe keys can already be stored as given secrets (`STRIPE_SECRET_KEY`,
   `STRIPE_WEBHOOK_SECRET`), in no client's environment until the payments gatekeeper is made per
   client (the owner's decision of 2026-11-27, ADR 0616).

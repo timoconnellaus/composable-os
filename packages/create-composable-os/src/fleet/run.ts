@@ -60,6 +60,7 @@ import {
   setSecret,
 } from "./clients.ts";
 import { d1OverRest } from "./d1-rest.ts";
+import { fleetGatekeepers } from "./gatekeepers.ts";
 import {
   type KeysFile,
   keysFingerprint,
@@ -238,6 +239,8 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
     bundleDigest: digest,
     installedAt: new Date().toISOString(),
   };
+  // A fleet's gatekeepers are the platform's fixed list (ADR 0618), on a re-run too.
+  state.gatekeepers = fleetGatekeepers(manifest);
   // The keys file must be the one this deployment was installed with (S2): never re-keyed here.
   if (state.fleet) {
     const mismatch = keysMismatch(state.fleet, keys);
@@ -321,6 +324,8 @@ async function fleetUpgrade(flags: Flags, deps: Deps): Promise<number> {
     }
   }
   const target = await verified(s, to, deps);
+  // The new release's fleet gatekeepers (ADR 0618): a fleet installed before them gains them here.
+  const upgraded = { ...state, gatekeepers: fleetGatekeepers(target.bundle.manifest) };
   let previous: ReleaseBundle | null = null;
   const fleet = fleetInput(keys, environment);
   return withContext(`fleet upgrade ${environment}`, flags, deps, s, state, async (ctx) => {
@@ -333,7 +338,7 @@ async function fleetUpgrade(flags: Flags, deps: Deps): Promise<number> {
         await deployWorkers({
           api: s.api,
           bundle: target.bundle,
-          state,
+          state: upgraded,
           secrets: {},
           fleet,
           log: (l) => deps.io.out(l),
@@ -358,7 +363,7 @@ async function fleetUpgrade(flags: Flags, deps: Deps): Promise<number> {
         }),
       recordVersion: async (version) => {
         await writeDeploymentState(s.api, databaseId, {
-          ...state,
+          ...upgraded,
           version,
           bundleDigest: target.digest,
           updatedAt: new Date().toISOString(),

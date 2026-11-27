@@ -986,7 +986,9 @@ describe("cos fleet install", () => {
     const { runIn, startWorld } = await import("./world.ts");
     const world = await startWorld();
     try {
-      await world.github.publish(await buildFixtureRelease({ version: "1.0.0", fleet: true }));
+      await world.github.publish(
+        await buildFixtureRelease({ version: "1.0.0", fleet: true, clientGatekeepers: true }),
+      );
       const keysPath = join(mkdtempSync(join(tmpdir(), "s66s7-keys-")), "live.json");
       expect((await runIn(world, "fleet", "keys", "--env", "live", "--out", keysPath)).code).toBe(
         0,
@@ -1006,9 +1008,12 @@ describe("cos fleet install", () => {
       ];
       const { code, output } = await runIn(world, ...args);
       expect(code, output).toBe(0);
+      // The fleet's one gatekeeper, email sending (ADR 0618, "A fleet's gatekeepers"): not the
+      // payments one the release also carries, which holds one account for every client.
       expect([...world.cf.scripts.keys()].sort()).toEqual([
         "demo-app",
         "demo-client-db",
+        "demo-gatekeeper-email-send",
         "demo-operator",
         "demo-runner",
       ]);
@@ -1052,6 +1057,129 @@ describe("cos fleet install", () => {
       expect(world.cf.scripts.get("demo-app")?.secrets.get("COS_PROPS_KEY")).toBe(
         keysFile.propsKey,
       );
+    } finally {
+      world.server.close();
+    }
+  });
+});
+
+describe("a fleet's gatekeepers (ADR 0618, issue #529)", () => {
+  const install = async (world: Awaited<ReturnType<typeof import("./world.ts").startWorld>>) => {
+    const { runIn } = await import("./world.ts");
+    const keysPath = join(mkdtempSync(join(tmpdir(), "s66-gk-keys-")), "live.json");
+    expect((await runIn(world, "fleet", "keys", "--env", "live", "--out", keysPath)).code).toBe(0);
+    const installed = await runIn(
+      world,
+      ...["fleet", "install", "--env", "live", "--keys-file", keysPath],
+      ...["--callback-hostname", "callback.fleet.example", "--domain", "fleet.example"],
+      ...["--version", "1.0.0"],
+    );
+    return { keysPath, installed };
+  };
+  const upgrade = async (
+    world: Awaited<ReturnType<typeof import("./world.ts").startWorld>>,
+    keysPath: string,
+    version: string,
+  ) => {
+    const { runIn } = await import("./world.ts");
+    return runIn(
+      world,
+      ...["fleet", "upgrade", "--env", "live", "--keys-file", keysPath, "--version", version],
+      ...["--yes", "--skip-staging"],
+    );
+  };
+  const hostDb = (world: Awaited<ReturnType<typeof import("./world.ts").startWorld>>) => {
+    const db = [...world.cf.d1.values()].find((d) => d.name === "demo");
+    if (!db) throw new Error("no host database");
+    return db.engine;
+  };
+  const stateOf = async (world: Awaited<ReturnType<typeof import("./world.ts").startWorld>>) => {
+    const [row] = await hostDb(world).query(
+      "SELECT value FROM core_install WHERE key = 'deployment'",
+      [],
+    );
+    return JSON.parse(String(row?.value)) as { gatekeepers: string[]; version: string };
+  };
+  /** What a fleet's email sending needs on Cloudflare: the Worker, the runner's binding, the flag. */
+  const sendsPerClient = (world: Awaited<ReturnType<typeof import("./world.ts").startWorld>>) => {
+    expect(world.cf.scripts.has("demo-gatekeeper-email-send")).toBe(true);
+    expect(world.cf.liveBinding("demo-runner", "GATEKEEPER_EMAIL_SEND")).toMatchObject({
+      type: "service",
+      service: "demo-gatekeeper-email-send",
+    });
+    expect(
+      world.cf.liveBinding("demo-gatekeeper-email-send", "SENDER_DOMAINS_PER_CLIENT"),
+    ).toMatchObject({ type: "plain_text", text: "true" });
+    // No other gatekeeper: payments holds one account for the whole deployment (ADR 0616).
+    expect(world.cf.scripts.has("demo-gatekeeper-payments")).toBe(false);
+    expect(world.cf.liveBinding("demo-runner", "GATEKEEPER_PAYMENTS")).toBeUndefined();
+  };
+
+  it("installs the email-send gatekeeper with every fleet, bound to the runner and sending per client, with no secret asked", async () => {
+    const { buildFixtureRelease } = await import("@composable-os/release/testing");
+    const { startWorld } = await import("./world.ts");
+    const world = await startWorld();
+    try {
+      await world.github.publish(
+        await buildFixtureRelease({ version: "1.0.0", fleet: true, clientGatekeepers: true }),
+      );
+      const { installed } = await install(world);
+      expect(installed.code, installed.output).toBe(0);
+      sendsPerClient(world);
+      expect((await stateOf(world)).gatekeepers).toEqual(["demo-gatekeeper-email-send"]);
+    } finally {
+      world.server.close();
+    }
+  });
+
+  it("refuses a release without the email-send gatekeeper, before anything is made", async () => {
+    const { buildFixtureRelease } = await import("@composable-os/release/testing");
+    const { startWorld } = await import("./world.ts");
+    const world = await startWorld();
+    try {
+      await world.github.publish(await buildFixtureRelease({ version: "1.0.0", fleet: true }));
+      const { installed } = await install(world);
+      expect(installed.code).toBe(1);
+      expect(installed.output).toContain("has no email-send gatekeeper");
+      expect([...world.cf.scripts.keys()]).toEqual([]);
+      expect([...world.cf.d1.values()].map((d) => d.name)).not.toContain("demo-registry");
+    } finally {
+      world.server.close();
+    }
+  });
+
+  it("is added by an upgrade to a fleet installed without it, and kept by every upgrade after", async () => {
+    const { buildFixtureRelease } = await import("@composable-os/release/testing");
+    const { startWorld } = await import("./world.ts");
+    const world = await startWorld();
+    try {
+      for (const version of ["1.0.0", "1.1.0", "1.2.0"]) {
+        await world.github.publish(
+          await buildFixtureRelease({ version, fleet: true, clientGatekeepers: true }),
+        );
+      }
+      const { keysPath, installed } = await install(world);
+      expect(installed.code, installed.output).toBe(0);
+      // As a fleet installed before this change has it: no gatekeeper in its state, none uploaded.
+      const before = await stateOf(world);
+      await hostDb(world).query("UPDATE core_install SET value = ? WHERE key = 'deployment'", [
+        JSON.stringify({ ...before, gatekeepers: [] }),
+      ]);
+      world.cf.scripts.delete("demo-gatekeeper-email-send");
+      const first = await upgrade(world, keysPath, "1.1.0");
+      expect(first.code, first.output).toBe(0);
+      sendsPerClient(world);
+      expect(await stateOf(world)).toMatchObject({
+        version: "1.1.0",
+        gatekeepers: ["demo-gatekeeper-email-send"],
+      });
+      const second = await upgrade(world, keysPath, "1.2.0");
+      expect(second.code, second.output).toBe(0);
+      sendsPerClient(world);
+      expect(await stateOf(world)).toMatchObject({
+        version: "1.2.0",
+        gatekeepers: ["demo-gatekeeper-email-send"],
+      });
     } finally {
       world.server.close();
     }

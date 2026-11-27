@@ -34,3 +34,24 @@ failure.
 A first install may give a location hint for its database and buckets
 ([ADR 0580](../adr/0580-a-location-hint-on-new-installs.md)). Where a client's product is hosted
 is decided per client ([ADR 0610](../adr/0610-three-homes-for-a-client-hosted-by-default.md)).
+
+## A host of many clients
+
+One deployment can serve many clients, each with a database of its own
+([ADR 0611](../adr/0611-one-host-a-database-per-client.md)). The operator runs it with `cos fleet`
+and `cos client` ([ADR 0618](../adr/0618-the-operators-commands-for-a-host-of-many-clients.md);
+the steps are in [docs/deploying.md](../deploying.md), "A host of many clients"):
+
+- `cos fleet keys` makes the deployment's keys file once; `cos fleet install` installs the host,
+  its registry and the operator's Worker; `cos fleet upgrade` takes a release across every client,
+  staging first.
+- `cos client add` gives a client its database and hostnames with no Worker upload; `pause`,
+  `resume`, `secret`, `export`, `import` and `remove` follow it through its life.
+- **Email.** Every fleet gets the email-send gatekeeper from `cos fleet install`, kept by each
+  upgrade; it is the only gatekeeper on a fleet. It needs no secret: it sends through Cloudflare
+  Email Service in the fleet's own account. For each client, the operator onboards the client's
+  domain to Email Sending in that account, then runs `cos client sender add <id> <domain>` and,
+  once every record shows valid, `cos client sender verify <id> <domain>`. A client sends only from
+  its own verified domains: never from another client's, the fleet's own or an unverified one, and
+  nothing while it is paused or after it is removed
+  ([ADR 0616](../adr/0616-secrets-and-addresses-per-client.md), "Email sending per client").

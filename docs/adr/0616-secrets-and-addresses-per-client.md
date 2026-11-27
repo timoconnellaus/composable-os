@@ -562,6 +562,10 @@ with `verifySenderDomain` only after the operator confirms it is onboarded to Em
 deployment's account with its records valid, and unverified or removed with the other two
 (`@composable-os/db/registry-senders`); `cos client export` carries the client's domains, and an
 import adds them unverified; removing a client removes its rows (the foreign key's cascade).
+*Added 2026-11-27:* step 7 set the var but installed no gatekeeper on a fleet, so none had it;
+`cos fleet install` and `upgrade` now install the email-send gatekeeper on every fleet, the one
+gatekeeper on a fleet's fixed list (ADR 0618, "A fleet's gatekeepers"). Email Service needs no
+secret; each client's domain is onboarded to Email Sending in the deployment's account.
 
 ### Payments: the owner chose (2026-11-27)
 *Added 2026-11-27 (stage 66 step 7).* Of the two shapes under "Gatekeepers" item 1, the owner chose
@@ -588,6 +592,7 @@ redeploy the host, and today the operator holds both. The signed audit and a sig
   any given secret, and a verified staff hostname per client for its addresses.
 - **Payments, text, inbound webhooks and email are off on a many-client host** until their
   gatekeepers are made per client (above), and the fake gatekeeper cannot run there. (2026-11-27:
-  email sending is per client now, below; email receiving stays off.)
+  email sending is per client now, below; email receiving stays off. 2026-11-27: every fleet
+  gets the email-send gatekeeper from `cos fleet install`, ADR 0618.)
 - **One new dependency**, `@hpke/core` (with `@hpke/common`), in packages/db.
 - **A registry outage or a rotation** behaves as ADR 0613 and "Rotation" above say.

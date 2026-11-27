@@ -1257,9 +1257,17 @@ cos client remove gym-a                      # export kept 90 days, then erased;
 - **A client's web app is on its own domain**, never under the fleet's domain beside the staff
   hostnames: `cos client add` names a web hostname only with `--web-hostname`, and refuses one
   anywhere under the fleet domain's registrable domain (it has no Public Suffix listing).
-- **Payments, text, inbound webhooks and email** are off for every client of a host of many clients
-  until their gatekeepers are made per client (ADR 0616). A client's Stripe keys can already be
-  stored (`cos client secret set <id> STRIPE_SECRET_KEY`), unused until then.
+- **Email sending** is the one gatekeeper of a host of many clients: `cos fleet install` installs
+  the email-send gatekeeper and `cos fleet upgrade` keeps it (a fleet installed without it gains it
+  at its next upgrade); there is no flag for it (ADR 0618, "A fleet's gatekeepers"). It needs no
+  secret: Cloudflare Email Service is a binding in the fleet's own account. For each client, onboard
+  its domain to Email Sending in that account (Email Sending in the dashboard; every record it adds
+  must show valid), then `cos client sender add` and `verify`. A client sends only from its own
+  verified domains, never another client's or the fleet's own, and nothing while paused or once
+  removed.
+- **Payments, text, inbound webhooks and email receiving** are off for every client of a host of
+  many clients until their gatekeepers are made per client (ADR 0616). A client's Stripe keys can
+  already be stored (`cos client secret set <id> STRIPE_SECRET_KEY`), unused until then.
 
 ## Proving a client's database on Cloudflare (stage 66 step 1)
 
