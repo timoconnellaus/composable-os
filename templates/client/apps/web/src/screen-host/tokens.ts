@@ -10,9 +10,12 @@
 // closes. One device session belongs to one tab: a browser copies a tab's sessionStorage into a
 // tab duplicated from it (Duplicate Tab, a link opened with its opener), and two tabs refreshing
 // one refresh token would end the session (the host ends one whose refresh token is used twice).
-// So the store marks its tab as live while it is open, and a tab that starts with a live mark in
-// its storage is a copy: it starts signed out, and signs in on its own (issue #540). A token is
-// never put in an address. Script that runs in the page could read the store, as it could use a
+// So the tab using a session holds a Web Lock named for it while it is open; a tab that starts
+// with a session whose lock another live tab holds is a copy: it starts signed out, and signs in
+// on its own (issue #540). A tab the browser discarded, or whose process it killed, holds no lock
+// any more, so it comes back signed in. Without Web Locks, a mark the tab keeps in its storage
+// while open stands in, which a discarded tab (`document.wasDiscarded`) does not count against
+// (a killed one there starts signed out: the safe side). A token is never put in an address. Script that runs in the page could read the store, as it could use a
 // token held only in memory: what keeps it out is serving the files with a strict Content
 // Security Policy, on an origin of their own, loading no script from anywhere else (step 5).
 //
@@ -70,44 +73,153 @@ function quietly<T>(act: () => T): T | null {
   }
 }
 
+/** The little of the Web Locks API (`navigator.locks`) the store uses; a test passes its own. */
+export interface LocksLike {
+  request(
+    name: string,
+    options: { ifAvailable?: boolean; signal?: AbortSignal },
+    callback: (lock: unknown) => unknown,
+  ): Promise<unknown>;
+}
+
+/** What the store reads of the page it runs in; each part defaults to the browser's own. */
+export interface TabLike {
+  /** `navigator.locks`, or null where the browser has none. */
+  locks?: LocksLike | null;
+  /** `document.wasDiscarded`: the browser discarded this tab and is loading it again. */
+  wasDiscarded?: boolean;
+  /**
+   * How long a starting tab waits for another tab to let a session's lock go, in ms: a page that
+   * is reloading lets go as it is unloaded; a live tab never does. Default 1000.
+   */
+  waitMs?: number;
+}
+
+/** The lock a tab holds while it uses a session. */
+export const lockName = (sessionId: string) => `cos.customer.session:${sessionId}`;
+
+/** What one page has already claimed, by its storage: a second store there is not a copy (F5). */
+const thisPage = new WeakMap<object, { marked: boolean; holds: Set<string> }>();
+
+function pageState(key: object) {
+  let state = thisPage.get(key);
+  if (!state) {
+    state = { marked: false, holds: new Set() };
+    thisPage.set(key, state);
+  }
+  return state;
+}
+
 /**
  * The browser build's token store: memory first, mirrored to `storage` (this tab's
- * sessionStorage) so a reload keeps the tab signed in. A tab that starts as a copy of a live one
- * (its storage holds the live mark: the original has not gone) drops the copied session and
- * starts signed out. A reload is not a copy: the page that goes takes its mark with it
- * (`pagehide`), and a page put back from the back-forward cache sets it again (`pageshow`). With
- * no storage, or one that refuses, the session is kept in memory only, while the page is open.
+ * sessionStorage) so a reload keeps the tab signed in. One session to one tab:
+ * - With Web Locks, the tab using a session holds its lock (`lockName`). A starting tab whose
+ *   stored session's lock another tab still holds after `waitMs` is a copy (Duplicate Tab): it
+ *   drops the copied session and starts signed out. A reload, a discarded tab coming back, or a
+ *   tab reopened after a crash finds the lock free, and stays signed in.
+ * - Without them, the tab keeps a mark in its storage while open (removed on `pagehide`, set
+ *   again on `pageshow`); a tab that starts with a mark it did not set, and that the browser did
+ *   not discard, is a copy. A tab whose process was killed starts signed out there.
+ * A second store in the same page shares what the first claimed. With no storage, or one that
+ * refuses, the session is kept in memory only, while the page is open.
  */
 export function sessionTokenStore(
   storage: StorageLike | null = defaultStorage(),
   page: PageLike | null = defaultPage(),
+  tab: TabLike = {},
 ): TokenStore {
-  let held: Tokens | null | undefined;
-  if (storage) {
-    if (quietly(() => storage.getItem(LIVE_KEY)) !== null) {
-      // A copy of a tab that is still open: its session is that tab's, never this one's.
-      quietly(() => storage.removeItem(SESSION_KEY));
-    }
-    const mark = () => quietly(() => storage.setItem(LIVE_KEY, "1"));
-    mark();
-    page?.addEventListener("pagehide", () => quietly(() => storage.removeItem(LIVE_KEY)));
-    page?.addEventListener("pageshow", mark);
+  const locks = tab.locks === undefined ? defaultLocks() : tab.locks;
+  const discarded = tab.wasDiscarded ?? defaultWasDiscarded();
+  const waitMs = tab.waitMs ?? 1000;
+  const here = storage ? pageState(storage) : { marked: false, holds: new Set<string>() };
+  let held: Tokens | null = null;
+  let holding: { sessionId: string; letGo: () => void } | null = null;
+
+  /** Takes the session's lock for this page, waiting a while for another to let it go. */
+  async function claim(sessionId: string): Promise<boolean> {
+    if (!locks || here.holds.has(sessionId)) return true;
+    let letGo = () => {};
+    const kept = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    const timeout = (AbortSignal as { timeout?: (ms: number) => AbortSignal }).timeout;
+    const got = await new Promise<boolean>((resolve) => {
+      locks
+        .request(
+          lockName(sessionId),
+          timeout ? { signal: timeout(waitMs) } : { ifAvailable: true },
+          (lock) => {
+            resolve(lock !== null);
+            // Held for as long as this page uses the session.
+            return lock === null ? undefined : kept;
+          },
+        )
+        .catch(() => resolve(false));
+    });
+    if (!got) return false;
+    release();
+    here.holds.add(sessionId);
+    holding = {
+      sessionId,
+      letGo: () => {
+        here.holds.delete(sessionId);
+        letGo();
+      },
+    };
+    return true;
   }
+
+  function release() {
+    holding?.letGo();
+    holding = null;
+  }
+
+  const mark = () => {
+    if (!storage) return;
+    quietly(() => storage.setItem(LIVE_KEY, "1"));
+    here.marked = true;
+  };
+
+  /** Whether the session found at start is another live tab's (this tab is its copy). */
+  async function copied(stored: Tokens): Promise<boolean> {
+    if (locks) return !(await claim(stored.sessionId));
+    if (discarded || here.marked) return false;
+    return quietly(() => storage?.getItem(LIVE_KEY)) != null;
+  }
+
+  const ready = (async () => {
+    const parsed: unknown = quietly(() => JSON.parse(storage?.getItem(SESSION_KEY) ?? "null"));
+    if (isTokens(parsed)) {
+      if (await copied(parsed)) {
+        // A copy of a tab that is still open: its session is that tab's, never this one's.
+        quietly(() => storage?.removeItem(SESSION_KEY));
+      } else {
+        held = parsed;
+      }
+    }
+    mark();
+    page?.addEventListener("pagehide", () => {
+      quietly(() => storage?.removeItem(LIVE_KEY));
+      here.marked = false;
+    });
+    page?.addEventListener("pageshow", mark);
+  })();
+
   return {
     async load() {
-      if (held !== undefined) return held;
-      held = null;
-      const parsed: unknown = quietly(() => JSON.parse(storage?.getItem(SESSION_KEY) ?? "null"));
-      if (isTokens(parsed)) held = parsed;
+      await ready;
       return held;
     },
     async save(tokens) {
+      await ready;
       held = tokens;
       quietly(() =>
         tokens
           ? storage?.setItem(SESSION_KEY, JSON.stringify(tokens))
           : storage?.removeItem(SESSION_KEY),
       );
+      if (!tokens) release();
+      else if (holding?.sessionId !== tokens.sessionId) await claim(tokens.sessionId);
     },
   };
 }
@@ -118,6 +230,14 @@ function defaultStorage(): StorageLike | null {
 
 function defaultPage(): PageLike | null {
   return (globalThis as { window?: PageLike }).window ?? null;
+}
+
+function defaultLocks(): LocksLike | null {
+  return (globalThis as { navigator?: { locks?: LocksLike } }).navigator?.locks ?? null;
+}
+
+function defaultWasDiscarded(): boolean {
+  return (globalThis as { document?: { wasDiscarded?: boolean } }).document?.wasDiscarded === true;
 }
 
 /** A page's fetch: the browser's, or a wrapper's. */
@@ -158,18 +278,24 @@ export function tokenScreenHost(options: TokenScreenHostOptions): ScreenHost {
     build: "browser",
     api,
     async me() {
-      if (!(await store.load())) return null;
-      try {
-        const me = await api.call("me.get", {});
-        return { displayName: me.displayName, primaryEmail: me.primaryEmail };
-      } catch (error) {
-        // The session is over on the host (signed out elsewhere, the account closed): end it there
-        // too where it can still be ended, so it leaves the list of devices, and forget it here.
-        if (signedOut(error)) {
-          await session.signOut();
+      // Twice at most: a refusal of a session this tab has since replaced (a refresh or a
+      // sign-in landed meanwhile) says nothing about the session it holds now.
+      for (let tries = 0; ; tries += 1) {
+        const before = await store.load();
+        if (!before) return null;
+        try {
+          const me = await api.call("me.get", {});
+          return { displayName: me.displayName, primaryEmail: me.primaryEmail };
+        } catch (error) {
+          if (!signedOut(error)) throw error;
+          const now = await store.load();
+          if (now && now.refreshToken !== before.refreshToken && tries === 0) continue;
+          // The session is over on the host (signed out elsewhere, the account closed): end it
+          // there too where it still can be, so it leaves the list of devices, and forget it. Only
+          // the session that was refused: a newer one is left alone.
+          if (now?.refreshToken === before.refreshToken) await session.signOut();
           return null;
         }
-        throw error;
       }
     },
     async requestCode(email) {
