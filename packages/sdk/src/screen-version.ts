@@ -245,7 +245,13 @@ export function canonicalScreenVersionManifest(manifest: ScreenVersionManifest):
 
 /** The SHA-256 of `bytes`, as lowercase hex. */
 export async function sha256OfBytes(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>);
+  // Web Crypto, typed here: a package that checks the SDK may have no DOM or Workers types.
+  const { subtle } = (
+    globalThis as unknown as {
+      crypto: { subtle: { digest(algorithm: string, data: Uint8Array): Promise<ArrayBuffer> } };
+    }
+  ).crypto;
+  const digest = await subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
