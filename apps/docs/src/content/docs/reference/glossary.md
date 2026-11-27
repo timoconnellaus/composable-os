@@ -1545,8 +1545,9 @@ _Avoid_: frontend, site (a site is one kind of client app)
 ### Browser-only build
 
 The client template's web screens built as static files (`pnpm build:browser`: an `index.html`,
-hashed assets and `build.json`) with no server code: they call the host's `/api/v1` with the
-typed client, sign in with a device session's tokens and route by the address's hash (stage 75
+hashed assets and `build.json`) with no server code: they call the host's `/api/v1` at the
+address the build names (`COS_HOST_URL`, required) with the typed client, sign in with a device
+session's tokens, one per tab, and route by the address's hash (stage 75
 step 2, ADR 0960). The server-rendered Worker (`pnpm build`) is the other build of the same
 screens, and still the default deploy.
 _Avoid_: SPA build, static site

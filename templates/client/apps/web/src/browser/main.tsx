@@ -3,8 +3,8 @@
 // can be served from any folder with no server behind them and a reload never asks a server for
 // a route. The screens reach the host over /api/v1 with tokens (src/screen-host/tokens.ts).
 //
-// Where the host is: COS_HOST_URL at build time, or, with none, the page's own origin (the screens
-// served from the host's own address).
+// Where the host is: COS_HOST_URL at build time, which the build requires. Never the page's own
+// origin: customer screens are not served on the host's (staff) address (issue #540).
 import { createHashHistory, createRouter, RouterProvider } from "@tanstack/react-router";
 import { StrictMode, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
@@ -27,7 +27,7 @@ const outdated = {
 };
 
 const screenHost = tokenScreenHost({
-  hostUrl: __COS_HOST_URL__ || window.location.origin,
+  hostUrl: __COS_HOST_URL__,
   // As the mobile app's onUpgradeRequired would: say so, and offer the newer screens. A browser
   // gets them by loading the page again (the published version, stage 75).
   onUpgradeRequired: () => outdated.set(),
