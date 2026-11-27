@@ -43,9 +43,9 @@ and MCP see, inside the HTTP surface's 1 MB body; a file's bytes cannot be one.
   one is refused. A file the version was sent that the manifest does not name is no part of it
   (the seal's answer lists it as `unused`, and the sweep removes it).
 - **Limits:** at most 1000 files, 25 MB a file (Cloudflare's limit for a static asset, so a
-  version is also servable as one), 50 MB a version, a 512 KB manifest (inside the surface's 1 MB
-  body); at most 3 versions open at once, each swept 24 hours after it was begun. A client's
-  unsealed bytes are so at most 150 MB, gone within a day.
+  version is also servable as one), 50 MB a version (so a manifest is at most about 330 KB,
+  inside the surface's 1 MB body); at most 3 versions of a kind open at once, each swept 24 hours
+  after it was begun. A client's unsealed bytes are so at most 150 MB a kind, gone within a day.
 - **Where it lives.** Records in the client's database (migration 1490):
   `core_screen_version` (open, then sealed with its canonical manifest, its SHA-256 and what it
   says), `core_screen_version_file` (a sealed version's files, exactly its manifest's, with the
@@ -76,8 +76,8 @@ and MCP see, inside the HTTP surface's 1 MB body; a file's bytes cannot be one.
 - **Who may.** A new permission, `screens:upload` (admins; grantable, so a member who builds the
   screens may be given it). People only (`actors: ["human"]`): storing a draft is lower risk than
   publishing (it changes nothing anyone sees), but no AI caller can send a file's bytes here and
-  nothing needs one to; a caller that builds versions inside the product would be given its own
-  way in when one is built. The writes are hidden from MCP; the reads (`screens.versionList`, `screens.versionGet`)
+  nothing needs one to: versions come from a client's repository and its CI, sent by `cos` with
+  a person's staff device token (step 7). The writes are hidden from MCP; the reads (`screens.versionList`, `screens.versionGet`)
   are open to any staff actor with the permission. Staff only: no customer or public caller.
 - **A version has a kind:** what it is the built output of. One value now, `web` (a client's web
   app), checked by the operations (`SCREEN_VERSION_KINDS`) and by the table's CHECK. Retention

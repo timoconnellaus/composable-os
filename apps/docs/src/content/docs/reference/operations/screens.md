@@ -69,7 +69,6 @@ Begin storing a new version of the client's screens (a build made outside the ho
 | `limits.maxTotalBytes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
 | `limits.maxPathLength` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
 | `limits.maxPathDepth` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
-| `limits.maxManifestBytes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
 | `held` | array of string | yes |   | The hashes given that the client holds: do not send them |
 
 ## screens.versionGet

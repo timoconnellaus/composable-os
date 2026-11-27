@@ -17,10 +17,10 @@
 //
 // Who may: `screens:upload` (admins; grantable to a member who builds the screens). People only:
 // an assistant, MCP, an automation or an extension cannot store a version. Storing a draft is
-// lower risk than publishing (it changes nothing anyone sees), but an AI caller has no way to
-// send a file's bytes here and nothing needs it to; a caller that builds versions inside the
-// product would be given its own way in when one is built. Publishing is step 4's `screens.publish`, with its own
-// permission. Staff only: no customer or public caller is told these exist.
+// lower risk than publishing (it changes nothing anyone sees), but versions come from a client's
+// repository and its CI, sent by `cos` with a person's staff device token (step 7), so an AI
+// caller has no file to send and nothing needs it to. Publishing is step 4's `screens.publish`,
+// with its own permission. Staff only: no customer or public caller is told these exist.
 import {
   canonicalScreenVersionManifest,
   SCREEN_VERSION_KINDS,
@@ -57,7 +57,6 @@ const limitsOut = z.object({
   maxTotalBytes: z.number().int(),
   maxPathLength: z.number().int(),
   maxPathDepth: z.number().int(),
-  maxManifestBytes: z.number().int(),
 });
 
 const versionOut = z.object({
@@ -433,12 +432,6 @@ export const screenVersionSeal = defineOperation({
   async handler(input, ctx) {
     const manifest: ScreenVersionManifest = input.manifest;
     const canonical = canonicalScreenVersionManifest(manifest);
-    if (new TextEncoder().encode(canonical).byteLength > SCREEN_VERSION_LIMITS.maxManifestBytes) {
-      throw new ValidationError(
-        `A manifest is at most ${SCREEN_VERSION_LIMITS.maxManifestBytes} bytes`,
-        { field: "manifest", reason: "too_large" },
-      );
-    }
     await openVersion(ctx, input.version);
     const hashes = [...new Set(manifest.files.map((f) => f.sha256))];
     const held = new Map(

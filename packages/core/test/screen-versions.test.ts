@@ -9,6 +9,8 @@ import {
   type ScreenVersionManifest,
   screenPathProblem,
   screenVersionManifestOf,
+  screenVersionManifestProblems,
+  screenVersionManifestSchema,
   sha256OfBytes,
 } from "@composable-os/sdk";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -176,6 +178,14 @@ describe("a build stored as a version (criterion 2)", () => {
     const object = await bucket.get(entry?.objectKey ?? "");
     expect(await object?.text()).toContain("first");
     expect(await screenVersionFile(db.query, id, "assets/missing.js")).toBeNull();
+    // An open version's file is no file of a version yet, even were a row there.
+    const open = await begin();
+    await env.DB.prepare(
+      "INSERT INTO core_screen_version_file (version_id, path, sha256, size, content_type) SELECT ?, 'index.html', sha256, size, 'text/html' FROM core_screen_blob LIMIT 1",
+    )
+      .bind(open.id)
+      .run();
+    expect(await screenVersionFile(db.query, open.id, "index.html")).toBeNull();
   });
 
   it("stores a file once whatever number of versions name it", async () => {
@@ -290,6 +300,25 @@ describe("a version's kind", () => {
 });
 
 describe("the manifest's checks", () => {
+  it("bounds a manifest's files and their bytes together", async () => {
+    const one = { path: "index.html", sha256: "a".repeat(64), size: 1 };
+    const base = {
+      format: "cos-screens/1",
+      entry: "index.html",
+      contract: "v1",
+      build: { tool: "t" },
+    };
+    const many = Array.from({ length: SCREEN_VERSION_LIMITS.maxFiles + 1 }, (_, i) =>
+      i === 0 ? one : { ...one, path: `f${i}.js` },
+    );
+    expect(screenVersionManifestSchema.safeParse({ ...base, files: many }).success).toBe(false);
+    const big = SCREEN_VERSION_LIMITS.maxFileBytes;
+    const heavy = [one, ...[1, 2, 3].map((i) => ({ ...one, path: `b${i}.js`, size: big }))];
+    expect(screenVersionManifestProblems({ entry: "index.html", files: heavy })).toEqual([
+      expect.objectContaining({ message: expect.stringMatching(/together/) }),
+    ]);
+  });
+
   it("refuses paths that leave the version, are absolute, hold a NUL or are too long", () => {
     for (const bad of [
       "../index.html",
@@ -310,6 +339,11 @@ describe("the manifest's checks", () => {
     ]) {
       expect(screenPathProblem(bad), JSON.stringify(bad)).not.toBeNull();
     }
+    expect(screenPathProblem("/index.html")).toMatch(/relative/);
+    // Long by its parts, each under a part's limit.
+    expect(screenPathProblem(`${`${"a".repeat(60)}/`.repeat(3)}${"b".repeat(30)}.js`)).toMatch(
+      /at most 200/,
+    );
     for (const good of [
       "index.html",
       "assets/index-BwX3k_9a.js",

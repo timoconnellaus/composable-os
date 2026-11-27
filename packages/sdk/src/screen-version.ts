@@ -47,8 +47,8 @@ export const SCREEN_VERSION_LIMITS = Object.freeze({
   maxPathLength: 200,
   /** Folders deep, the file included. */
   maxPathDepth: 10,
-  /** The manifest's JSON, in bytes: inside the HTTP surface's 1 MB body. */
-  maxManifestBytes: 512 * 1024,
+  // So a manifest is at most about 330 KB (1000 files of a 200-character path, a hash and a
+  // size), inside the HTTP surface's 1 MB body: it needs no limit of its own.
 });
 
 /** The content type the host serves a file with, by its extension. Nothing else is taken. */
