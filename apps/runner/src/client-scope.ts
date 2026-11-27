@@ -9,12 +9,14 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import {
   type ClientScope,
   clientScopesHeld,
+  currentClientLabel,
   provideClientScope,
   runInClientScope,
 } from "@composable-os/core";
 import { servesManyClients } from "@composable-os/db/client-entries";
 import { clientOf, clientStampOf } from "@composable-os/db/client-environment";
 import { provideObjectScope } from "@composable-os/db/client-objects";
+import { setClientLabelSource } from "@composable-os/product";
 
 /** Gives core its client scope store, on a many-client host only: once, at load. */
 export function provideRunnerClientScope(deployment: object): void {
@@ -22,11 +24,24 @@ export function provideRunnerClientScope(deployment: object): void {
   provideClientScope(new AsyncLocalStorage<ClientScope>(), { unscoped: "refuse" });
   // Every call that enters one of the runner's client objects, in that client's scope.
   provideObjectScope((env, run) => inClientScope(env as { DB?: unknown }, run));
+  // The product's name each client's people read (stage 66 step 9): its own, from its scope.
+  setClientLabelSource(currentClientLabel);
 }
 
-/** Runs `run` in the scope of `env`'s client: its database, one object per client environment. */
+/**
+ * Runs `run` in the scope of `env`'s client: its database, one object per client environment, and
+ * its product label.
+ */
 export function inClientScope<T>(env: { DB?: unknown }, run: () => T): T {
-  return runInClientScope({ database: env.DB as object, client: clientStampOf(env) }, run);
+  const label = (env as { COS_PRODUCT_LABEL?: unknown }).COS_PRODUCT_LABEL;
+  return runInClientScope(
+    {
+      database: env.DB as object,
+      client: clientStampOf(env),
+      label: typeof label === "string" && label.trim() ? label.trim() : null,
+    },
+    run,
+  );
 }
 
 /** The one slot of a deployment that serves one client. */

@@ -317,10 +317,264 @@ export const CLIENT_SETTINGS: Readonly<Record<string, { absent: SettingAbsent; w
   // An address that is not a hostname (stage 66 step 6, ADR 0616): the client's own native app's
   // sign-in redirects (`<scheme>://staff-sign-in`), never another client's.
   NATIVE_REDIRECT_URIS: { absent: "empty", what: "the client's native app's sign-in redirects" },
+  // The client's own name for the product (stage 66 step 9, ADR 0618 "The first client's day
+  // one"): its staff screens and its mail say it; none, the deployment's label.
+  COS_PRODUCT_LABEL: {
+    absent: "inherit",
+    what: "the product's name as the client's people read it",
+  },
+  // Who may make the client's first account, and the hash of the one setup link that lets them
+  // (`firstAdminValue`): written only by `cos client add --admin` and `cos client first-admin`.
+  COS_FIRST_ADMIN: { absent: "empty", what: "the first admin's address and setup link's hash" },
 };
 
 export function isClientSetting(name: string): boolean {
   return Object.hasOwn(CLIENT_SETTINGS, name);
+}
+
+// --- What the operator may change after `add` (stage 66 step 9, ADR 0618) ------------------------
+
+/** An https origin with nothing after it (`https://www.example.com`), or null. */
+function httpsOrigin(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password) return null;
+    if (url.pathname !== "/" || url.search || url.hash || value.replace(/\/$/, "") !== url.origin) {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+/** A list setting's entries, as the host's parsers split it (commas or spaces). */
+function entriesOf(value: string): string[] {
+  return value
+    .split(/[\s,]+/)
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+const PACK_ID = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+
+/** What is wrong with a label a client's people read, or null. */
+export function labelProblem(value: string): string | null {
+  if (value !== value.trim()) return "no space before or after";
+  if (value.length < 1 || value.length > 60) return "1 to 60 characters";
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: refusing them is the point.
+  if (/[\u0000-\u001f\u007f<>]/.test(value)) return "no line breaks, control characters, < or >";
+  return null;
+}
+
+/**
+ * Where a setting is checked against: the client's own hostnames (verified or not) and the fleet's
+ * registrable domain. A check that needs them refuses what it cannot check without them.
+ */
+export interface SettingContext {
+  ownHostnames?: readonly string[];
+  /** The fleet's registrable domain (`fleet.example`): no allowed origin is under it. */
+  fleetDomain?: string | null;
+}
+
+const isUnderDomain = (host: string, domain: string) =>
+  host === domain || host.endsWith(`.${domain}`);
+
+/** A native app's sign-in redirect's one shape: `<scheme>://staff-sign-in` (client-repo.ts). */
+const APP_REDIRECT = /^([a-z][a-z0-9+.-]{1,40}):\/\/staff-sign-in$/;
+/** The command-line tools' loopback sign-in (`cos … import`, ADR 0470): any port is allowed. */
+const LOOPBACK_REDIRECTS = ["http://127.0.0.1/cos-sign-in", "http://[::1]/cos-sign-in"];
+const NOT_APP_SCHEMES = new Set([
+  "http",
+  "https",
+  "javascript",
+  "data",
+  "file",
+  "blob",
+  "about",
+  "vbscript",
+  "ftp",
+  "ws",
+  "wss",
+  "mailto",
+]);
+
+/**
+ * The settings the operator writes for a client, at `cos client add` and with `cos client
+ * setting`, each with its check (null: the value is good). Every other client setting is refused
+ * with the reason `NOT_OPERATOR_SETTINGS` gives: the deployment's value applies, or its own
+ * command writes it. `setClientSetting` (registry-writes) holds the same list where the write is.
+ * A changed setting is served within the registry's refresh (`REGISTRY_REFRESH_MS`, 10 seconds).
+ */
+export const OPERATOR_SETTINGS: Readonly<
+  Record<string, { check: (value: string, context: SettingContext) => string | null; what: string }>
+> = {
+  COS_PACKS: {
+    what: "the packs the client has, an explicit comma-separated list of pack ids, only ever wider",
+    check: (value) => {
+      // Always an explicit list: "*" (the release product's packs) is never a client's, and ""
+      // is none (stage 66: every fleet client's packs are named).
+      if (value.trim() === "*")
+        return "* is the product's whole catalogue, never a client's: list its packs";
+      if (value.trim() === "") return null;
+      const ids = value.split(",").map((v) => v.trim());
+      if (ids.some((id) => !PACK_ID.test(id))) {
+        return "an explicit comma-separated list of pack ids (ticketing,content), or empty for none";
+      }
+      if (new Set(ids).size !== ids.length) return "a pack is named twice";
+      return null;
+    },
+  },
+  API_ALLOWED_ORIGINS: {
+    what: "the origins of the client's own sites and apps that may call its API",
+    check: (value, context) => {
+      const entries = entriesOf(value);
+      if (entries.length === 0 || entries.length > 20) return "1 to 20 https origins";
+      for (const entry of entries) {
+        const origin = httpsOrigin(entry);
+        if (!origin) return `${entry} is not an https origin with nothing after it`;
+        // Nothing under the fleet's registrable domain, the client's own staff hostname included:
+        // a sibling there is another client's or the fleet's, and the host drops every such
+        // origin from a client's environment (`withoutFleetOrigins`, stage 66 step 8, ADR 0619),
+        // so the registry never holds one either. Without the fleet's domain this cannot be
+        // checked, so it is refused: the write fails closed (review of #552, S-R1).
+        if (!context.fleetDomain) {
+          return "the fleet's domain is needed to check an allowed origin, and none was given";
+        }
+        if (isUnderDomain(new URL(origin).hostname, context.fleetDomain)) {
+          return `${entry} is under the fleet's domain: an allowed origin is the client's own site, never a hostname of the fleet's`;
+        }
+      }
+      return null;
+    },
+  },
+  NATIVE_REDIRECT_URIS: {
+    what: "the client's native app's sign-in redirects",
+    check: (value, context) => {
+      const entries = entriesOf(value);
+      if (entries.length === 0 || entries.length > 20) return "1 to 20 redirect addresses";
+      for (const entry of entries) {
+        if (LOOPBACK_REDIRECTS.includes(entry)) continue;
+        const app = APP_REDIRECT.exec(entry);
+        if (app) {
+          if (NOT_APP_SCHEMES.has(app[1] as string)) return `${entry} is not an app's scheme`;
+          continue;
+        }
+        let url: URL;
+        try {
+          url = new URL(entry);
+        } catch {
+          return `${entry} is not an address`;
+        }
+        // An https redirect only on one of the client's own hostnames.
+        if (
+          url.protocol === "https:" &&
+          !url.username &&
+          !url.password &&
+          !url.hash &&
+          (context.ownHostnames ?? []).includes(url.hostname)
+        ) {
+          continue;
+        }
+        return `${entry}: a redirect is <scheme>://staff-sign-in (the client's app), http://127.0.0.1/cos-sign-in (cos's own), or https on the client's own hostname`;
+      }
+      return null;
+    },
+  },
+  APPROVAL_EXPIRY_DAYS: {
+    what: "days before a pending action expires",
+    check: (value) =>
+      /^\d{1,2}$/.test(value) && Number(value) >= 1 && Number(value) <= 90 ? null : "1 to 90",
+  },
+  COS_PRODUCT_LABEL: {
+    what: "the product's name as the client's people read it (its mail and staff screens)",
+    check: labelProblem,
+  },
+};
+
+/** Why each other client setting is not written by the operator's settings. */
+export const NOT_OPERATOR_SETTINGS: Readonly<Record<string, string>> = {
+  APPROVAL_FLOOR:
+    "the approval floor is policy: a client has the deployment's; a floor per client is a reviewed change of its own (a floor that does not parse stops every request of the client)",
+  IDENTITY_PROVIDER:
+    "the identity provider decides who every staff account is: a client has the deployment's",
+  AUTH_ALLOW_SIGNUP:
+    "open staff sign-up lets anyone who finds the client's staff hostname make an account: never on a fleet",
+  COS_ORG_EXTENSIONS:
+    "the hash of the client's own extensions is written by its repository's deploy",
+  AI_MODEL_ROLES:
+    "AI on a fleet is the fleet's choice at its first install (per-client AI waits for usage)",
+  AI_PROVIDERS:
+    "AI on a fleet is the fleet's choice at its first install (per-client AI waits for usage)",
+  COS_FIRST_ADMIN: "written by cos client add --admin and cos client first-admin",
+};
+
+/** What is wrong with the operator setting `name` to `value` for a client, or null. */
+export function operatorSettingProblem(
+  name: string,
+  value: string | null,
+  context: SettingContext = {},
+): string | null {
+  const setting = Object.hasOwn(OPERATOR_SETTINGS, name) ? OPERATOR_SETTINGS[name] : undefined;
+  if (!setting) {
+    const why = Object.hasOwn(NOT_OPERATOR_SETTINGS, name) ? NOT_OPERATOR_SETTINGS[name] : null;
+    return why
+      ? `${name} is not set this way: ${why}`
+      : `${name} is not a client setting (${Object.keys(OPERATOR_SETTINGS).join(", ")})`;
+  }
+  if (value === null) return null;
+  const problem = setting.check(value, context);
+  return problem ? `${name}: ${problem}` : null;
+}
+
+// --- The first admin (stage 66 step 9, ADR 0618 "The first client's day one") --------------------
+
+/**
+ * Who may make a client's first account on a host of many clients: one address, and the SHA-256
+ * of the one setup link's token (the token itself is printed once to the operator and stored
+ * nowhere), until it expires. The host refuses every other first account.
+ */
+export interface FirstAdmin {
+  /** Lowercase. */
+  email: string;
+  /** The token's SHA-256, 64 lowercase hex characters. */
+  sha256: string;
+  /** An ISO timestamp. */
+  expires: string;
+}
+
+/** How long a setup link works. */
+export const FIRST_ADMIN_LINK_HOURS = 72;
+
+/** The fragment of a setup link (`/sign-in#first-admin=<token>`): never sent to any server. */
+export const FIRST_ADMIN_FRAGMENT = "first-admin";
+
+const EMAIL = /^[^\s@,;<>"]{1,64}@[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+
+/** An address as the first admin's, lowercase, or null when it is not one. */
+export function firstAdminEmail(value: string): string | null {
+  const email = value.trim().toLowerCase();
+  return email.length <= 254 && EMAIL.test(email) ? email : null;
+}
+
+/** The registry value of `COS_FIRST_ADMIN`. */
+export function firstAdminValue(admin: FirstAdmin): string {
+  return JSON.stringify({ email: admin.email, sha256: admin.sha256, expires: admin.expires });
+}
+
+/** `COS_FIRST_ADMIN` read back, or null when absent or not exactly its shape (fails closed). */
+export function parseFirstAdmin(value: string | null | undefined): FirstAdmin | null {
+  if (typeof value !== "string" || !value) return null;
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    const { email, sha256, expires } = parsed;
+    if (typeof email !== "string" || firstAdminEmail(email) !== email) return null;
+    if (typeof sha256 !== "string" || !/^[0-9a-f]{64}$/.test(sha256)) return null;
+    if (typeof expires !== "string" || Number.isNaN(Date.parse(expires))) return null;
+    return { email, sha256, expires };
+  } catch {
+    return null;
+  }
 }
 
 // --- Reading the registry ------------------------------------------------------------------

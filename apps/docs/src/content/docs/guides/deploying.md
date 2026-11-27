@@ -71,6 +71,31 @@ the steps are in [docs/deploying.md](https://github.com/timoconnellaus/composabl
   an unverify or a removal takes effect within 10 seconds; nothing is sent while a client is
   paused, and nothing after it is removed
   ([ADR 0616](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0616-secrets-and-addresses-per-client.md), "Email sending per client").
+- **The first admin.** The owner runs `cos client first-admin-token --staff-hostname <host>` on
+  his own machine (refused in CI): it makes a setup token and prints the link and the token's
+  SHA-256. The operator's workflow gets only the hash: `cos client add <id> --admin <email>
+  --admin-token-sha256 <sha256>` (or later `cos client first-admin <id> --email <email>
+  --token-sha256 <sha256>`), which prints neither a token, a link nor the address. The owner sends
+  the link himself. Only that address, with that link, by password, within 72 hours, makes the
+  first account, which is the admin; with no admin named, nobody can. A single-client install is
+  as before (its installer signs up at `/setup`).
+- **Videos.** Every client's videos are in the operator's one Stream account, kept apart by the
+  host: each stamped with its client, every call and playback token for another client's video
+  refused, signed URLs only, nothing that lists them. `cos fleet install` takes the account's ids
+  and, from files, its token and signing key, and every upgrade keeps them.
+- **A client's settings after `add`.** `cos client setting list|set|unset <id> [NAME] [value]`
+  changes `COS_PACKS`, `API_ALLOWED_ORIGINS`, `NATIVE_REDIRECT_URIS`, `APPROVAL_EXPIRY_DAYS` and
+  `COS_PRODUCT_LABEL`, each checked, and `add --setting` takes only these; a running host serves
+  the change within 10 seconds.
+  `COS_PACKS` only widens, with packs the release carries and those they require; the host installs
+  a new pack at the client's next request. The approval floor, the identity provider and open
+  sign-up are not changed this way.
+- **A client's own label.** `--label <name>` at `add`, or the `COS_PRODUCT_LABEL` setting: the
+  client's screens, sign-in page and mail name the product so, never another client's.
+- **Replies to routine mail** go to the address the client's admin sets on Settings → Routine
+  email; routine mail keeps going on its own with it. Sign-in codes carry no reply address.
+  ([ADR 0618](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0618-the-operators-commands-for-a-host-of-many-clients.md), "The first
+  client's day one".)
 
 
 This guide is [docs/guides/deploying.md](https://github.com/timoconnellaus/composable-os/blob/main/docs/guides/deploying.md), written by hand beside the code.

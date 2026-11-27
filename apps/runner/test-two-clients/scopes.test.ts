@@ -31,10 +31,16 @@ import { environmentFor } from "@composable-os/db/client-environment";
 import { CLIENT_OBJECT, refreshOnEachCall } from "@composable-os/db/client-objects";
 import type { ParkingLedger } from "@composable-os/db/client-parking";
 import type { ClientId } from "@composable-os/db/registry";
-import { setUpTwoClients, TWO_CLIENTS } from "@composable-os/db/testing/two-clients";
+import {
+  setUpTwoClients,
+  TWO_CLIENT_LABELS,
+  TWO_CLIENTS,
+} from "@composable-os/db/testing/two-clients";
+import { productName } from "@composable-os/product";
+import { product } from "@composable-os/products/active";
 import { beforeAll, describe, expect, it } from "vitest";
 import { automationHost } from "../src/automations/host.ts";
-import { clientKeyOf } from "../src/client-scope.ts";
+import { clientKeyOf, inClientScope } from "../src/client-scope.ts";
 import { RunHost, type RunState } from "../src/executor/host.ts";
 import Runner, { extensionHost } from "../src/index.ts";
 import { FIXTURE_FILES, FIXTURE_ID, ITEM } from "../test/automation-fixture.ts";
@@ -331,5 +337,21 @@ describe("a call that enters a client's Durable Object (review of #522, M4)", ()
     }
     refreshOnEachCall(Probe);
     expect(new Probe().whoAmI()).toBe(`live:${client.id}`);
+  });
+});
+
+describe("each client's product label (stage 66 step 9)", () => {
+  it("is what the runner's mail and pages name the product in that client's scope, never the other's", async () => {
+    const aEnv = await clientEnv(a.id);
+    const bEnv = await clientEnv(b.id);
+    // The notifications' and pages' words read `productName` in the scope they run in.
+    expect(inClientScope(aEnv, () => productName(product))).toBe(TWO_CLIENT_LABELS.a);
+    expect(inClientScope(bEnv, () => productName(product))).toBe(TWO_CLIENT_LABELS.b);
+    expect(
+      await inClientScope(aEnv, async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return productName(product);
+      }),
+    ).toBe(TWO_CLIENT_LABELS.a);
   });
 });

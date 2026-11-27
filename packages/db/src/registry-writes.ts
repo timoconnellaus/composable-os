@@ -19,6 +19,8 @@ import {
   clientIdProblem,
   type HostnameSurface,
   isClientSetting,
+  operatorSettingProblem,
+  parseFirstAdmin,
   validateClientId,
 } from "./registry.ts";
 
@@ -60,7 +62,7 @@ export interface NewClient {
  */
 export function newClientProblems(
   client: NewClient,
-  deployment: { callbackHostname?: string | null } = {},
+  deployment: { callbackHostname?: string | null; fleetDomain?: string | null } = {},
 ): string[] {
   const problems: string[] = [];
   const idProblem = clientIdProblem(client.id);
@@ -100,8 +102,15 @@ export function newClientProblems(
     surfaces.add(surface);
   }
   if (!surfaces.has("staff")) problems.push("a client needs a staff hostname");
-  for (const name of Object.keys(client.settings ?? {})) {
-    if (!isClientSetting(name)) problems.push(`${name} is not a client setting`);
+  // The operator's settings only, each checked (stage 66 step 9): the same list and checks as a
+  // running client's (`setClientSetting`).
+  const ownHostnames = client.hostnames.map((h) => h.hostname);
+  for (const [name, value] of Object.entries(client.settings ?? {})) {
+    const problem = operatorSettingProblem(name, value, {
+      ownHostnames,
+      fleetDomain: deployment.fleetDomain ?? null,
+    });
+    if (problem) problems.push(problem);
   }
   return problems;
 }
@@ -188,8 +197,13 @@ export async function hostnamesTaken(
  * on), its hostnames verified and each its surface's address, and its settings. The registry
  * writes its secret generation itself and refuses a removed id (migrations 0792 to 0794).
  */
-export async function addClientRows(registry: D1Database, client: NewClient): Promise<void> {
-  const problems = newClientProblems(client);
+export async function addClientRows(
+  registry: D1Database,
+  client: NewClient,
+  /** The fleet's registrable domain: a setting that needs it is refused without it (S-R1). */
+  deployment: { fleetDomain?: string | null } = {},
+): Promise<void> {
+  const problems = newClientProblems(client, deployment);
   if (problems.length) throw new RangeError(`Not a client to add: ${problems.join("; ")}`);
   const id = validateClientId(client.id);
   await registry.batch([
@@ -272,15 +286,57 @@ export async function setClientStatus(
   return after?.status === status;
 }
 
-/** Sets one deploy-time setting of a client (`CLIENT_SETTINGS`), or removes it with null. */
+/** A client's verified hostnames: what a setting may name as the client's own. */
+async function hostnamesOf(registry: D1Database, client: ClientId): Promise<string[]> {
+  const { results } = await registry
+    .prepare("SELECT hostname FROM registry_hostnames WHERE client = ? AND verified = 1")
+    .bind(client)
+    .all<{ hostname: string }>();
+  return results.map((r) => r.hostname);
+}
+
+/**
+ * Sets one of the operator's settings of a client (`OPERATOR_SETTINGS`), or removes it with null,
+ * refusing any other name and any value its check refuses (stage 66 step 9): the allowlist is
+ * here, where the write is, whoever calls it. `COS_FIRST_ADMIN` is written only by
+ * `setFirstAdmin`. `fleetDomain` is the fleet's registrable domain, for the checks of origins.
+ */
 export async function setClientSetting(
   registry: D1Database,
   id: ClientId,
   name: string,
   value: string | null,
+  deployment: { fleetDomain?: string | null } = {},
+): Promise<void> {
+  const client = validateClientId(id);
+  const problem = operatorSettingProblem(name, value, {
+    ownHostnames: value === null ? [] : await hostnamesOf(registry, client),
+    fleetDomain: deployment.fleetDomain ?? null,
+  });
+  if (problem) throw new RangeError(problem);
+  await writeSetting(registry, client, name, value);
+}
+
+/**
+ * Names a client's first admin (`COS_FIRST_ADMIN`, `firstAdminValue`): the one write of it, by
+ * `cos client add --admin` and `cos client first-admin`. A value that does not read is refused.
+ */
+export async function setFirstAdmin(
+  registry: D1Database,
+  id: ClientId,
+  value: string,
+): Promise<void> {
+  if (!parseFirstAdmin(value)) throw new RangeError("COS_FIRST_ADMIN does not read");
+  await writeSetting(registry, validateClientId(id), "COS_FIRST_ADMIN", value);
+}
+
+async function writeSetting(
+  registry: D1Database,
+  client: ClientId,
+  name: string,
+  value: string | null,
 ): Promise<void> {
   if (!isClientSetting(name)) throw new RangeError(`${name} is not a client setting`);
-  const client = validateClientId(id);
   if (value === null) {
     await registry
       .prepare("DELETE FROM registry_settings WHERE client = ? AND name = ?")
@@ -610,4 +666,29 @@ export async function releaseOperatorSession(registry: D1Database, holder: strin
     .prepare("DELETE FROM registry_operator_session WHERE id = 'operator' AND holder = ?")
     .bind(holder)
     .run();
+}
+
+// --- A client's settings, read back (stage 66 step 9, `cos client setting list`) -----------------
+
+/** A client's own settings rows, by name (none: every setting inherited or empty). */
+export async function readClientSettings(
+  registry: D1Database,
+  id: ClientId,
+): Promise<Record<string, string>> {
+  const { results } = await registry
+    .prepare("SELECT name, value FROM registry_settings WHERE client = ? ORDER BY name")
+    .bind(validateClientId(id))
+    .all<{ name: string; value: string }>();
+  return Object.fromEntries(results.map((r) => [r.name, r.value]));
+}
+
+/** A client's staff hostname: its marked verified one, else any verified one, else null. */
+export async function staffHostnameOf(registry: D1Database, id: ClientId): Promise<string | null> {
+  const row = await registry
+    .prepare(
+      "SELECT hostname FROM registry_hostnames WHERE client = ? AND surface = 'staff' AND verified = 1 ORDER BY is_primary DESC, hostname LIMIT 1",
+    )
+    .bind(validateClientId(id))
+    .first<{ hostname: string }>();
+  return row?.hostname ?? null;
 }

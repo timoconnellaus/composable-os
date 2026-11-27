@@ -7,9 +7,10 @@
 //    host's `sendRoutineMail` answers, for one row it wrote itself; a staff call, an extension,
 //    an automation's own gatekeeper call, the assistant, MCP and Code Mode reach this gatekeeper
 //    through queues that answer null, and nothing in the message can change the answer.
-// 2. The message has routine shape: one recipient; plain text; no cc, bcc, reply-to or HTML; and
-//    every link in it (the body and a calendar file's link) on the business's own site, which the
-//    queue names.
+// 2. The message has routine shape: one recipient; plain text; no cc, bcc or HTML; no reply-to
+//    but the business's own reply address, which the queue names (a human admin's setting, never
+//    the message's: stage 66 step 9); and every link in it (the body and a calendar file's link)
+//    on the business's own site, which the queue names too.
 //
 // Anything else is an ordinary send, decided as before (`email.send` or `email.internal`), and
 // the host holds it for a person.
@@ -43,10 +44,23 @@ function linksOn(text: string, site: string | null): boolean {
   return true;
 }
 
-/** Whether `message` has the shape of routine mail for the business's `site`. */
-export function isRoutineShaped(message: RoutineCandidate, site: string | null): boolean {
+/**
+ * Whether `message` has the shape of routine mail for the business's `site`, whose own reply
+ * address is `replyTo` (null: none, so no Reply-To at all).
+ */
+export function isRoutineShaped(
+  message: RoutineCandidate,
+  site: string | null,
+  replyTo: string | null = null,
+): boolean {
   if (message.to.length !== 1) return false;
-  if (message.cc?.length || message.bcc?.length || message.replyTo !== undefined) return false;
+  if (message.cc?.length || message.bcc?.length) return false;
+  if (
+    message.replyTo !== undefined &&
+    !(replyTo && message.replyTo.trim().toLowerCase() === replyTo.trim().toLowerCase())
+  ) {
+    return false;
+  }
   if (message.html !== undefined || typeof message.text !== "string") return false;
   if (!linksOn(message.subject, null) || !linksOn(message.text, site)) return false;
   const events = message.calendar
@@ -95,18 +109,25 @@ export function unsubscribeHeaders(link: string): Record<string, string> {
 }
 
 /**
- * Asks the session's approval queue whether it is the host's routine mail, decided routine, and
- * for which site. A queue without the method (another host, a test harness) is not.
+ * Asks the session's approval queue whether it is the host's routine mail, decided routine, for
+ * which site, and with which reply address. A queue without the method (another host, a test
+ * harness) is not; one that names no reply address allows none.
  */
 export async function hostRoutineMail(
   queue: unknown,
-): Promise<{ siteOrigin: string | null } | null> {
+): Promise<{ siteOrigin: string | null; replyTo: string | null } | null> {
   try {
     const target = queue as { hostRoutineMail?: () => Promise<unknown> };
     if (typeof target.hostRoutineMail !== "function") return null;
-    const answer = (await target.hostRoutineMail()) as { siteOrigin?: unknown } | null;
+    const answer = (await target.hostRoutineMail()) as {
+      siteOrigin?: unknown;
+      replyTo?: unknown;
+    } | null;
     if (!answer || typeof answer !== "object") return null;
-    return { siteOrigin: typeof answer.siteOrigin === "string" ? answer.siteOrigin : null };
+    return {
+      siteOrigin: typeof answer.siteOrigin === "string" ? answer.siteOrigin : null,
+      replyTo: typeof answer.replyTo === "string" && answer.replyTo ? answer.replyTo : null,
+    };
   } catch {
     return null;
   }

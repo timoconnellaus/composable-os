@@ -7,8 +7,12 @@
 // client's own web address or its allowed origins (never a sibling's), and gatekeeper callbacks
 // on the callback hostname. Reads are not this rule's.
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
-import { createIdentityProvider } from "@composable-os/auth";
-import { setUpTwoClients, TWO_CLIENTS } from "@composable-os/db/testing/two-clients";
+import { createIdentityProvider, FIRST_ADMIN_HEADER } from "@composable-os/auth";
+import {
+  setUpTwoClients,
+  TWO_CLIENT_FIRST_ADMIN,
+  TWO_CLIENTS,
+} from "@composable-os/db/testing/two-clients";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type AppParts, hostFetch } from "../src/server/entry.ts";
 import { createAppHandler } from "../src/server/mcp/handler.ts";
@@ -74,11 +78,16 @@ beforeAll(async () => {
       )
       .bind(a.id, `https://partner.gym-a.test, https://${B}`),
   ]);
+  // gym-a's first account: its named first admin, with the setup link's token (stage 66 step 9).
   const signUp = await fetchAt(A, "/api/auth/sign-up/email", {
     method: "POST",
-    headers: { "content-type": "application/json", origin: `https://${A}` },
+    headers: {
+      "content-type": "application/json",
+      origin: `https://${A}`,
+      [FIRST_ADMIN_HEADER]: TWO_CLIENT_FIRST_ADMIN.token,
+    },
     body: JSON.stringify({
-      email: `staff-${crypto.randomUUID()}@staff.test`,
+      email: TWO_CLIENT_FIRST_ADMIN.email,
       password: "correct-horse-battery",
       name: "Staff",
     }),

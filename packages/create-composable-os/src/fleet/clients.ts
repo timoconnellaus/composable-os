@@ -91,10 +91,14 @@ export interface FleetContext {
   dryRun: boolean;
   now?: () => Date;
   /**
-   * Stamps a Stream video of the account with its creator (Stream's API, with the account's
-   * token); false when the account has no such video. Absent: videos are left as they are.
+   * Reads a Stream video's creator (Stream's API, with the account's token): what an import checks
+   * each video it names against. Absent: they are not checked, and play only if already the
+   * client's.
    */
-  videos?: { setCreator(uid: string, creator: string): Promise<boolean> };
+  videos?: {
+    /** The video's creator now: its stamp, null for none, undefined when there is no video. */
+    creatorOf(uid: string): Promise<string | null | undefined>;
+  };
   /**
    * Cloudflare's edge for the client's hostnames (stage 66 step 8, hostnames.ts): its staff and
    * desk hostnames attached to cos-app, its own domain a custom hostname routed to cos-front.
@@ -526,7 +530,7 @@ export async function addClient(ctx: FleetContext, input: AddInput): Promise<num
     }));
   if (unfinished) ctx.io.out(`Carrying on the add of ${id} started ${unfinished.startedAt}.`);
   if (!(await readClient(ctx.registry, id))) {
-    await addClientRows(ctx.registry, client);
+    await addClientRows(ctx.registry, client, { fleetDomain: registrableDomain(ctx.fleet.domain) });
     ctx.io.out(`  registry: ${id} added, paused until its database is ready`);
   }
   await saveOperation(ctx.registry, op.id, { ...op.state, step: "database" });
@@ -1344,15 +1348,53 @@ export interface ImportInput extends Omit<AddInput, "imported"> {
 }
 
 /**
+ * Checks the videos an imported database names against Stream, before the client is served
+ * (review of #552: M-S1, then the third check's M1 and S1). An import re-stamps nothing: a video id
+ * is no secret (every playback token names it), and live and staging are separate deployments on
+ * one Stream account, so neither "no creator yet" nor a stamp of another place proves a video is
+ * this client's to take. Accepted: a video already this client's (`creator`), and one this account
+ * does not hold (returned, to be named). Anything else (no creator, any other creator, a read that
+ * failed) refuses the import, naming each video and its stamp; the client stays paused and is
+ * never served. Moving a client's videos between deployments is not built.
+ */
+async function checkImportedVideos(
+  ctx: FleetContext,
+  id: ClientId,
+  creator: string,
+  uids: readonly string[],
+): Promise<string[]> {
+  const videos = ctx.videos as NonNullable<FleetContext["videos"]>;
+  const missing: string[] = [];
+  const refused: string[] = [];
+  for (const uid of uids) {
+    let now: string | null | undefined;
+    try {
+      now = await videos.creatorOf(uid);
+    } catch (error) {
+      refused.push(`${uid} (its creator could not be read: ${(error as Error).message})`);
+      continue;
+    }
+    if (now === undefined) missing.push(uid);
+    else if (now !== creator) refused.push(`${uid} (${now === null ? "no creator" : now})`);
+  }
+  if (refused.length) {
+    throw new FleetError(
+      `Not imported further: the database names ${refused.length} video${refused.length > 1 ? "s" : ""} that ${refused.length > 1 ? "are" : "is"} not ${id}'s: ${refused.join(", ")}. An import re-stamps no video: moving a client's videos between deployments is not built yet. ${id} is left paused, never served; cos client remove ${id} drops it.`,
+    );
+  }
+  return missing;
+}
+
+/**
  * `cos client import <id> --from <folder>`: an export (of this host's client, or of a single-client
  * deployment in the same format) brought in as a new client added as `imported`: its database
  * imported part by part (each part one transaction, the schema then checked against this code's
  * migrations, the row counts against the export's), its files, and its own secrets stored sealed
  * as `imported` rows so its sessions, cards, PINs, app codes and desk enrolments carry on (given
  * secrets as given ones), then migrated to this release, its search index queued for rebuilding,
- * and served. Its videos are not copied: those its records name that this account's Stream holds
- * are re-stamped with the client's creator (`clientStamp`, `<environment>:<client>`, step 5), so
- * the host's video host serves them to it; any this account does not hold are named (issue #525).
+ * and served. Its videos are not copied and none is re-stamped: each its records name must already
+ * be the client's (`clientStamp`, `<environment>:<client>`, step 5) or not be in this account
+ * (named; issue #525); any other refuses the import (`checkImportedVideos`, review of #552).
  *
  * Crash and re-run: the client is paused until the end; a re-run carries on from the operation's
  * step (an unfinished database import resumes from its next part, files from the next one not
@@ -1428,7 +1470,9 @@ export async function importClient(ctx: FleetContext, input: ImportInput): Promi
     ctx.io.out(`Carrying on the import of ${id} started ${op.startedAt}.`);
   }
   const state = op.state;
-  if (!(await readClient(ctx.registry, id))) await addClientRows(ctx.registry, client);
+  if (!(await readClient(ctx.registry, id))) {
+    await addClientRows(ctx.registry, client, { fleetDomain: registrableDomain(ctx.fleet.domain) });
+  }
   const record = await readClient(ctx.registry, id);
   if (!record?.imported) throw new FleetError(`${id} is not a client added as imported`);
   if (state.step === "rows") state.step = "database";
@@ -1510,16 +1554,20 @@ export async function importClient(ctx: FleetContext, input: ImportInput): Promi
   if (videos.length) {
     const creator = clientStamp(record.environment, id);
     if (!ctx.videos) {
-      ctx.io.err(`  videos: ${videos.length} named, not re-stamped (no Stream access here)`);
+      ctx.io.err(
+        `  videos: ${videos.length} named, not checked (no Stream access here): each plays only if it is already ${creator}'s`,
+      );
     } else {
-      const missing: string[] = [];
-      for (const { stream_uid: uid } of videos) {
-        if (!(await ctx.videos.setCreator(uid, creator))) missing.push(uid);
-      }
-      ctx.io.out(`  videos: ${videos.length - missing.length} re-stamped as ${creator}`);
+      const missing = await checkImportedVideos(
+        ctx,
+        id,
+        creator,
+        videos.map((v) => v.stream_uid),
+      );
+      ctx.io.out(`  videos: ${videos.length - missing.length} already ${creator}'s`);
       if (missing.length) {
         ctx.io.err(
-          `  videos: ${missing.length} not in this account's Stream (copy them, then import again or stamp them): ${missing.join(", ")}`,
+          `  videos: ${missing.length} not in this account's Stream (they do not play here): ${missing.join(", ")}`,
         );
       }
     }

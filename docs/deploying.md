@@ -74,7 +74,9 @@ checks this against Wrangler's own loader. Plain `wrangler dev` on `apps/app` is
 `pnpm dev`. `crm-runner` declares no secrets and loads all of its `.dev.vars`.
 
 The first user of a deployment (Better Auth sign-up, or the first Cloudflare Access user to load
-the app) becomes its admin. After that, an admin adds people on Settings → Users with an invite
+the app) becomes its admin; an installed pack's principal is not a user here. On a host of many
+clients only the first admin the operator named, by the setup link (see "A client's first admin"
+under "A host of many clients"). After that, an admin adds people on Settings → Users with an invite
 (ADR 0455): the address, the role, and optionally a pack role or permissions the account holds from
 the start. With Better Auth the person signs in on the sign-in page with "Email me a code"; the
 code, and the invite email, go out from the host's mail connection (also on Settings → Users, the
@@ -1297,10 +1299,14 @@ cos client remove gym-a $P                   # export kept 90 days, then erased;
   while clients are paused) and resumes. A client whose migration fails is restored, and so
   is every client migrated before it; nothing is uploaded. A client's own extension on a contract
   the new release does not run stops the update before anything changes.
-- **Export and import** carry the database, files and secrets, not videos: an import re-stamps the
-  client's videos this account's Stream holds with its creator, and names any it does not (copying
-  videos is issue #525). `cos client import <id> --from <dir>` adds a new client only; an existing
-  id is refused, and so is an import while an update is unfinished.
+- **Export and import** carry the database, files and secrets, not videos. **An import re-stamps
+  no video:** each video the imported database names must already be the importing client's (its
+  creator `<environment>:<client>`), or not be in this account's Stream at all (named; it does not
+  play here). A video with no creator, any other creator, or one whose creator cannot be read
+  refuses the import, naming each video and its stamp; the client is left paused, never served,
+  and `cos client remove <id>` drops it. Moving a client's videos between deployments is not built
+  yet (copying them is issue #525). `cos client import <id> --from <dir>` adds a new client only;
+  an existing id is refused, and so is an import while an update is unfinished.
 - **What an export's checks catch:** its hashes catch a damaged or cut-short part or file, not a
   folder someone edited on purpose (the manifest is not signed): **import only an export you
   trust**. An import filters the SQL it carries (no view, no virtual table, nothing that names a
@@ -1371,6 +1377,91 @@ cos client remove gym-a $P                   # export kept 90 days, then erased;
   check, `REGISTRY_REFRESH_MS`); from then nothing is sent for that client while it is paused (a
   send queued before may still be approved once it is resumed), and nothing ever after it is
   removed.
+- **A client's first day, in order** (stage 66 step 9; ADR 0618, "The first client's day one").
+  The fleet's commands run in the operator's workflow, in a public repository whose logs anyone
+  can read, so nothing that could make a client's first account is ever in it: only a hash.
+  1. **The owner makes the setup token, on his own machine** (no Cloudflare token needed; refused
+     in CI):
+     ```sh
+     cos client first-admin-token --staff-hostname gym-a-admin.<fleet domain>
+     ```
+     It prints the link (`https://gym-a-admin.<fleet domain>/sign-in#first-admin=<token>`) and the
+     token's SHA-256. He keeps the link and gives the workflow only the hash.
+  2. **The workflow adds the client with its first admin**, the hash as a plain input:
+     ```sh
+     cos client add gym-a --env staging --location oc --label "Gym A" \
+       --admin owner@gym-a.example --admin-token-sha256 <sha256> --yes
+     ```
+     It prints neither a token, a link nor the address: only that the first admin is stored, and
+     until when (72 hours). A new hash replaces the last:
+     `cos client first-admin gym-a --email owner@gym-a.example --token-sha256 <sha256>`.
+  3. **The owner sends the link to the client's admin himself.** Only that address, with that
+     link, by password sign-up, before it expires, makes the client's first account, which is its
+     admin. With no admin named, nobody can. The link does nothing once the client has an account;
+     `first-admin` cannot tell whether it has one (the people are in the client's database, which
+     these registry commands do not open), so naming one again then is harmless and does nothing.
+  4. **The admin signs up** at the link, then sets up mail in the app (the sign-in mail steps
+     above: the operator's `cos client sender add` and `verify`, then Settings → Integrations and
+     Settings → Users).
+  5. **Packs, origins and redirects** with `cos client setting` (below): the client's packs, its
+     own site's origin, its app's sign-in redirect.
+
+  `--print-link` (cos makes the token and prints the link once) is for a self-hosted operator at a
+  terminal, and is refused when `CI` or `GITHUB_ACTIONS` is set. `cos client setting list` shows
+  the first admin as set, with its expiry, and its address only with `--show-email`. A
+  single-client install is as before: its installer signs up at `/setup` right after the deploy.
+- **A running client's settings** (`cos client setting list|set|unset <id> [NAME] [value]`, and
+  `cos client add --setting NAME=VALUE`): only `COS_PACKS`, `API_ALLOWED_ORIGINS`,
+  `NATIVE_REDIRECT_URIS`, `APPROVAL_EXPIRY_DAYS` and `COS_PRODUCT_LABEL`, each value checked before
+  it is written; replacing or removing one asks for the client's id (or `--yes`). Every other
+  setting is refused, at `add` too, with the reason: the deployment's value applies
+  (`APPROVAL_FLOOR`, `IDENTITY_PROVIDER`, the AI settings), its own command writes it
+  (`COS_FIRST_ADMIN`; `COS_ORG_EXTENSIONS`, the client repository's deploy), or it is never right
+  on a fleet (`AUTH_ALLOW_SIGNUP`). The registry's own write holds the same list. A change reaches
+  a running host within 10 seconds (its registry refresh).
+  - **`COS_PACKS` is an explicit list and only widens**: never `*`, never unset (set a list,
+    empty for none); every pack must be one the installed release carries, with the
+    packs it requires named too (Courses: Programs and Content), and none of the client's own list
+    taken out (a pack taken out stays installed and is no longer updated by a release). The host
+    installs a newly listed pack, its objects and migrations, at the client's next staff or API
+    request, as it installs a new release's packs; its customer and public tools are open from
+    then on, its routine email off until the client's admin turns it on.
+  - **`API_ALLOWED_ORIGINS`**: https origins only, the client's own sites, and none under the
+    fleet's registrable domain (the client's own staff hostname included: a hostname there is
+    another client's or the fleet's, and the host drops every such origin anyway).
+  - **`NATIVE_REDIRECT_URIS`**: the client's app's `<scheme>://staff-sign-in` (the scheme its
+    product.ts names for the environment, `nativeRedirectUri`), cos's own
+    `http://127.0.0.1/cos-sign-in`, or an https address on one of the client's own hostnames.
+  ```sh
+  cos client setting set gym-a COS_PACKS ticketing,content --env staging --yes
+  cos client setting set gym-a API_ALLOWED_ORIGINS https://www.gym-a.example --env staging
+  cos client setting set gym-a NATIVE_REDIRECT_URIS gyma://staff-sign-in,http://127.0.0.1/cos-sign-in --env staging
+  ```
+- **A client's own label** (`COS_PRODUCT_LABEL`, `--label` at add or the setting): its staff
+  screens, its sign-in page and every mail it sends name the product so, never the fleet's
+  product or another client's. Without one, the deployment's own label.
+- **Routine mail's reply address** is the client's admin's (Settings → Routine email, "Replies"):
+  routine email (a booking's confirmation, a reminder) carries it as its Reply-To and still goes on
+  its own. A Reply-To from anywhere else makes an email an ordinary send that waits for a person;
+  sign-in codes never carry one.
+- **Videos (Stream) on a fleet** use the operator's one Stream account for every client. The
+  host keeps each client's part apart (ADR 0617): every upload and copy is stamped with the client
+  as its creator; every call for a video (its details, securing it, captions, deleting it) and
+  every playback token is refused unless Stream says this client made it; every video needs a
+  signed URL, and a token names one video; nothing lists the account's videos. `cos fleet install`
+  takes the account's settings (the [Stream runbook](stream-runbook.md), steps 1 and 2, says how
+  to make the token and the signing key):
+  ```sh
+  cos fleet install --env staging --keys-file ~/fleet-keys/staging.json … \
+    --stream-account-id <account id> --stream-customer-code <code> \
+    --stream-signing-key-id <key id> \
+    --stream-token-file "$RUNNER_TEMP/stream-token" --stream-jwk-file "$RUNNER_TEMP/stream-jwk"
+  ```
+  The three ids are kept in the deployment's state, so every later upload (`cos fleet upgrade`
+  too) sets them again; the token and the key become the app Worker's secrets, which every later
+  upload keeps (`keep_bindings`). The five go together, are checked (ids as 32 hex characters, the
+  key a private RSA JWK), and nothing of the token or the key is printed. A re-run with them
+  replaces them. They are the operator's, never a client's: `cos client secret` does not take them.
 - **Payments, text, inbound webhooks and email receiving** are off for every client of a host of
   many clients until their gatekeepers are made per client (ADR 0616). A client's Stripe keys can
   already be stored (`cos client secret set <id> STRIPE_SECRET_KEY`), unused until then.

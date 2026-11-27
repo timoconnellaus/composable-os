@@ -877,11 +877,31 @@ async function hostHealth(ctx, version) {
   return answer;
 }
 
-async function signUp(ctx, hostname, email, password) {
+/** The staff address the check names each client's first admin with (stage 66 step 9). */
+const staffEmail = (ctx, id) => `staff-${id}-${ctx.run}@staging-check.invalid`;
+
+/**
+ * A first admin's setup token the check makes itself (32 random bytes, base64url, as the owner's
+ * `cos client first-admin-token` makes one), registered as a secret before any cos call, so no
+ * line of the run can carry it. cos is given only its SHA-256 (ADR 0618): the token never reaches
+ * cos, its arguments or its output.
+ */
+function setupToken(ctx) {
+  const token = randomBytes(32).toString("base64url");
+  ctx.addSecret(token);
+  return { token, sha256: createHash("sha256").update(token).digest("hex") };
+}
+
+async function signUp(ctx, hostname, email, password, setupToken) {
   const origin = `https://${hostname}`;
   const answer = await request(ctx.fetch, `${origin}/api/auth/sign-up/email`, {
     method: "POST",
-    headers: { "content-type": "application/json", origin },
+    headers: {
+      "content-type": "application/json",
+      origin,
+      // A client's first account is made only with its setup link (stage 66 step 9).
+      ...(setupToken ? { "cos-first-admin-token": setupToken } : {}),
+    },
     body: JSON.stringify({ email, password, name: "Staging check" }),
   });
   if (answer.status !== 200) {
@@ -1177,6 +1197,9 @@ export function checkSteps() {
       needs: ["install"],
       name: "2. cos client add, two clients",
       async run(ctx) {
+        // Each client's first account is made with its setup token, which step 3 uses.
+        const tokens = { [a]: setupToken(ctx), [b]: setupToken(ctx) };
+        ctx.setupTokens = { [a]: tokens[a].token, [b]: tokens[b].token };
         // A client's own domain is step 4b's (cos-front): `--web-hostname` would make a custom
         // hostname on a domain nobody can prove (`.example`).
         // `--no-wait`: the check measures each hostname's wait itself, below.
@@ -1188,6 +1211,10 @@ export function checkSteps() {
             "--location",
             ctx.location,
             "--no-wait",
+            "--admin",
+            staffEmail(ctx, id),
+            "--admin-token-sha256",
+            tokens[id].sha256,
             ...CLIENT_PACKS,
             "--yes",
           ]);
@@ -1233,10 +1260,17 @@ export function checkSteps() {
         }
         notes.push("both staff sign-in pages answer 200");
         for (const id of [a, b]) {
-          const email = `staff-${id}-${ctx.run}@staging-check.invalid`;
+          const email = staffEmail(ctx, id);
           const password = randomBytes(18).toString("base64url");
           ctx.addSecret(password);
-          const signedUp = await signUp(ctx, ctx.hosts.staff[id], email, password);
+          // The first account, with the client's setup token (stage 66 step 9).
+          const signedUp = await signUp(
+            ctx,
+            ctx.hosts.staff[id],
+            email,
+            password,
+            ctx.setupTokens?.[id],
+          );
           ctx.staff[id] = { email, password, cookie: signedUp.cookie };
           ctx.addSecret(ctx.staff[id].cookie);
           notes.push(`${id}'s staff sign-up answered ${signedUp.took}`);
