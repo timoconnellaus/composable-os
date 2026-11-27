@@ -73,42 +73,93 @@ updated", and `resume` is instant. `cos client remove` detaches every one (and e
 route and custom hostname) after its stores are erased and before its rows go, in its own recorded
 step, so a re-run finds what is left.
 
-### A client's own domain: a Cloudflare for SaaS custom hostname, proved by TXT records
+### A client's own domain: a Cloudflare for SaaS custom hostname, proved by its CNAME and named by a TXT record
 
 `cos client hostname add|verify|remove <id> <hostname>` (and `list <id>`; `cos client add
 --web-hostname` does `add`):
 
-- **add** writes the hostname to the registry **unverified** (served nowhere) and makes a custom
-  hostname on the fleet's zone (`POST /zones/{zone}/custom_hostnames`, `ssl: { method: "txt" }`),
-  then prints what the client adds to its DNS. Refused: anywhere under the fleet's registrable
-  domain (rule (a)); the CNAME target; a hostname another client holds (the registry's primary
-  key); a domain another client already has a hostname under (whoever holds a domain's DNS holds
-  every name under it); a second web hostname for the client; and on a fleet whose zone is unknown.
-- **verify** reads the custom hostname. Only when its `status` and its `ssl.status` are both
-  `active` does it put the route `<hostname>/*` on cos-front and then mark the registry's row
-  verified (and the client's web address, when it has none). Until then it prints what is pending
-  and the records again, and changes nothing.
+- **add** writes the hostname to the registry **unverified** (served nowhere), makes a custom
+  hostname on the fleet's zone (`POST /zones/{zone}/custom_hostnames`, `ssl: { method: "http" }`),
+  and prints the client's two DNS records (below). Refused: anywhere under the fleet's registrable
+  domain (rule (a)); a bare domain (below); the CNAME target; a hostname another client holds (the
+  registry's primary key); a domain another client already has a hostname under (whoever holds a
+  domain's DNS holds every name under it); a second web hostname for the client; and on a fleet
+  whose zone is unknown.
+- **verify** needs both:
+  - **Cloudflare has proved it:** the custom hostname's `status` and `ssl.status` are both
+    `active`, which real-time validation gives once the client's CNAME exists;
+  - **the domain names this client:** its TXT `_cos-client.<hostname>` holds
+    `cos-client=<client id>`, which `cos` reads itself over DNS over HTTPS (Cloudflare's public
+    resolver). A TXT naming another client refuses with that client named; a failed lookup refuses.
+
+  Only then does it put the route `<hostname>/*` on cos-front and mark the registry's row verified
+  (and the client's web address, when it has none). Otherwise it says what is missing, prints the
+  records again, and changes nothing.
 - **remove** asks for the client's id; it removes the registry's row, then the route and the custom
   hostname. A re-run after a crash finishes Cloudflare's side.
 
-**What the client does in its DNS** (each value is printed by `add`):
+**What the client does in its DNS** (printed by `add`):
 
 | Record | Name | Value | Why |
 | --- | --- | --- | --- |
-| TXT | `_cf-custom-hostname.<hostname>` | the `ownership_verification` value | proves the domain is the client's |
-| TXT | the `ssl.validation_records` name (`_acme-challenge.<hostname>`) | its value | lets Cloudflare issue the certificate |
-| CNAME | `<hostname>` | `clients.<fleet domain>` | sends its visitors to the host (DNS only; on a bare domain Cloudflare DNS flattens the CNAME, stage 46 decision 15) |
+| CNAME | `<hostname>` (a subdomain: `www.<domain>`) | `clients.<fleet domain>` | sends its visitors to the host. **DNS only (grey cloud), not proxied** |
+| TXT | `_cos-client.<hostname>` | `cos-client=<client id>` | says which client of the host the domain is for |
 
-The TXT records may go in before the CNAME, so the domain is proved and its certificate issued
-before any traffic moves; both may be deleted once the hostname is active.
+The client redirects its bare domain to the subdomain in its own DNS (a Cloudflare zone does this
+with a redirect rule).
+
+**Revised the same day (2026-11-27, before merge), for a client whose domain is a zone on
+Cloudflare in another account (the first client's).** The first version created the custom hostname
+with `ssl: { method: "txt" }` and asked for Cloudflare's ownership TXT and the certificate's TXT
+before the CNAME (pre-validation). Cloudflare's documentation, read again:
+
+- Pre-validation does not work there: "Pre-validation (TXT and HTTP token methods) is not supported
+  when the custom hostname belongs to a zone" that is "already on Cloudflare — also known as an
+  Orange-to-Orange (O2O) setup", and the page says to "use a real-time validation method instead"
+  ([pre-validation](https://developers.cloudflare.com/cloudflare-for-platforms/cloudflare-for-saas/domain-support/hostname-validation/pre-validation/)).
+  It does not say whether a DNS-only CNAME from such a zone counts; the command does not depend on
+  it.
+- Real-time validation "occurs automatically when your customer adds their DNS routing record",
+  for example "`mystore.com CNAME customers.saasprovider.com`"
+  ([real-time validation](https://developers.cloudflare.com/cloudflare-for-platforms/cloudflare-for-saas/domain-support/hostname-validation/realtime-validation/)).
+  So the custom hostname is made with an HTTP-validated certificate and turns active once the
+  CNAME exists, whatever DNS provider the client has. Cloudflare's ownership TXT is no longer asked
+  for.
+- **DNS only, not proxied.** A proxied CNAME from a Cloudflare zone makes the setup
+  Orange-to-Orange: "your zone contains a proxied DNS record matching the custom hostname … then
+  O2O will be enabled", in which "Your zone's settings are applied first, and then the SaaS
+  provider's zone settings" ([how it works](https://developers.cloudflare.com/cloudflare-for-platforms/cloudflare-for-saas/saas-customers/how-it-works/)),
+  "As a general rule, settings on the customer zone will override settings on the SaaS zone", and
+  WebSockets are "No" on both zones
+  ([product compatibility](https://developers.cloudflare.com/cloudflare-for-platforms/cloudflare-for-saas/saas-customers/product-compatibility/)).
+  The host's own WebSocket (the assistant's, `/api/assistant/socket`) is on the staff hostname,
+  never on a client's own domain, and the holding page has none; but a client's published web app
+  (stage 75) may, and a client zone's settings (a cache rule, a WAF rule, a Worker on the
+  hostname) would come before ours. So the instructions say DNS only. A proxied CNAME is not
+  refused (nothing can see it before traffic arrives, beyond `cf-connecting-o2o: 1`); the route
+  `clients.<domain>/*` to cos-front stays for it.
+- **No bare domain.** A CNAME at a zone's apex is what "Most DNS providers don't allow"; apex
+  proxying is the way round it, and "Only certain customers have access to this feature"
+  ([apex proxying](https://developers.cloudflare.com/cloudflare-for-platforms/cloudflare-for-saas/start/advanced-settings/apex-proxying/)).
+  `add` refuses a bare domain (a registrable domain, `gym.example` or `gym.co.uk`) and asks for a
+  subdomain. This departs from stage 46's decision 15 ("its site answers on the bare domain"):
+  the bare domain redirects to `www` in the client's own zone, which stage 46 already allowed
+  "where a provider cannot". For the owner to confirm.
+- **No takeover.** With real-time validation, Cloudflare's proof is only that the hostname points
+  at the fleet's target: if client B's domain already CNAMEs to `clients.<fleet domain>`, a custom
+  hostname made for it, for client A, would turn active just the same. The registry already gives
+  a hostname, and a domain, to one client; the `_cos-client` TXT closes the rest: only whoever
+  holds the domain's DNS can say which client it is for, `verify` refuses a hostname whose TXT
+  names another client or none, and nothing is routed or served before `verify`. A custom hostname
+  that is active at Cloudflare but not verified has no route of ours, so its requests reach no
+  Worker of the fleet.
 
 **Why Cloudflare for SaaS, and the documentation relied on.** A domain whose DNS is in the client's
 own account (the first client's, stage 46 decision 15) cannot carry a Custom Domain or a route of
 ours; a custom hostname on our zone is how its traffic and its certificate come to our account. A
-TXT check of our own would prove control and still serve nothing. "Have your customer add a `TXT`
-record with that `name` and `value` … After a few minutes, you will see the hostname status become
-**Active**" ([pre-validation](https://developers.cloudflare.com/cloudflare-for-platforms/cloudflare-for-saas/domain-support/hostname-validation/pre-validation/));
-production traffic needs "`status: active`" and "`ssl.status: active`"
+TXT check of our own proves which client a domain is for and still serves nothing, so it is the
+second half of `verify`, not the whole. Production traffic needs "`status: active`" and
+"`ssl.status: active`"
 ([hostname validation](https://developers.cloudflare.com/cloudflare-for-platforms/cloudflare-for-saas/domain-support/hostname-validation/)).
 The fallback origin is "where Cloudflare will route traffic sent to your custom hostnames (must be
 proxied)", and customers point a CNAME at a target such as `customers.saasprovider.com`
@@ -244,7 +295,9 @@ standard web app; gatekeepers in a fleet; usage; the first real client (step 9).
   that nothing was attached until `cos fleet install` runs again.
 - Beyond 100 included custom hostnames a zone, each costs $0.10 a month.
 - **Not verified on Cloudflare:** every call here (Custom Domains, routes, DNS records, the
-  fallback origin, custom hostnames and their TXT validation, a route on a custom hostname reaching
+  fallback origin, custom hostnames and their real-time validation from a DNS-only CNAME in a
+  Cloudflare zone of another account, the `_cos-client` lookup over DNS over HTTPS, a route on a
+  custom hostname reaching
   cos-front, a proxied CNAME from a client's own Cloudflare zone) is tested against the fake
   Cloudflare API only, as Cloudflare's documentation describes it. Whether a zone on the Free plan
   needs Cloudflare for SaaS switched on (and a payment method) before the first custom hostname is

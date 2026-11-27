@@ -1125,9 +1125,10 @@ never is (the owner's rule of 2026-11-27). `cos` attaches each hostname on the d
 
 **Client's own domain** (stage 66 step 8; ADR 0619)
 A client's web hostname, on a domain whose DNS the client holds (`www.gym-a.example`): a
-Cloudflare for SaaS custom hostname on the fleet's zone, recorded unverified, proved by the TXT
-records the client adds, verified in the registry only once Cloudflare reports it active, and then
-served by cos-front. One client's alone, and never under the fleet's registrable domain.
+Cloudflare for SaaS custom hostname on the fleet's zone, recorded unverified, proved by the
+client's CNAME to the fleet (Cloudflare's real-time validation) and named by its `_cos-client` TXT
+record, verified in the registry only once both hold, and then served by cos-front. A subdomain,
+never a bare domain. One client's alone, and never under the fleet's registrable domain.
 _Avoid_: vanity domain, custom domain (that is a Workers Custom Domain)
 
 **cos-front** (stage 66 step 8; ADR 0619)

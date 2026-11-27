@@ -61,7 +61,13 @@ import {
 import type { ExportPart } from "@composable-os/db/sql-export";
 import { type FleetState, fleetClientTarget } from "@composable-os/release";
 import type { Io } from "../io.ts";
-import type { CustomHostnameState, FleetEdge } from "./hostnames.ts";
+import {
+  clientTxtName,
+  clientTxtValue,
+  type FleetEdge,
+  recordsFor,
+  type TxtLookup,
+} from "./hostnames.ts";
 import type { Operator } from "./operator-client.ts";
 
 export class FleetError extends Error {}
@@ -88,6 +94,11 @@ export interface FleetContext {
    * and nothing is attached, which the command says.
    */
   edge?: FleetEdge;
+  /**
+   * Reads a name's TXT records (DNS over HTTPS from `cos`): how `cos client hostname verify`
+   * reads the `_cos-client` record that says which client a domain is for. Absent: none found.
+   */
+  txt?: TxtLookup;
 }
 
 /** A refreshed registry is served within this long (packages/db `REGISTRY_REFRESH_MS`). */
@@ -205,8 +216,14 @@ export function hostnameProblem(
     return `${hostname} is where clients' own domains point, no client's hostname`;
   }
   if (surface === "web") {
-    return isUnder(hostname, registrable)
-      ? `${hostname}: a client's web hostname is never on the fleet's domain (${registrable}), where its code could set the staff hostnames' cookies; use the client's own domain`
+    if (isUnder(hostname, registrable)) {
+      return `${hostname}: a client's web hostname is never on the fleet's domain (${registrable}), where its code could set the staff hostnames' cookies; use the client's own domain`;
+    }
+    // A custom hostname at a domain's apex needs a CNAME at the apex to validate and route, which
+    // Cloudflare for SaaS supports only with apex proxying, "only certain customers have access to
+    // this feature" (ADR 0619): a subdomain, and the bare domain redirected to it by the client.
+    return registrableDomain(hostname) === hostname
+      ? `${hostname} is a bare domain: use a subdomain (www.${hostname}), and redirect the bare domain to it in the client's own DNS`
       : null;
   }
   return hostname.endsWith(`.${domain}`)
@@ -248,14 +265,13 @@ export function plannedClient(ctx: FleetContext, input: AddInput): NewClient {
 }
 
 /** The lines that tell the operator what the client adds to its DNS for its own domain. */
-export function dnsInstructions(
-  id: string,
-  hostname: string,
-  state: CustomHostnameState,
-): string[] {
+export function dnsInstructions(ctx: FleetContext, id: string, hostname: string): string[] {
+  const target = fleetClientTarget(canonicalDomain(ctx.fleet.domain) ?? ctx.fleet.domain);
   return [
     `  ${hostname}: unverified, served nowhere yet. The client adds, at its DNS provider:`,
-    ...state.records.map((r) => `    ${r.type.padEnd(5)} ${r.name}  ${r.value}    (${r.why})`),
+    ...recordsFor(hostname, target, id).map(
+      (r) => `    ${r.type.padEnd(5)} ${r.name}  ${r.value}    (${r.why})`,
+    ),
     `  then: cos client hostname verify ${id} ${hostname}`,
   ];
 }
@@ -274,8 +290,8 @@ async function attachHostnames(ctx: FleetContext, id: string, client: NewClient)
   }
   for (const h of client.hostnames) {
     if (h.surface === "web") {
-      const state = await ctx.edge.addCustomHostname(h.hostname);
-      for (const line of dnsInstructions(id, h.hostname, state)) ctx.io.out(line);
+      await ctx.edge.addCustomHostname(h.hostname);
+      for (const line of dnsInstructions(ctx, id, h.hostname)) ctx.io.out(line);
     } else {
       ctx.io.out(`  ${await ctx.edge.attachFleetHostname(h.hostname)}`);
     }
@@ -466,9 +482,9 @@ export async function hostnameCommand(
     await addHostname(ctx.registry, id, hostname, "web", {
       callbackHostname: ctx.fleet.callbackHostname,
     });
-    const state = await ctx.edge.addCustomHostname(hostname);
+    await ctx.edge.addCustomHostname(hostname);
     ctx.io.out(`Added ${hostname} to ${id}:`);
-    for (const line of dnsInstructions(id, hostname, state)) ctx.io.out(line);
+    for (const line of dnsInstructions(ctx, id, hostname)) ctx.io.out(line);
     return 0;
   }
   if (!ctx.edge)
@@ -493,11 +509,36 @@ export async function hostnameCommand(
         `${hostname} has no custom hostname on the fleet's zone: run cos client hostname add ${id} ${hostname} again`,
       );
     }
-    if (!state.active) {
-      ctx.io.out(
-        `${hostname} is not proved yet (hostname ${state.status}, certificate ${state.certificate}): nothing was changed.`,
+    // Which client the domain is for, in the domain's own DNS (ADR 0619): Cloudflare's real-time
+    // validation proves only that the hostname points at the fleet.
+    const txt = ctx.txt ?? (async () => []);
+    let named: string[];
+    try {
+      named = await txt(clientTxtName(hostname));
+    } catch (error) {
+      throw new FleetError(
+        `Could not read ${clientTxtName(hostname)}: ${(error as Error).message}`,
       );
-      for (const line of dnsInstructions(id, hostname, state)) ctx.io.out(line);
+    }
+    const others = named.filter((v) => v.startsWith("cos-client=") && v !== clientTxtValue(id));
+    if (others.length) {
+      throw new FleetError(
+        `${clientTxtName(hostname)} names another client (${others.join(", ")}): ${hostname} is not ${id}'s. Nothing was changed.`,
+      );
+    }
+    const missing = [
+      ...(state.active
+        ? []
+        : [
+            `Cloudflare has not proved it (hostname ${state.status}, certificate ${state.certificate})`,
+          ]),
+      ...(named.includes(clientTxtValue(id))
+        ? []
+        : [`its TXT ${clientTxtName(hostname)} does not say ${clientTxtValue(id)}`]),
+    ];
+    if (missing.length) {
+      ctx.io.out(`${hostname} is not verified: ${missing.join("; ")}. Nothing was changed.`);
+      for (const line of dnsInstructions(ctx, id, hostname)) ctx.io.out(line);
       return 1;
     }
     if (ctx.dryRun) {

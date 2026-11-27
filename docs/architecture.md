@@ -160,7 +160,8 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   hostnames and the callback hostname, on the fleet's domain, reach cos-app (a Workers Custom
   Domain each, or one wildcard route at a zone's apex); cos-app serves the staff and desk
   surfaces. A client's own web domain is a Cloudflare for SaaS custom hostname on the fleet's
-  zone, proved by TXT records, verified in the registry only once Cloudflare reports it active,
+  zone, proved by the client's CNAME and named by its `_cos-client` TXT record, verified in the
+  registry only once Cloudflare reports it active and the record names the client,
   then routed to **cos-front** (`apps/front`, `@composable-os/db/front`): a fleet Worker with the
   registry and two vars only, which looks the hostname up exactly, removes every header that
   could name a client, and hands the request to the client's web target (`WebTarget`) with the

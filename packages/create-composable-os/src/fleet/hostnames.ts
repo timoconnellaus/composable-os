@@ -11,9 +11,10 @@
 //     at install; nothing per client. Only where the domain is the zone's apex (Universal SSL
 //     covers one level under it) and the zone is the fleet's alone (the route takes every name).
 // - **A client's own domain** (its web hostname) is a Cloudflare for SaaS custom hostname on the
-//   fleet's zone, validated by TXT records the client adds (ownership and certificate), and once
-//   Cloudflare reports both active, a route `<hostname>/*` to cos-front. The client points a CNAME
-//   at `clients.<domain>`, the zone's fallback origin (`fleetClientTarget`).
+//   fleet's zone, validated in real time once the client's CNAME to `clients.<domain>` (the zone's
+//   fallback origin, `fleetClientTarget`) exists, its certificate by HTTP; and once Cloudflare
+//   reports both active and the client's `_cos-client` TXT names it (`recordsFor`), a route
+//   `<hostname>/*` to cos-front.
 //
 // Every call here finds before it makes, so a re-run of any command converges.
 import type {
@@ -36,9 +37,8 @@ export interface DnsRecordLine {
 export interface CustomHostnameState {
   status: string;
   certificate: string;
-  /** Ownership and certificate both active: the hostname may be verified and routed. */
+  /** Hostname and certificate both active at Cloudflare. */
   active: boolean;
-  records: DnsRecordLine[];
 }
 
 /** What the commands need of Cloudflare for hostnames. */
@@ -65,45 +65,65 @@ export interface EdgeInput {
   frontWorker: string | null;
 }
 
-/** The DNS records a custom hostname asks its owner for. */
-export function recordsOf(found: CustomHostname, target: string): DnsRecordLine[] {
-  const out: DnsRecordLine[] = [];
-  const own = found.ownership_verification;
-  if (own?.name && own.value) {
-    out.push({
-      type: "TXT",
-      name: own.name,
-      value: own.value,
-      why: "proves the domain is the client's (Cloudflare's ownership check)",
-    });
-  }
-  for (const r of found.ssl?.validation_records ?? []) {
-    if (r.txt_name && r.txt_value) {
-      out.push({
-        type: "TXT",
-        name: r.txt_name,
-        value: r.txt_value,
-        why: "lets Cloudflare issue the hostname's certificate",
-      });
-    }
-  }
-  out.push({
-    type: "CNAME",
-    name: found.hostname,
-    value: target,
-    why: "sends its visitors to the host (DNS only; on a bare domain, Cloudflare DNS flattens it)",
-  });
-  return out;
+/** The name of the TXT record that says which client a hostname is for. */
+export function clientTxtName(hostname: string): string {
+  return `_cos-client.${hostname}`;
 }
 
-function stateOf(found: CustomHostname, target: string): CustomHostnameState {
+/** The value of that record for a client. */
+export function clientTxtValue(client: string): string {
+  return `cos-client=${client}`;
+}
+
+/**
+ * The DNS records a client's own domain needs, in its own DNS (ADR 0619):
+ * - a CNAME to the fleet's target, DNS only: with it Cloudflare validates the hostname in real
+ *   time and issues its certificate over HTTP (pre-validation by TXT is not supported for a
+ *   hostname whose zone is on Cloudflare, and a proxied CNAME, Orange-to-Orange, puts the client's
+ *   zone settings first and carries no WebSockets);
+ * - a TXT `_cos-client.<hostname>` naming the client, which `cos client hostname verify` reads
+ *   itself: Cloudflare's validation proves the hostname points at the fleet, not which client it
+ *   is for, so without this a hostname another client's DNS already points at the target could be
+ *   claimed for the wrong client.
+ */
+export function recordsFor(hostname: string, target: string, client: string): DnsRecordLine[] {
+  return [
+    {
+      type: "CNAME",
+      name: hostname,
+      value: target,
+      why: "sends its visitors to the host; DNS only (grey cloud), not proxied",
+    },
+    {
+      type: "TXT",
+      name: clientTxtName(hostname),
+      value: clientTxtValue(client),
+      why: "says which client of the host the domain is for",
+    },
+  ];
+}
+
+function stateOf(found: CustomHostname): Omit<CustomHostnameState, "records"> {
   const status = found.status;
   const certificate = found.ssl?.status ?? "unknown";
-  return {
-    status,
-    certificate,
-    active: status === "active" && certificate === "active",
-    records: recordsOf(found, target),
+  return { status, certificate, active: status === "active" && certificate === "active" };
+}
+
+/** A TXT lookup: every TXT value at `name` (strings of one record joined), or []. */
+export type TxtLookup = (name: string) => Promise<string[]>;
+
+/** TXT records over DNS over HTTPS (Cloudflare's public resolver, JSON). */
+export function dohTxt(fetchImpl: typeof fetch = fetch): TxtLookup {
+  return async (name) => {
+    const response = await fetchImpl(
+      `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=TXT`,
+      { headers: { accept: "application/dns-json" } },
+    );
+    if (!response.ok) throw new Error(`DNS lookup of ${name} failed (HTTP ${response.status})`);
+    const body = (await response.json()) as { Answer?: { type: number; data: string }[] };
+    return (body.Answer ?? [])
+      .filter((a) => a.type === 16)
+      .map((a) => [...a.data.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1]).join(""));
   };
 }
 
@@ -113,7 +133,6 @@ export function cloudflareEdge(input: EdgeInput): FleetEdge | null {
   const zone = fleet.zone;
   if (!zone) return null;
   const attach: FleetAttach = fleet.attach ?? "custom-domains";
-  const target = fleetClientTarget(fleet.domain);
   const front = () => {
     if (!frontWorker) {
       throw new Error("the installed release has no cos-front: upgrade the fleet first");
@@ -135,12 +154,12 @@ export function cloudflareEdge(input: EdgeInput): FleetEdge | null {
     async addCustomHostname(hostname) {
       const found =
         (await api.findCustomHostname(zone.id, hostname)) ??
-        (await api.createTxtCustomHostname(zone.id, hostname));
-      return stateOf(found, target);
+        (await api.createCustomHostnameForCname(zone.id, hostname));
+      return stateOf(found);
     },
     async customHostnameState(hostname) {
       const found = await api.findCustomHostname(zone.id, hostname);
-      return found ? stateOf(found, target) : null;
+      return found ? stateOf(found) : null;
     },
     async routeToFront(hostname) {
       await api.putRoute(zone.id, `${hostname}/*`, front());

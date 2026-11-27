@@ -623,15 +623,15 @@ export class CloudflareClient {
 
   /**
    * A client's own domain on a host of many clients (stage 66 step 8, ADR 0619): a custom
-   * hostname validated by TXT records (ownership and certificate), so the client proves control
-   * before any traffic moves. Its `ownership_verification` and `ssl.validation_records` are what
-   * the client adds to its DNS.
+   * hostname validated in real time (it turns active once the client's CNAME to the fleet's
+   * target exists) with an HTTP-validated certificate, so it works for a client whose zone is
+   * itself on Cloudflare, where pre-validation by TXT is not supported.
    */
-  async createTxtCustomHostname(zoneId: string, hostname: string): Promise<CustomHostname> {
+  async createCustomHostnameForCname(zoneId: string, hostname: string): Promise<CustomHostname> {
     return (
       await this.request<CustomHostname>("POST", `/zones/${zoneId}/custom_hostnames`, {
         hostname,
-        ssl: { method: "txt", type: "dv" },
+        ssl: { method: "http", type: "dv" },
       })
     ).result;
   }

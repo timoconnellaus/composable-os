@@ -68,7 +68,7 @@ import {
 import { d1OverRest } from "./d1-rest.ts";
 import { FORCE_FAILURE_VAR, forcedFailure, withForcedMigration } from "./forced-failure.ts";
 import { fleetGatekeepers } from "./gatekeepers.ts";
-import { cloudflareEdge, setUpFleetZone, zoneOf } from "./hostnames.ts";
+import { cloudflareEdge, dohTxt, setUpFleetZone, zoneOf } from "./hostnames.ts";
 import {
   type KeysFile,
   keysFingerprint,
@@ -517,6 +517,8 @@ async function withContext(
       operator,
       fleet,
       ...(edge ? { edge } : {}),
+      // The `_cos-client` record of a client's own domain, read over DNS over HTTPS.
+      txt: dohTxt(deps.fetch ?? fetch),
       migrations: bundleMigrations(installed.bundle),
       io: deps.io,
       yes: Boolean(flags.yes),

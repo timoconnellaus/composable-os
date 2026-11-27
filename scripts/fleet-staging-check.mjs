@@ -15,7 +15,7 @@
 // cos attaches the fleet's hostnames itself (stage 66 step 8): `cos fleet install --zone` the
 // callback hostname and `clients.<domain>`, `cos client add` each staff hostname; the check only
 // confirms them. Step 3b checks cos-front (an unknown hostname's 404, a change from a sibling
-// client refused, and with --client-zone a client's own domain proved by its TXT records and
+// client refused, and with --client-zone a client's own domain proved by its CNAME, named by its TXT and
 // served). On those zones the teardown also deletes the run's routes, DNS records and custom
 // hostnames, by a hostname label exactly the prefix.
 //
@@ -1181,7 +1181,9 @@ export function checkSteps() {
         if (!served.ok) fail(`${own} did not answer 200 once verified (last: ${served.status})`);
         const body = (await served.response?.text()) ?? "";
         if (!body.includes("Coming soon")) fail(`${own} did not serve the holding page`);
-        notes.push(`${a}'s own domain, proved by its TXT records, serves the holding page`);
+        notes.push(
+          `${a}'s own domain, proved by its CNAME and named by its _cos-client TXT, serves the holding page`,
+        );
         await must(ctx, ["client", "hostname", "remove", a, own, "--yes"]);
         notes.push("and is removed again");
         return { note: notes.join("; ") };

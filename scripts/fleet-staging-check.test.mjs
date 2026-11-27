@@ -379,12 +379,12 @@ test("on the zones the run used, teardown deletes the routes, DNS records and cu
   const target = `clients.${PREFIX}.fleet.example`;
   await api.ensureProxiedPlaceholder(ZONE, target);
   await api.putRoute(ZONE, `${target}/*`, `${PREFIX}-front-staging`);
-  await api.createTxtCustomHostname(ZONE, `www.${PREFIX}.client.example`);
+  await api.createCustomHostnameForCname(ZONE, `www.${PREFIX}.client.example`);
   // Another site's on the same zone, and a near miss of the label.
   await api.ensureProxiedPlaceholder(ZONE, "www.fleet.example");
   await api.putRoute(ZONE, "www.fleet.example/*", "crm-app");
   await api.putRoute(ZONE, `x.${PREFIX}4.fleet.example/*`, "crm-app");
-  await api.createTxtCustomHostname(ZONE, "shop.someone.example");
+  await api.createCustomHostnameForCname(ZONE, "shop.someone.example");
   // A zone the run never recorded is not looked at.
   const recorded = [{ kind: "dns", name: `${target}#AAAA`, id: "x", zone: ZONE }];
   const result = await teardown(api, ACCOUNT, PREFIX, recorded);
@@ -782,7 +782,8 @@ test("the cos-front step: an unknown hostname's 404, a sibling's change refused,
       if (args[2] === "add") {
         return {
           code: 0,
-          out: `Added ${own} to alpha:\n  ${own}: unverified, served nowhere yet. The client adds, at its DNS provider:\n    TXT   _cf-custom-hostname.${own}  own-1    (proves the domain is the client's)\n    TXT   _acme-challenge.${own}  acme-1    (lets Cloudflare issue the hostname's certificate)\n    CNAME ${own}  clients.${PREFIX}.fleet.example    (sends its visitors to the host)\n`,
+          // As cos prints it (clients.ts `dnsInstructions`).
+          out: `Added ${own} to alpha:\n  ${own}: unverified, served nowhere yet. The client adds, at its DNS provider:\n    CNAME ${own}  clients.${PREFIX}.fleet.example    (sends its visitors to the host; DNS only (grey cloud), not proxied)\n    TXT   _cos-client.${own}  cos-client=alpha    (says which client of the host the domain is for)\n  then: cos client hostname verify alpha ${own}\n`,
           ms: 1,
         };
       }
@@ -802,11 +803,12 @@ test("the cos-front step: an unknown hostname's 404, a sibling's change refused,
   assert.deepEqual(
     written.map((r) => [r.zone, r.type, r.name, r.content]),
     [
-      ["zone-client", "TXT", `_cf-custom-hostname.${own}`, "own-1"],
-      ["zone-client", "TXT", `_acme-challenge.${own}`, "acme-1"],
       ["zone-client", "CNAME", own, `clients.${PREFIX}.fleet.example`],
+      ["zone-client", "TXT", `_cos-client.${own}`, "cos-client=alpha"],
     ],
   );
+  // The CNAME DNS only, never proxied (no Orange-to-Orange).
+  assert.equal(written.find((r) => r.type === "CNAME")?.proxied, false);
   assert.equal(verifies, 2);
   assert.deepEqual(commands, [
     "client hostname add",

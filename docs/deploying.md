@@ -1273,11 +1273,14 @@ cos client remove gym-a                      # export kept 90 days, then erased;
   Public Suffix listing; client code runs only on the client's own domain). `cos client hostname
   add <id> <hostname>` (or `cos client add --web-hostname`) records it unverified, makes it a
   Cloudflare for SaaS custom hostname on the fleet's zone and prints what the client adds at its
-  DNS provider: a TXT `_cf-custom-hostname.<hostname>` (ownership), a TXT for the certificate, and
-  a CNAME `<hostname>` to `clients.<fleet domain>` (DNS only; on a bare domain Cloudflare DNS
-  flattens it). `cos client hostname verify` serves it (a route to cos-front) only once Cloudflare
-  reports the hostname and its certificate active; `remove` takes it away. A hostname, and a domain,
-  is one client's. 100 custom hostnames a zone are included, then $0.10 a month each.
+  DNS provider: a CNAME `<hostname>` to `clients.<fleet domain>`, **DNS only (grey cloud)**, and a
+  TXT `_cos-client.<hostname>` saying `cos-client=<id>`. It must be a subdomain (`www.<domain>`):
+  a bare domain is refused, and the client redirects it to the subdomain in its own DNS. `cos
+  client hostname verify` serves it (a route to cos-front) only once Cloudflare reports the
+  hostname and its certificate active (real-time validation, once the CNAME exists; this works for
+  a client whose own zone is on Cloudflare, in another account) and the TXT names that client;
+  `remove` takes it away. A hostname, and a domain, is one client's. 100 custom hostnames a zone are
+  included, then $0.10 a month each.
 - **cos-front** (`<prefix>front`) answers clients' own domains: today a holding page for a verified
   one, a 404 for anything else. Serving the client's published web app is stage 75.
 - **On a host of many clients** a change (any POST, PUT, PATCH or DELETE) is made only from the
