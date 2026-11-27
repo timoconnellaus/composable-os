@@ -22,6 +22,7 @@ import {
   hostnameProblem,
   importClient,
   listClientsCommand,
+  NOT_ANSWERING_MARKER,
   pauseClient,
   registrableDomain,
   removeClient,
@@ -1178,6 +1179,9 @@ describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
     expect(text).toContain(
       "https://gym-a-desk.fleet.example does not answer yet after 900 s: its DNS or certificate is still on its way",
     );
+    // And a fixed line a program can read (the operator's workflow), for that hostname only.
+    const marked = out.lines.filter((l) => l.startsWith(NOT_ANSWERING_MARKER));
+    expect(marked).toEqual([`${NOT_ANSWERING_MARKER} gym-a-desk.fleet.example`]);
     expect(await readClient(registry, id("gym-a"))).toMatchObject({ status: "active" });
     // Without a way to ask (--no-wait), it only says a new hostname can take minutes.
     await addClient(edged(), { id: "gym-b" });
@@ -1435,6 +1439,117 @@ describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
     expect(cf.domains.map((d) => d.hostname)).toEqual(["gym-b-admin.fleet.example"]);
     expect(cf.routes.map((r) => r.pattern)).toEqual(["www.gym-b.example/*"]);
     expect(cf.customHostnames.map((h) => h.hostname)).toEqual(["www.gym-b.example"]);
+  });
+
+  it("finishes a removal stopped at any Cloudflare step on the re-run, and counts what is gone already as gone (staging check 46022687687)", async () => {
+    // Each Cloudflare delete `cos client remove` and `hostname remove` make, failed three ways:
+    // nothing done and an error; done and the answer lost; done already, so a 404.
+    const deletes = [
+      ["a Custom Domain", /\/workers\/domains\//],
+      ["a route", /\/workers\/routes\//],
+      ["a custom hostname", /\/custom_hostnames\/(?!fallback)/],
+    ] as const;
+    const take = (path: string) => {
+      const last = path.split("/").pop();
+      for (const list of [cf.domains, cf.routes, cf.customHostnames] as { id?: string }[][]) {
+        const at = list.findIndex((x) => x.id === last);
+        if (at !== -1) list.splice(at, 1);
+      }
+    };
+    const ways = {
+      failed: () => new Response("upstream", { status: 502 }),
+      "done, answer lost": (path: string) => {
+        take(path);
+        return new Response("upstream", { status: 502 });
+      },
+      "gone already": (path: string) => {
+        take(path);
+        return new Response(
+          JSON.stringify({ success: false, errors: [{ code: 10000, message: "not found" }] }),
+          { status: 404 },
+        );
+      },
+    } as const;
+    let n = 0;
+    for (const [what, pattern] of deletes) {
+      for (const [way, answer] of Object.entries(ways)) {
+        n += 1;
+        const client = `gym-r${n}`;
+        const domain = `www.${client}.example`;
+        await addClient(edged(), { id: client, desk: true, webHostname: domain });
+        prove(domain, client);
+        await hostnameCommand(edged(), "verify", client, domain);
+        let once = false;
+        cf.failOn = (method, path) => {
+          if (once || method !== "DELETE" || !pattern.test(path)) return undefined;
+          once = true;
+          return answer(path);
+        };
+        const label = `${what}, ${way}`;
+        const first = removeClient(edged({ yes: true }), client);
+        if (way === "gone already") expect(await first, label).toBe(0);
+        else {
+          await expect(first, label).rejects.toThrow(/502/);
+          expect((await readClient(registry, id(client)))?.status, label).toBe("moving");
+          expect(await removeClient(edged({ yes: true }), client), label).toBe(0);
+        }
+        cf.failOn = null;
+        expect(once, label).toBe(true);
+        expect(await wasRemoved(registry, client), label).toBe(true);
+        const left = (h: string) => h.includes(client);
+        expect(
+          cf.domains.filter((d) => left(d.hostname)),
+          label,
+        ).toEqual([]);
+        expect(
+          cf.routes.filter((r) => left(r.pattern)),
+          label,
+        ).toEqual([]);
+        expect(
+          cf.customHostnames.filter((h) => left(h.hostname)),
+          label,
+        ).toEqual([]);
+      }
+    }
+    // `cos client hostname remove` the same way: a route or custom hostname delete that failed,
+    // lost its answer or found it gone; the re-run (or the run) ends with nothing and no row.
+    for (const [what, pattern] of deletes.slice(1)) {
+      for (const [way, answer] of Object.entries(ways)) {
+        n += 1;
+        const client = `gym-h${n}`;
+        const domain = `www.${client}.example`;
+        await addClient(edged(), { id: client, webHostname: domain });
+        prove(domain, client);
+        await hostnameCommand(edged(), "verify", client, domain);
+        let once = false;
+        cf.failOn = (method, path) => {
+          if (once || method !== "DELETE" || !pattern.test(path)) return undefined;
+          once = true;
+          return answer(path);
+        };
+        const label = `hostname remove: ${what}, ${way}`;
+        const first = hostnameCommand(edged({ yes: true }), "remove", client, domain);
+        if (way === "gone already") expect(await first, label).toBe(0);
+        else {
+          await expect(first, label).rejects.toThrow(/502/);
+          expect(await hostnameCommand(edged({ yes: true }), "remove", client, domain), label).toBe(
+            0,
+          );
+        }
+        cf.failOn = null;
+        expect(once, label).toBe(true);
+        const after = await readRegistry(registry);
+        expect(after.hostnames.has(domain) || after.unverified.has(domain), label).toBe(false);
+        expect(
+          cf.routes.filter((r) => r.pattern.includes(client)),
+          label,
+        ).toEqual([]);
+        expect(
+          cf.customHostnames.filter((h) => h.hostname.includes(client)),
+          label,
+        ).toEqual([]);
+      }
+    }
   });
 
   it("attaches nothing per client on a wildcard fleet, and still makes a client's own domain a custom hostname", async () => {

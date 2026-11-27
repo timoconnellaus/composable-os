@@ -19,6 +19,12 @@
 #     secret CLIENT_<ID>_<NAME> by file. Neither is printed or uploaded; there are no artifacts.
 #   - The repository's product only, from a published, attested release (cos --require-gh). The
 #     staging check's throwaway names (cosstg-…) are refused.
+#   - A client's first admin is named by the SHA-256 of a setup token the owner made on his own
+#     machine (an input: it opens nothing) and its address, the environment secret
+#     CLIENT_<ID>_ADMIN_EMAIL, never an input: nothing here can make a client's first account, and
+#     no address is kept in a public run's history. The summary has it redacted. Stream's token,
+#     signing key and account id are secrets; the token and key reach only fleet install, by
+#     0600 file.
 name: Fleet operate
 
 on:
@@ -36,6 +42,7 @@ on:
         options:
           - client-list
           - client-add
+          - client-first-admin
           - client-pause
           - client-resume
           - client-export
@@ -60,7 +67,7 @@ on:
         type: boolean
         default: true
       confirm:
-        description: With dry_run off, for remove, export, verify, unverify, secret remove, a setting, a live pause or resume, and take_over, the client's id (for an identity or approval setting, <client id>:<NAME>); for a live upgrade, the version; for install, the domain
+        description: With dry_run off, for remove, export, verify, unverify, secret remove, first-admin, a setting, a live pause or resume, and take_over, the client's id (for an identity or approval setting, <client id>:<NAME>); for a live upgrade, the version; for install, the domain
         default: ""
       client:
         description: The client's id (lowercase letters, digits, single hyphens)
@@ -86,7 +93,13 @@ on:
         default: as-installed
         options: [as-installed, "off", "on"]
       settings:
-        description: client add only, client settings as NAME=VALUE separated by spaces (e.g. COS_PACKS=ticketing)
+        description: client add only, client settings as NAME=VALUE separated by spaces; COS_PACKS is required (COS_PACKS=ticketing; COS_PACKS= for base records only; never *)
+        default: ""
+      label:
+        description: client add only, the client's own label (spaces allowed, e.g. Gym A)
+        default: ""
+      admin_token_sha256:
+        description: client add and client-first-admin, the SHA-256 of the setup token from cos client first-admin-token, run on your own machine (64 hex; it opens nothing); the address is the environment secret CLIENT_<ID>_ADMIN_EMAIL
         default: ""
       hostname:
         description: hostname commands only, the client's own web hostname
@@ -144,6 +157,8 @@ jobs:
           OP_SECRET_NAME: ${{ inputs.secret_name }}
           OP_SETTING_NAME: ${{ inputs.setting_name }}
           OP_SETTING_VALUE: ${{ inputs.setting_value }}
+          OP_LABEL: ${{ inputs.label }}
+          OP_ADMIN_TOKEN_SHA256: ${{ inputs.admin_token_sha256 }}
           OP_TAKE_OVER: ${{ inputs.take_over }}
         run: node scripts/fleet-operate.mjs validate
 
@@ -156,7 +171,9 @@ jobs:
     runs-on: ubuntu-latest
     # An upgrade migrates every client in turn: up to six hours, a hosted runner's most. One cut
     # short leaves an unfinished update recorded, clients paused: run fleet-upgrade again with the
-    # same version, which finishes or undoes it (docs/deploying.md).
+    # same version, which finishes or undoes it (docs/deploying.md). Every other command has an
+    # hour: client-add and hostname-verify wait up to 15 minutes for a new hostname to answer
+    # (client-add makes one, the staff hostname; never --no-wait).
     timeout-minutes: ${{ inputs.command == 'fleet-upgrade' && 360 || 60 }}
     # Staging and live are separate environments, each with its own secrets and protection.
     environment: ${{ inputs.env == 'live' && 'fleet-live' || 'fleet' }}
@@ -219,6 +236,8 @@ jobs:
           OP_SECRET_NAME: ${{ inputs.secret_name }}
           OP_SETTING_NAME: ${{ inputs.setting_name }}
           OP_SETTING_VALUE: ${{ inputs.setting_value }}
+          OP_LABEL: ${{ inputs.label }}
+          OP_ADMIN_TOKEN_SHA256: ${{ inputs.admin_token_sha256 }}
           OP_TAKE_OVER: ${{ inputs.take_over }}
           FLEET_ENVIRONMENT: ${{ secrets.FLEET_ENVIRONMENT }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.FLEET_CLOUDFLARE_API_TOKEN }}
@@ -230,4 +249,16 @@ jobs:
           FLEET_KEYS: ${{ (inputs.command == 'fleet-install' || inputs.command == 'fleet-upgrade') && secrets.FLEET_KEYS || '' }}
           # A client's secret value, for client-secret-set only: always a CLIENT_ secret.
           SECRET_VALUE: ${{ inputs.command == 'client-secret-set' && secrets[format('CLIENT_{0}_{1}', inputs.client, inputs.secret_name)] || '' }}
+          # A client's first admin's address, for client-add and client-first-admin with a token
+          # hash only: always the CLIENT_<ID>_ADMIN_EMAIL secret, never an input.
+          ADMIN_EMAIL: ${{ (inputs.command == 'client-add' || inputs.command == 'client-first-admin') && inputs.admin_token_sha256 != '' && secrets[format('CLIENT_{0}_ADMIN_EMAIL', inputs.client)] || '' }}
+          # The operator's Stream account, for fleet install only, all five or none (none: an
+          # install without Stream): its account id, token and signing key are the environment's
+          # secrets; the customer code (in every playback address) and the signing key's id (in
+          # every playback token) are public by nature, its variables, never committed.
+          FLEET_STREAM_ACCOUNT_ID: ${{ inputs.command == 'fleet-install' && secrets.FLEET_STREAM_ACCOUNT_ID || '' }}
+          FLEET_STREAM_CUSTOMER_CODE: ${{ inputs.command == 'fleet-install' && vars.FLEET_STREAM_CUSTOMER_CODE || '' }}
+          FLEET_STREAM_SIGNING_KEY_ID: ${{ inputs.command == 'fleet-install' && vars.FLEET_STREAM_SIGNING_KEY_ID || '' }}
+          FLEET_STREAM_API_TOKEN: ${{ inputs.command == 'fleet-install' && secrets.FLEET_STREAM_API_TOKEN || '' }}
+          FLEET_STREAM_SIGNING_JWK: ${{ inputs.command == 'fleet-install' && secrets.FLEET_STREAM_SIGNING_JWK || '' }}
         run: node scripts/fleet-operate.mjs run
