@@ -30,6 +30,7 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -712,7 +713,18 @@ async function hostHealth(ctx, version) {
 const staffEmail = (ctx, id) => `staff-${id}-${ctx.run}@staging-check.invalid`;
 
 /** The setup link's token `cos client add --admin` printed, or null (the operator's link, ADR 0618). */
-const setupTokenOf = (out) => /#first-admin=([A-Za-z0-9_-]{32,128})/.exec(out ?? "")?.[1] ?? null;
+/**
+ * A first admin's setup token the check makes itself (32 random bytes, hex), masked at once and
+ * written 0600 to a file of its own for `cos client add --admin-token-file`: cos keeps its hash and
+ * prints nothing of it (ADR 0618), and the check never logs it.
+ */
+function setupToken(ctx, id) {
+  const token = randomBytes(32).toString("hex");
+  ctx.addSecret(token);
+  const file = join(mkdtempSync(join(tmpdir(), "cos-first-admin-")), id);
+  writeFileSync(file, token, { mode: 0o600 });
+  return { token, file };
+}
 
 async function signUp(ctx, hostname, email, password, setupToken) {
   const origin = `https://${hostname}`;
@@ -984,6 +996,9 @@ export function checkSteps() {
       needs: ["install"],
       name: "2. cos client add, two clients",
       async run(ctx) {
+        // Each client's first account is made with its setup token, which step 3 uses.
+        const tokens = { [a]: setupToken(ctx, a), [b]: setupToken(ctx, b) };
+        ctx.setupTokens = { [a]: tokens[a].token, [b]: tokens[b].token };
         const first = await must(ctx, [
           "client",
           "add",
@@ -994,6 +1009,8 @@ export function checkSteps() {
           ctx.hosts.web,
           "--admin",
           staffEmail(ctx, a),
+          "--admin-token-file",
+          tokens[a].file,
           "--yes",
         ]);
         const second = await must(ctx, [
@@ -1004,11 +1021,11 @@ export function checkSteps() {
           ctx.location,
           "--admin",
           staffEmail(ctx, b),
+          "--admin-token-file",
+          tokens[b].file,
           "--yes",
         ]);
-        // Each client's first account is made with its setup link, which step 3 uses.
-        ctx.setupTokens = { [a]: setupTokenOf(first.out), [b]: setupTokenOf(second.out) };
-        for (const token of Object.values(ctx.setupTokens)) ctx.addSecret(token);
+        for (const { file } of Object.values(tokens)) rmSync(file, { force: true });
         const list = await clientList(ctx);
         for (const id of [a, b]) {
           if (list[id]?.status !== "active") fail(`${id} is ${list[id]?.status} after its add`);

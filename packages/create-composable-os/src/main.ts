@@ -204,9 +204,12 @@ A host of many clients (stage 66; docs/deploying.md "A host of many clients")
                                          a running client's settings: COS_PACKS (only wider),
                                          API_ALLOWED_ORIGINS, NATIVE_REDIRECT_URIS,
                                          APPROVAL_EXPIRY_DAYS, COS_PRODUCT_LABEL
-  cos client first-admin <id> <email>    who may make its first account: a setup link for that
-                                         address, printed once (add takes --admin <email> and
-                                         --label <name> too)
+  cos client first-admin <id> <email> --token-file <f>
+                                         who may make its first account: a setup token you made
+                                         (openssl rand -hex 32), only its hash kept, nothing of it
+                                         printed; --print-link instead makes one and prints the
+                                         link, at a terminal only (refused in CI). add takes
+                                         --admin <email> --admin-token-file <f> and --label <name>
   Each asks for the client's id before removing or overwriting (or --yes); a re-run after a
   failure carries on where it stopped.
 
@@ -312,6 +315,7 @@ export function parseArgs(argv: string[]): { command: string; flags: Flags } {
       "listing",
       "draft",
       "leaving",
+      "print-link",
       "without-secrets",
       "skip-staging",
       "take-over",

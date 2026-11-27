@@ -80,8 +80,11 @@ import {
   addSettingsProblems,
   firstAdminCommand,
   labelSetting,
+  readSetupToken,
   releasePacksOf,
+  type SetupTokenSource,
   settingCommand,
+  setupTokenSource,
 } from "./settings.ts";
 import { fleetUpdate } from "./update.ts";
 
@@ -118,9 +121,10 @@ cos client: the clients of a host of many clients (each takes --env <live|stagin
   cos client setting list <id> | setting set <id> <NAME> <value> | setting unset <id> <NAME>
                  a running client's settings: COS_PACKS (only wider), API_ALLOWED_ORIGINS,
                  NATIVE_REDIRECT_URIS, APPROVAL_EXPIRY_DAYS, COS_PRODUCT_LABEL
-  cos client first-admin <id> <email>
-                 who may make the client's first account: a setup link for that address, printed
-                 once (add takes --admin <email> and --label <name> too)
+  cos client first-admin <id> <email> --token-file <f> | --print-link
+                 who may make the client's first account, with a setup token you made (only its
+                 hash is kept, nothing of it printed), or one cos makes and prints at a terminal
+                 (refused in CI); add takes --admin <email> --admin-token-file <f> and --label too
 Every command that removes or overwrites asks for the client's id (or --yes); --dry-run changes nothing.
 One command at a time uses the operator's Worker; --take-over takes it from one that was killed.`;
 
@@ -502,12 +506,23 @@ async function secretValue(flags: Flags, deps: Deps, name: string): Promise<stri
   return value;
 }
 
+/** The first admin `cos client add --admin` names, and where its setup token comes from. */
+interface FirstAdminPlan {
+  email: string;
+  source: SetupTokenSource;
+}
+
 /**
  * `cos client add`'s own flags of stage 66 step 9, before anything is written: `--label` as the
- * client's `COS_PRODUCT_LABEL`, `--admin` an address, and each setting as `cos client setting`
- * checks it (packs against the installed release).
+ * client's `COS_PRODUCT_LABEL`, `--admin` an address with its setup token (`--admin-token-file`,
+ * read and checked now, or `--print-link` at a terminal), and each setting as `cos client
+ * setting` checks it (packs against the installed release).
  */
-function prepareAdd(ctx: FleetContext & { release: ReleaseBundle }, flags: Flags): void {
+function prepareAdd(
+  ctx: FleetContext & { release: ReleaseBundle },
+  flags: Flags,
+  deps: Deps,
+): FirstAdminPlan | null {
   const label = str(flags, "label");
   if (label !== undefined) {
     const setting = labelSetting(label);
@@ -516,23 +531,35 @@ function prepareAdd(ctx: FleetContext & { release: ReleaseBundle }, flags: Flags
       `COS_PRODUCT_LABEL=${setting.COS_PRODUCT_LABEL}`,
     ];
   }
-  const admin = str(flags, "admin");
-  if (admin !== undefined && !firstAdminEmail(admin)) {
-    throw new CliError("--admin: the first admin's email address");
-  }
   const problems = addSettingsProblems(settingsOf(flags), releasePacksOf(ctx.release.clientFiles));
   if (problems.length) throw new CliError(problems.join("; "));
+  const admin = str(flags, "admin");
+  if (admin === undefined) return null;
+  if (!firstAdminEmail(admin)) throw new CliError("--admin: the first admin's email address");
+  const source = setupTokenSource(
+    str(flags, "admin-token-file"),
+    Boolean(flags["print-link"]),
+    deps.env,
+    "--admin-token-file",
+  );
+  // Checked before the client is added; never printed (the redactor holds it too).
+  if ("file" in source) deps.redactor.add(readSetupToken(source.file));
+  return { email: admin, source };
 }
 
-/** After `cos client add`: with `--admin`, the first admin named and the setup link printed. */
-function afterAdd(ctx: FleetContext, id: string | undefined, flags: Flags) {
+/** After `cos client add`: with `--admin`, the first admin named with its setup token. */
+function afterAdd(
+  ctx: FleetContext,
+  id: string | undefined,
+  plan: FirstAdminPlan | null,
+  deps: Deps,
+) {
   return async (code: number): Promise<number> => {
-    const admin = str(flags, "admin");
-    if (code === 0 && admin && ctx.dryRun) {
-      ctx.io.out(`  Would name ${admin} its first admin and print a setup link.`);
+    if (code === 0 && plan && ctx.dryRun) {
+      ctx.io.out(`  Would name ${plan.email} its first admin.`);
       return code;
     }
-    if (code !== 0 || !admin) {
+    if (code !== 0 || !plan) {
       if (code === 0 && !ctx.dryRun) {
         ctx.io.out(
           "  No first admin was named: nobody can make the client's first account until you run cos client first-admin <id> <email>.",
@@ -540,7 +567,10 @@ function afterAdd(ctx: FleetContext, id: string | undefined, flags: Flags) {
       }
       return code;
     }
-    return firstAdminCommand(ctx, id, admin);
+    return firstAdminCommand(ctx, id, plan.email, {
+      source: plan.source,
+      redact: (v) => deps.redactor.add(v),
+    });
   };
 }
 
@@ -575,7 +605,7 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
     const { state } = await locateFleet(s, environment);
     return await withContext(`client ${command}`, flags, deps, s, state, async (ctx) => {
       // `--label` and `--admin` (stage 66 step 9), and every setting checked, before anything.
-      if (command === "add") prepareAdd(ctx, flags);
+      const firstAdmin = command === "add" ? prepareAdd(ctx, flags, deps) : null;
       switch (command) {
         case "add":
           return addClient(ctx, {
@@ -590,7 +620,7 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
               ? { webHostname: str(flags, "web-hostname") as string }
               : {}),
             settings: settingsOf(flags),
-          }).then(afterAdd(ctx, positional[0], flags));
+          }).then(afterAdd(ctx, positional[0], firstAdmin, deps));
         case "pause":
           return pauseClient(ctx, positional[0] as string);
         case "resume":
@@ -641,7 +671,15 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
           );
         }
         case "first-admin":
-          return firstAdminCommand(ctx, positional[0], positional[1]);
+          return firstAdminCommand(ctx, positional[0], positional[1], {
+            source: setupTokenSource(
+              str(flags, "token-file"),
+              Boolean(flags["print-link"]),
+              deps.env,
+              "--token-file",
+            ),
+            redact: (v) => deps.redactor.add(v),
+          });
         case "sender": {
           const [verb, id, domain] = positional;
           if (!verb || !id || !domain) {

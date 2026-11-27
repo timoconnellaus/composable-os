@@ -1,7 +1,10 @@
 // A running client's settings and its first admin (stage 66 step 9, ADR 0618 "The first client's
 // day one"): `cos client setting list|set|unset`, `cos client first-admin` and `cos client add
 // --admin --label`, against the registry's real migrations on Node's SQLite.
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { applyMigrations, type MigrationLevel } from "@composable-os/db";
 import {
   type ClientId,
@@ -22,6 +25,8 @@ import {
   labelSetting,
   type ReleasePacks,
   settingCommand,
+  setupTokenProblem,
+  setupTokenSource,
 } from "../src/fleet/settings.ts";
 import type { Io } from "../src/io.ts";
 
@@ -167,7 +172,10 @@ describe("cos client setting (G4)", () => {
   });
 
   it("lists the client's own settings, never the first admin's hash", async () => {
-    await firstAdminCommand(ctx(), "gym-a", "owner@gym-a.example", { token: "t".repeat(43) });
+    await firstAdminCommand(ctx(), "gym-a", "owner@gym-a.example", {
+      source: { print: true },
+      token: "t".repeat(43),
+    });
     lines = [];
     await settingCommand(ctx(), release, "list", "gym-a", undefined, undefined);
     const text = lines.join("\n");
@@ -221,9 +229,6 @@ describe("the commands, through cos itself", () => {
   it("checks add's label, admin and settings before anything is written, and routes setting and first-admin", async () => {
     const { buildFixtureRelease } = await import("@composable-os/release/testing");
     const { runIn, startWorld } = await import("./world.ts");
-    const { mkdtempSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
     const world = await startWorld();
     try {
       await world.github.publish(
@@ -250,6 +255,12 @@ describe("the commands, through cos itself", () => {
       );
       expect(install.code, install.output).toBe(0);
       const client = (...args: string[]) => runIn(world, "client", ...args, "--env", "staging");
+      const dir = mkdtempSync(join(tmpdir(), "s66s9-token-"));
+      const tokenFile = join(dir, "token");
+      writeFileSync(tokenFile, `${TOKEN}\n`, { mode: 0o600 });
+      const weakFile = join(dir, "weak");
+      writeFileSync(weakFile, "short-token\n", { mode: 0o600 });
+      const outputs: string[] = [];
       for (const [args, said] of [
         [["add", "gym-a", "--label", " Gym A"], /--label: no space/],
         [["add", "gym-a", "--admin", "not an address"], /--admin/],
@@ -257,51 +268,132 @@ describe("the commands, through cos itself", () => {
         [["add", "gym-a", "--setting", "COS_FIRST_ADMIN={}"], /--admin <email>/],
         [["setting", "set", "gym-a", "COS_PRODUCT_LABEL", "Gym A"], /No client gym-a/],
         [["setting", "set", "gym-a", "AUTH_ALLOW_SIGNUP", "true"], /never on a fleet/],
-        [["first-admin", "gym-a", "owner@gym-a.example"], /No client gym-a/],
+        [["first-admin", "gym-a", "owner@gym-a.example"], /--token-file <file>/],
+        [["add", "gym-a", "--admin", "owner@gym-a.example"], /--admin-token-file <file>/],
+        [
+          ["add", "gym-a", "--admin", "owner@gym-a.example", "--admin-token-file", weakFile],
+          /refused: it is not 32 random bytes/,
+        ],
+        [
+          ["first-admin", "gym-a", "owner@gym-a.example", "--token-file", tokenFile],
+          /No client gym-a/,
+        ],
+        [
+          ["first-admin", "gym-a", "owner@gym-a.example", "--token-file", tokenFile, "--dry-run"],
+          /No client gym-a/,
+        ],
+        [
+          [
+            "add",
+            "gym-a",
+            "--admin",
+            "owner@gym-a.example",
+            "--admin-token-file",
+            tokenFile,
+            "--setting",
+            "COS_PACKS=nope",
+          ],
+          /does not carry nope/,
+        ],
       ] as const) {
         const { code, output } = await client(...args);
+        outputs.push(output);
         expect(code, args.join(" ")).toBe(1);
         expect(output, args.join(" ")).toMatch(said);
       }
       // Refused before anything: no client was written.
       expect((await client("list")).output).not.toContain("gym-a");
+      // No refusal, dry run or usage text carries the operator's token.
+      for (const output of outputs) expect(output).not.toContain(TOKEN);
     } finally {
       world.server.close();
     }
   });
 });
 
+/** A setup token as the operator makes one (`openssl rand -hex 32`). */
+const TOKEN = randomBytes(32).toString("hex");
+
+function tokenFileWith(text: string): string {
+  const path = join(mkdtempSync(join(tmpdir(), "s66s9-")), "token");
+  writeFileSync(path, text, { mode: 0o600 });
+  return path;
+}
+
 describe("cos client first-admin (G5)", () => {
-  it("names the address, keeps only the token's hash, and prints the setup link once", async () => {
-    const token = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";
+  it("with the operator's token file: keeps only its hash, and prints neither the token nor the link", async () => {
     const now = new Date("2026-11-27T00:00:00.000Z");
-    expect(await firstAdminCommand(ctx(), "gym-a", " Owner@Gym-A.example ", { token, now })).toBe(
-      0,
-    );
-    const stored = parseFirstAdmin((await own("gym-a")).COS_FIRST_ADMIN);
-    expect(stored).toEqual({
+    const file = tokenFileWith(`${TOKEN}\n`);
+    // A dry run reads and checks it, and prints nothing of it.
+    await firstAdminCommand(ctx({ dryRun: true }), "gym-a", "owner@gym-a.example", {
+      source: { file },
+    });
+    expect((await own("gym-a")).COS_FIRST_ADMIN).toBeUndefined();
+    expect(
+      await firstAdminCommand(ctx(), "gym-a", " Owner@Gym-A.example ", { source: { file }, now }),
+    ).toBe(0);
+    expect(parseFirstAdmin((await own("gym-a")).COS_FIRST_ADMIN)).toEqual({
       email: "owner@gym-a.example",
-      sha256: createHash("sha256").update(token).digest("hex"),
+      sha256: createHash("sha256").update(TOKEN).digest("hex"),
       expires: "2026-11-30T00:00:00.000Z",
     });
-    expect(JSON.stringify(await own("gym-a"))).not.toContain(token);
+    const text = lines.join("\n");
+    expect(text).toContain(
+      "open https://gym-a-admin.fleet.example/sign-in#first-admin=<your token>",
+    );
+    expect(text).not.toContain(TOKEN);
+    expect(JSON.stringify(await own("gym-a"))).not.toContain(TOKEN);
+  });
+
+  it("refuses a weak token, saying why and never the value", async () => {
+    for (const [text, why] of [
+      ["abc123\n", /not 32 random bytes/],
+      [`${TOKEN.slice(0, 32)} ${TOKEN.slice(32)}`, /space/],
+      [`${TOKEN}\n\n`, /line break/],
+      ["a".repeat(64), /not random/],
+      [`${TOKEN}=`, /not 32 random bytes/],
+    ] as const) {
+      const attempt = firstAdminCommand(ctx(), "gym-a", "owner@gym-a.example", {
+        source: { file: tokenFileWith(text) },
+      });
+      await expect(attempt, JSON.stringify(text)).rejects.toThrow(why);
+      await attempt.catch((error: Error) => expect(error.message).not.toContain(text.trim()));
+    }
+    // A base64url one of 32 random bytes is good too.
+    expect(setupTokenProblem(randomBytes(32).toString("base64url"))).toBeNull();
+    expect((await own("gym-a")).COS_FIRST_ADMIN).toBeUndefined();
+  });
+
+  it("makes and prints a link only with --print-link, and never in CI", async () => {
+    const token = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";
+    await firstAdminCommand(ctx(), "gym-a", "owner@gym-a.example", {
+      source: { print: true },
+      token,
+    });
     expect(lines.join("\n")).toContain(
       `https://gym-a-admin.fleet.example/sign-in#first-admin=${token}`,
     );
-    // A new link replaces the last.
-    await firstAdminCommand(ctx(), "gym-a", "owner@gym-a.example", { token: "x".repeat(43), now });
     expect(parseFirstAdmin((await own("gym-a")).COS_FIRST_ADMIN)?.sha256).toBe(
-      createHash("sha256").update("x".repeat(43)).digest("hex"),
+      createHash("sha256").update(token).digest("hex"),
     );
+    for (const env of [{ CI: "true" }, { GITHUB_ACTIONS: "true" }]) {
+      expect(() => setupTokenSource(undefined, true, env, "--token-file")).toThrow(/refused in CI/);
+    }
+    expect(() => setupTokenSource(undefined, false, {}, "--token-file")).toThrow(
+      /--token-file <file>/,
+    );
+    expect(() => setupTokenSource("f", true, {}, "--token-file")).toThrow(/not both/);
+    expect(setupTokenSource("f", false, { CI: "true" }, "--token-file")).toEqual({ file: "f" });
   });
 
-  it("refuses an address that is not one, a client that does not exist, and writes nothing on a dry run", async () => {
-    await expect(firstAdminCommand(ctx(), "gym-a", "not an address")).rejects.toThrow(/--admin/);
-    await expect(firstAdminCommand(ctx(), "gym-z", "owner@gym-z.example")).rejects.toThrow(
-      /No client gym-z/,
+  it("refuses an address that is not one and a client that does not exist", async () => {
+    const source = { file: tokenFileWith(TOKEN) };
+    await expect(firstAdminCommand(ctx(), "gym-a", "not an address", { source })).rejects.toThrow(
+      /--admin/,
     );
-    await firstAdminCommand(ctx({ dryRun: true }), "gym-a", "owner@gym-a.example");
-    expect((await own("gym-a")).COS_FIRST_ADMIN).toBeUndefined();
+    await expect(
+      firstAdminCommand(ctx(), "gym-z", "owner@gym-z.example", { source }),
+    ).rejects.toThrow(/No client gym-z/);
   });
 
   it("never lets the setting command write it", () => {

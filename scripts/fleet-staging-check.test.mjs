@@ -3,7 +3,7 @@
 // half-way, what each step demands before it passes, and that no secret reaches what is written.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -1122,18 +1122,15 @@ test("what a failure needed, said plainly; secrets cut out; cos's list and expor
   ]);
 });
 
-test("each client's first admin is named at add, and its setup link makes the first account (stage 66 step 9)", async () => {
+test("each client's first admin is named at add with a token the check made, never logged, and it makes the first account (stage 66 step 9)", async () => {
   const added = [];
-  const tokens = { alpha: "A".repeat(43), bravo: "B".repeat(43) };
+  // What cos read from each token file, while it existed.
+  const tokens = {};
   const answer = (args) => {
     if (args[0] === "client" && args[1] === "add") {
       added.push(args);
-      const id = args[2];
-      return {
-        code: 0,
-        out: `Added ${id} in 1.0 s\n  https://${id}-admin.x/sign-in#first-admin=${tokens[id]}`,
-        ms: 1,
-      };
+      tokens[args[2]] = readFileSync(args[args.indexOf("--admin-token-file") + 1], "utf8");
+      return { code: 0, out: `Added ${args[2]} in 1.0 s`, ms: 1 };
     }
     if (args[0] === "client" && args[1] === "list") {
       return {
@@ -1145,11 +1142,24 @@ test("each client's first admin is named at add, and its setup link makes the fi
     return { code: 0, out: "", ms: 1 };
   };
   const base = stepCtx({ answer });
-  const ctx = { ...base, api: { ...base.api, putDomain: async () => {} } };
-  await step("add").run(ctx);
+  const masked = [];
+  const ctx = {
+    ...base,
+    api: { ...base.api, putDomain: async () => {} },
+    addSecret: (value) => masked.push(value),
+  };
+  const result = await step("add").run(ctx);
   assert.equal(added.length, 2);
   for (const args of added) {
     assert.equal(args[args.indexOf("--admin") + 1], `staff-${args[2]}-123@staging-check.invalid`);
+    const file = args[args.indexOf("--admin-token-file") + 1];
+    // 32 random bytes as hex, masked before cos ran, the file gone once the clients are added.
+    assert.match(tokens[args[2]], /^[0-9a-f]{64}$/);
+    assert.ok(masked.includes(tokens[args[2]]));
+    assert.equal(existsSync(file), false);
+    // Never in the command line or the step's note.
+    assert.equal(args.join(" ").includes(tokens[args[2]]), false);
+    assert.equal(JSON.stringify(result).includes(tokens[args[2]]), false);
   }
   const signedUp = {};
   const host = (url) => new URL(url).hostname.split("-admin.")[0];

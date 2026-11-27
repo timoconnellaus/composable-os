@@ -11,6 +11,7 @@
 // `extension.install` does) at the client's next staff or API request, as it installs a new
 // release's packs, and a pack only installs with the packs it requires, so those are named too.
 import { createHash, randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
   type ClientId,
   FIRST_ADMIN_FRAGMENT,
@@ -204,31 +205,113 @@ export function newSetupToken(): string {
 }
 
 /**
+ * What is wrong with a setup token the operator made, or null. Strong means at least 32 random
+ * bytes, written as base64url (43 to 128 of `A-Z a-z 0-9 - _`, no padding) or as hex (64 to 128
+ * of `0-9 a-f`), with no space or line inside, and not a run of a few characters (at least 16
+ * different characters for base64url, 10 for hex). `openssl rand -hex 32` makes one.
+ */
+export function setupTokenProblem(token: string): string | null {
+  if (/\s/.test(token)) return "it holds a space or a line break";
+  const hex = /^[0-9a-f]{64,128}$/.test(token);
+  const b64 = /^[A-Za-z0-9_-]{43,128}$/.test(token);
+  if (!hex && !b64) {
+    return "it is not 32 random bytes or more as hex (64 to 128 of 0-9 a-f) or base64url (43 to 128 of A-Z a-z 0-9 - _)";
+  }
+  if (new Set(token).size < (hex ? 10 : 16))
+    return "it is not random (too few different characters)";
+  return null;
+}
+
+/** The setup token in `path`, checked: one trailing line break is dropped, nothing else. */
+export function readSetupToken(path: string): string {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    throw new FleetError(`The setup token file ${path} cannot be read`);
+  }
+  const token = text.replace(/\r?\n$/, "");
+  const problem = setupTokenProblem(token);
+  // The value is never part of an error: it is a credential.
+  if (problem) throw new FleetError(`The setup token in ${path} is refused: ${problem}`);
+  return token;
+}
+
+/** Whether the command runs in CI, where what it prints lands in a log. */
+export function inCi(env: { CI?: string; GITHUB_ACTIONS?: string }): boolean {
+  return Boolean(env.CI || env.GITHUB_ACTIONS);
+}
+
+/**
+ * Where a setup link's token comes from: a file the operator made (`--admin-token-file`,
+ * `--token-file`; nothing of it is printed), or made by `cos` and printed once (`--print-link`),
+ * for a person at a terminal only.
+ */
+export type SetupTokenSource = { file: string } | { print: true };
+
+/**
+ * The token source a command's flags name, checked before anything is written: exactly one of
+ * the file or `--print-link`, and `--print-link` never in CI (`CI` or `GITHUB_ACTIONS`), where the
+ * link would land in a log.
+ */
+export function setupTokenSource(
+  file: string | undefined,
+  printLink: boolean,
+  env: { CI?: string; GITHUB_ACTIONS?: string },
+  fileFlag: string,
+): SetupTokenSource {
+  if (file && printLink) throw new FleetError(`Give ${fileFlag} or --print-link, not both`);
+  if (file) return { file };
+  if (printLink) {
+    if (inCi(env)) {
+      throw new FleetError(
+        `--print-link is refused in CI (CI or GITHUB_ACTIONS is set): the link would be in the log. Make a token yourself and pass ${fileFlag} <file>.`,
+      );
+    }
+    return { print: true };
+  }
+  throw new FleetError(
+    `The first admin's setup token: ${fileFlag} <file> (a token you made, e.g. openssl rand -hex 32), or --print-link at a terminal`,
+  );
+}
+
+/**
  * `cos client first-admin <id> <email>` (and `cos client add --admin`): names who may make the
- * client's first account and prints a setup link for it, once. The registry keeps the address and
- * the token's SHA-256 only; a new link replaces the last. The link works until it expires, and
- * does nothing once the client has its first account.
+ * client's first account. The registry keeps the address and the token's SHA-256 only; a new
+ * token replaces the last. With a token file, nothing of the token is printed: the operator
+ * builds the link from the token they made. With `--print-link`, `cos` makes one and prints the
+ * link once. It works until it expires, and does nothing once the client has its first account.
  */
 export async function firstAdminCommand(
   ctx: FleetContext,
   raw: string | undefined,
   email: string | undefined,
-  options: { now?: Date; token?: string } = {},
+  options: {
+    source: SetupTokenSource;
+    now?: Date;
+    /** The token `--print-link` uses (tests only). */
+    token?: string;
+    /** Registers the token with the command's redactor, so no output can carry it. */
+    redact?: (value: string) => void;
+  },
 ): Promise<number> {
   const id = idOf(raw);
   const address = email ? firstAdminEmail(email) : null;
   if (!address) throw new FleetError("Name the first admin's email address: --admin <email>");
+  // Read and checked first, so a dry run and every refusal check it too, and never print it.
+  const supplied = "file" in options.source ? readSetupToken(options.source.file) : null;
+  if (supplied) options.redact?.(supplied);
   if (!(await readClient(ctx.registry, id))) throw new FleetError(`No client ${id}`);
   const staff = await staffHostnameOf(ctx.registry, id);
   if (!staff) throw new FleetError(`${id} has no verified staff hostname to sign up at`);
   if (ctx.dryRun) {
     ctx.io.out(
-      `Would name ${address} ${id}'s first admin and print a setup link. Nothing was changed (--dry-run).`,
+      `Would name ${address} ${id}'s first admin${supplied ? ", with the token you supplied" : " and print a setup link"}. Nothing was changed (--dry-run).`,
     );
     return 0;
   }
   const now = options.now ?? ctx.now?.() ?? new Date();
-  const token = options.token ?? newSetupToken();
+  const token = supplied ?? options.token ?? newSetupToken();
   const expires = new Date(now.getTime() + FIRST_ADMIN_LINK_HOURS * 3_600_000).toISOString();
   await setClientSetting(
     ctx.registry,
@@ -240,6 +323,16 @@ export async function firstAdminCommand(
       expires,
     }),
   );
+  if (supplied) {
+    ctx.io.out(
+      `${address} may make ${id}'s first account until ${expires}, with the token you made:`,
+    );
+    ctx.io.out(`  open https://${staff}/sign-in#${FIRST_ADMIN_FRAGMENT}=<your token>`);
+    ctx.io.out(
+      "  cos keeps only its hash and prints nothing of it. Send the link to them yourself. It works for that address only, and does nothing once the client has its first account.",
+    );
+    return 0;
+  }
   ctx.io.out(`${address} may make ${id}'s first account, until ${expires}, with this link:`);
   ctx.io.out(`  https://${staff}/sign-in#${FIRST_ADMIN_FRAGMENT}=${token}`);
   ctx.io.out(
