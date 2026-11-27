@@ -1191,21 +1191,25 @@ node scripts/release/inspect-bundle.ts release-out/composable-os-crm-1.2.3.tar.g
 Releases are built by `.github/workflows/release.yml` on a `vX.Y.Z` / `vX.Y.Z-beta.N` tag; see
 [`scripts/release/README.md`](../scripts/release/README.md).
 
-## A host of many clients (stage 66 step 7)
+## A host of many clients (stage 66 steps 7 and 8)
 
 One deployment of the host serving many clients, each with a database of its own (stage 66, ADRs
-0613 to 0618). Live and staging are two deployments, each with its own Workers, registry, queues,
+0613 to 0619). Live and staging are two deployments, each with its own Workers, registry, queues,
 cos-client-db and keys. Nothing here changes a single-client install. Not yet run on Cloudflare:
 every command below is proved locally and against the fake API only.
 
 ```sh
 # Once per environment: the deployment's keys, into a file outside any repository (mode 0600).
 cos fleet keys --env staging --out ~/fleet-keys/staging.json
-# The host, its registry (migrated), cos-client-db, the operator's Worker, every fleet binding.
+# The host, its registry (migrated), cos-client-db, the operator's Worker, cos-front, every fleet
+# binding; the zone the domain is on, the callback hostname and clients.<domain> attached.
 cos fleet install --env staging --keys-file ~/fleet-keys/staging.json \
-  --callback-hostname callback-staging.<fleet domain> --domain <fleet domain>
-# A client: its registry rows, its database made and migrated, its hostnames. No upload.
-cos client add gym-a --env staging --location oc --web-hostname staging.gym-a.example
+  --callback-hostname callback.staging.<fleet domain> --domain staging.<fleet domain>
+# A client: its registry rows, its database made and migrated, its staff (and desk) hostnames
+# attached. No upload. Its own domain is recorded unverified, and the DNS records it needs printed.
+cos client add gym-a --env staging --location oc --desk --web-hostname staging.gym-a.example
+# Once the client has added them: verified and served by cos-front (refused until Cloudflare says so).
+cos client hostname verify gym-a staging.gym-a.example --env staging
 cos client secret set gym-a GOOGLE_CLIENT_SECRET --env staging   # asked for, hidden; sealed
 # Its sender domain: added unverified; verify once it is onboarded to Email Sending in this account.
 cos client sender add gym-a gym-a.example --env staging
@@ -1254,9 +1258,29 @@ cos client remove gym-a                      # export kept 90 days, then erased;
   import refuses them.
   `secrets.json` is **unencrypted** JSON (mode 0600) holding the client's session keys and given
   secrets: keep it as a password, and delete it once imported.
-- **A client's web app is on its own domain**, never under the fleet's domain beside the staff
-  hostnames: `cos client add` names a web hostname only with `--web-hostname`, and refuses one
-  anywhere under the fleet domain's registrable domain (it has no Public Suffix listing).
+- **The fleet's own hostnames** (stage 66 step 8, ADR 0619). `cos fleet install` finds the zone of
+  the account that holds `--domain` (or `--zone <name>`); without one it attaches nothing and says
+  so. With `--attach custom-domains` (the default) each staff, desk and callback hostname is a
+  Workers Custom Domain of the app, put by `cos client add` and removed by `cos client remove`
+  (at most 100 a zone). With `--attach wildcard` one `*.<domain>` record and route serve them all and
+  nothing is attached per client; only when `--domain` is the zone's apex, on a zone used for
+  nothing else. `cos client pause` leaves a client's hostnames attached: they answer "being
+  updated".
+- **A client's own domain** (its web hostname) is never under the fleet's registrable domain (no
+  Public Suffix listing; client code runs only on the client's own domain). `cos client hostname
+  add <id> <hostname>` (or `cos client add --web-hostname`) records it unverified, makes it a
+  Cloudflare for SaaS custom hostname on the fleet's zone and prints what the client adds at its
+  DNS provider: a TXT `_cf-custom-hostname.<hostname>` (ownership), a TXT for the certificate, and
+  a CNAME `<hostname>` to `clients.<fleet domain>` (DNS only; on a bare domain Cloudflare DNS
+  flattens it). `cos client hostname verify` serves it (a route to cos-front) only once Cloudflare
+  reports the hostname and its certificate active; `remove` takes it away. A hostname, and a domain,
+  is one client's. 100 custom hostnames a zone are included, then $0.10 a month each.
+- **cos-front** (`<prefix>front`) answers clients' own domains: today a holding page for a verified
+  one, a 404 for anything else. Serving the client's published web app is stage 75.
+- **On a host of many clients** a change (any POST, PUT, PATCH or DELETE) is made only from the
+  hostname's own pages: a request from another origin is refused, a sibling client's hostname
+  included, except a token call, a customer-facing call from the client's own web address or its
+  `API_ALLOWED_ORIGINS`, and gatekeeper callbacks. Only `__Host-` cookies are read.
 - **Payments, text, inbound webhooks and email** are off for every client of a host of many clients
   until their gatekeepers are made per client (ADR 0616). A client's Stripe keys can already be
   stored (`cos client secret set <id> STRIPE_SECRET_KEY`), unused until then.

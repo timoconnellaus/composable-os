@@ -154,6 +154,23 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   restores and uploads nothing), `cos client export`/`import`/`remove`, and `cos install --import`
   for a client leaving to its own account. Each records its progress in `registry_operations`.
 
+- **Hostnames and cos-front** (stage 66 step 8,
+  [ADR 0619](adr/0619-hostnames-and-cos-front.md)): `cos fleet install` learns the zone the fleet's
+  domain is on; `cos` attaches every hostname the registry records. A client's staff and desk
+  hostnames and the callback hostname, on the fleet's domain, reach cos-app (a Workers Custom
+  Domain each, or one wildcard route at a zone's apex); cos-app serves the staff and desk
+  surfaces. A client's own web domain is a Cloudflare for SaaS custom hostname on the fleet's
+  zone, proved by TXT records, verified in the registry only once Cloudflare reports it active,
+  then routed to **cos-front** (`apps/front`, `@composable-os/db/front`): a fleet Worker with the
+  registry and two vars only, which looks the hostname up exactly, removes every header that
+  could name a client, and hands the request to the client's web target (`WebTarget`) with the
+  client fixed from the registry; today its one target is a holding page, and stage 75 step 5
+  adds the client's published version. Since there is no Public Suffix listing of the fleet's
+  domain, three rules keep clients apart there: client code runs only on a client's own domain;
+  on a many-client host every state-changing request comes from the exact same origin
+  (`apps/app/src/server/same-origin-writes.ts`, with the existing token, allowed-origin and
+  callback exceptions); and only `__Host-` cookies are read (`scripts/check-host-cookies.mjs`).
+
 - **The registry and the client's environment** (stage 66 step 3,
   [ADR 0613](adr/0613-the-registry-and-the-clients-environment.md)): a host that serves many
   clients has one more D1 database, the registry (`REGISTRY`), with its own migrations in

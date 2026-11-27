@@ -311,6 +311,20 @@ request's Host header beyond step 3's exact lookup:
   client's web app is on its own domain, or on a registrable domain apart from the staff hostnames;
   and the fleet's domain is submitted to the Public Suffix List (its private section; allow weeks),
   so a sibling cannot set a cookie for the whole domain at all.
+- **Amended 2026-11-27 (the owner, for step 8; [ADR 0619](0619-hostnames-and-cos-front.md)):** the
+  Public Suffix List submission is dropped (it would be declined at our size), and so is "a
+  registrable domain apart from the staff hostnames". What replaces them: (a) client-written web
+  code runs only on the client's own domain, never on any hostname under the fleet's registrable
+  domain (`cos` refuses one, and cos-front serves nothing there); (b) on a many-client host a
+  state-changing request is refused unless its `Origin` (or, absent it, `Sec-Fetch-Site`) says the
+  exact same origin, with the exceptions that existed (token calls, customer-facing calls from the
+  client's own web address or allowed origins, gatekeeper callbacks on the callback hostname), so a
+  page on a sibling hostname cannot act at another client's even with a cookie it planted or a
+  session it rode; (c) a many-client host reads no cookie without the `__Host-` prefix, enforced by
+  `scripts/check-host-cookies.mjs` in `pnpm lint` (the form page and Cloudflare Access's
+  `CF_Authorization` were the two reads changed). A sibling can still set a domain-wide cookie; it
+  is never read, and nothing it sends changes anything. `keepCustomerSignedIn` now sets a `__Host-`
+  session back with the `__Host-` rules (the paragraph above's "step 8 … adds `__Host-` there").
 
 ### Gatekeeper callbacks on one address
 - **One address.** `COS_CALLBACK_HOSTNAME` (the host's own, on the fleet's domain; `callback`,

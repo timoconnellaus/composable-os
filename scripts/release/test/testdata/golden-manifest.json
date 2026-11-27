@@ -1025,6 +1025,31 @@
       "sha256": "d07728cd26ea4cfbb5d90fcfb48bd8dabca7eb3d4a2d93d366ddff880cc28cb8"
     },
     {
+      "bindings": [],
+      "compatibilityDate": "2026-10-01",
+      "compatibilityFlags": [],
+      "crons": [],
+      "dependsOn": [],
+      "durableObjectMigrations": [],
+      "mainModule": "index.js",
+      "modules": [
+        {
+          "name": "index.js",
+          "sha256": "7748fba8bba593ed55afee1dd1212d0f6ee02b6842a00661c5ebcd1a1e4235ed",
+          "size": 52,
+          "type": "esm"
+        }
+      ],
+      "name": "crm-front",
+      "optional": true,
+      "package": "apps/front",
+      "public": false,
+      "queueConsumers": [],
+      "role": "fleet",
+      "secrets": [],
+      "sha256": "a0a2af273e68eadb8db301828809eb2233be531f8b8a717268a3c896e106a66e"
+    },
+    {
       "bindings": [
         {
           "class_name": "ClientDb",

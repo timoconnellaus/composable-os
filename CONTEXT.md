@@ -1089,7 +1089,7 @@ only the token `cos` sets on it for one command; no Worker of the host binds it.
 
 **Fleet deployment** (stage 66 step 7; ADR 0618)
 A deployment of the host for many clients: its state says so (`fleet`: its environment, callback
-hostname, domain and public sealing key), and the deploy engine adds the bindings, keys, queues and
+hostname, domain, its zone and how its hostnames are attached, and public sealing key), and the deploy engine adds the bindings, keys, queues and
 Workers a host of many clients needs (ADR 0615's list), never to the committed configuration. Live
 and staging are two fleet deployments. Its keys live in the operator's keys file, never in the
 state.
@@ -1113,6 +1113,34 @@ command, which can overwrite but never read, and opened only into that client's 
 The one hostname of a host that serves many clients where every gatekeeper's OAuth redirects and
 webhooks arrive (`COS_CALLBACK_HOSTNAME`), no client's. What a callback carries is checked by the
 gatekeeper against what that client's connection stored, so it can only reach that connection.
+
+**Fleet's domain** (stage 66; ADRs 0618, 0619)
+The domain a fleet deployment's own hostnames are under (`composableos.app` for live): each
+client's staff hostname (`<id>-admin.<domain>`), its desk hostname (`<id>-desk.<domain>`), the
+callback address, and `clients.<domain>`, where clients' own domains point. Only our code is
+served under its registrable domain: it is not on the Public Suffix List, so a client's web code
+never is (the owner's rule of 2026-11-27). `cos` attaches each hostname on the domain's **zone**
+(a Workers Custom Domain each, or one wildcard route).
+
+**Client's own domain** (stage 66 step 8; ADR 0619)
+A client's web hostname, on a domain whose DNS the client holds (`www.gym-a.example`): a
+Cloudflare for SaaS custom hostname on the fleet's zone, recorded unverified, proved by the TXT
+records the client adds, verified in the registry only once Cloudflare reports it active, and then
+served by cos-front. One client's alone, and never under the fleet's registrable domain.
+_Avoid_: vanity domain, custom domain (that is a Workers Custom Domain)
+
+**cos-front** (stage 66 step 8; ADR 0619)
+The Worker of a fleet that receives every request for a client's own domain, looks the hostname
+up exactly in the registry, and hands the request to that client's **web target** with the client
+fixed by itself, never by the request. It holds no client's database and no secret. Its one
+target today is a holding page; stage 75 step 5 adds the client's published version.
+
+**Same-origin write** (stage 66 step 8; ADR 0619)
+On a host of many clients, every state-changing request is refused unless it comes from the exact
+origin it is sent to (by `Origin`, or `Sec-Fetch-Site` when that is withheld), so a page on a
+sibling client's hostname can change nothing; token calls, customer-facing calls from the client's
+own web address or allowed origins, and gatekeeper callbacks are the exceptions. With only
+`__Host-` cookies read, this is what stands in for a Public Suffix listing.
 
 **Sender domain** (stage 66; ADR 0616)
 A domain a client of a host that serves many clients sends its email from, held in the registry

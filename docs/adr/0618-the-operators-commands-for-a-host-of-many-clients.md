@@ -90,7 +90,9 @@ makes a deployment a fleet's; `packages/release/src/fleet.ts` adds, and the comm
 - on cos-operator: the bindings above; on every gatekeeper, `BASE_URL` under the callback hostname;
 - the resources: the registry D1, the exports R2 bucket with a 90-day expiry rule, the four queues
   and their DLQs. Staging's Workers and resources are all named with `-staging`.
-`ClientApp`'s props for a client's web app are step 8's (its upload). The keys are refused when the
+`ClientApp`'s props for a client's web app are step 8's (its upload). _Note 2026-11-27: not built
+in step 8 (the owner moved how a client's web app is served to stage 75's spike, ADR 0619); step 8
+adds cos-front, a fleet Worker with the registry and two vars only._ The keys are refused when the
 binding key and the props key are one value. A single-client deployment gets none of this, from a
 release that carries the fleet Workers (tested).
 
@@ -104,7 +106,10 @@ hostname `<id>-admin.<domain>` unless named, and a web hostname only when one is
 (`--web-hostname`). **A client's web or desk hostname is refused on the fleet's domain:** the
 domain has no Public Suffix listing (and will not soon), so code on one of its hostnames could set
 cookies for the staff hostnames beside it (ADR 0616, "Cookies"); a client's web app is on its own
-domain. Nothing here assumes the listing. The product's packs are the deployment's
+domain. Nothing here assumes the listing. _Amended 2026-11-27 (step 8, ADR 0619): a desk hostname
+is our code (cos-app's desk pages), so it is on the fleet's domain like the staff hostname
+(`--desk`, `<id>-desk.<domain>`), and a web hostname is written unverified until `cos client
+hostname verify` finds its custom hostname active._ The product's packs are the deployment's
 (`COS_PACKS` inherited unless a setting says otherwise); a client's own extensions come with its
 repository's `cos deploy` (step 8).
 
