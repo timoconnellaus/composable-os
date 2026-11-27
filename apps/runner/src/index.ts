@@ -75,6 +75,7 @@ import { deploymentEnv as workerEnv } from "./deployment-env.ts";
 import { Executor, type ExecutorOptions } from "./executor/executor.ts";
 import { embedFromEvents } from "./extensions/embeddings.ts";
 import { packsProblem } from "./extensions/shipped-list.ts";
+import { recordInstall, stampedInstall } from "./extensions/shipped-stamp.ts";
 import type { HelloOutput } from "./hello-workflow.ts";
 import { fakeProviderFetch, seedInboxMessage } from "./integrations/fake.ts";
 import { runOrdersTick } from "./integrations/payments.ts";
@@ -241,13 +242,25 @@ export class ClientRunner implements RunnerRpc {
     return extensionHost(this.#env).describeChange(input);
   }
 
-  /** Installs or upgrades the shipped extensions bundled with this release (boot / deploy). */
+  /**
+   * Installs or upgrades the shipped extensions bundled with this release (boot / deploy). When
+   * the last install finished and nothing has changed since, one read and one workspace check
+   * answer it, with no install (shipped-stamp.ts, issue #558). Each extension's install commits on
+   * its own, so a run cut off part way leaves the ones it finished, and the next run does the rest.
+   */
   async installShipped(): Promise<ShippedInstallResult[]> {
-    return installShippedExtensions({
-      db: createCrmDb(this.#env.DB),
+    const db = createCrmDb(this.#env.DB);
+    const stamped = await stampedInstall(db, this.#env, (commits) =>
+      extensionWorkspace(this.#env).holdsShipped(commits),
+    );
+    if (stamped) return stamped;
+    const results = await installShippedExtensions({
+      db,
       host: extensionHost(this.#env),
       floor: parseFloor(this.#env.APPROVAL_FLOOR),
     });
+    await recordInstall(db, this.#env, results);
+    return results;
   }
 
   // Integrations (ADR 0050, ADR 0110): the IntegrationRuntime port for cos-app, one method.
@@ -368,7 +381,11 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
     const target = new ClientRunner(clientEnv, this.env);
     const run = (target as unknown as Record<string, (...a: unknown[]) => unknown>)[method];
     if (typeof run !== "function") throw new NoClientError(`${method} is not offered`);
-    return inClientScope(clientEnv, () => run.apply(target, Array.isArray(args) ? args : []));
+    const result = inClientScope(clientEnv, () =>
+      run.apply(target, Array.isArray(args) ? args : []),
+    );
+    if (method === "installShipped") this.#outlive(result);
+    return result;
   }
 
   /**
@@ -460,7 +477,19 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
     return this.#self().describeChange(input);
   }
   installShipped() {
-    return this.#self().installShipped();
+    const result = this.#self().installShipped();
+    this.#outlive(result);
+    return result;
+  }
+
+  /**
+   * An install is expected to outlive its caller by up to 30 s more (issue #558; Cloudflare
+   * documents that a callee may extend itself so, not that it survives the caller's own
+   * cancellation): RPC cancels the callee when the caller's context ends (cos-app's request, kept
+   * 30 s by its own waitUntil). Nothing depends on it: a cut-off install is carried on next time.
+   */
+  #outlive(work: unknown): void {
+    if (work instanceof Promise) this.ctx.waitUntil(work.catch(() => {}));
   }
   integration<K extends keyof IntegrationRuntime>(
     method: K,

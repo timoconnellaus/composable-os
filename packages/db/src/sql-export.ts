@@ -41,14 +41,21 @@
 // manifests the import brought). Any difference, or a row count that differs from the export's
 // (checked inside the last part's transaction), empties the database and refuses the import.
 //
-// Not carried: the object's own storage (`_cf_*`: its key-value records, alarms) and `sqlite_stat*`
-// (ANALYZE's statistics, rebuilt by SQLite).
+// Not carried: the object's own storage (`_cf_*`: its key-value records, alarms), `sqlite_stat*`
+// (ANALYZE's statistics, rebuilt by SQLite), and the runner's record of its last shipped install
+// (`core_meta`, `HOST_ONLY_META`): it vouches for packs' code in this host's workspace object,
+// which an export does not carry (issue #558). An import deletes it too, for an older export.
 //
 // An import into a database that holds any table is refused. It is resumable: each part is one
 // transaction that also records the next part due (`_cos_import`), so after a failure the same
 // parts are given again and those already in are skipped; an import whose last part is in but
 // whose verification did not finish is finished by giving the last part again.
 import { applyMigrations, type Migration } from "./migrate.ts";
+
+/** `core_meta` keys that hold for this host only: never exported, deleted by an import. */
+export const HOST_ONLY_META = ["shipped_install"] as const;
+
+const hostOnlyMeta = `key NOT IN (${HOST_ONLY_META.map((k) => `'${k}'`).join(", ")})`;
 
 /** The export's format; a part of another format is refused. */
 export const EXPORT_FORMAT = "cos-sql-export/1";
@@ -723,7 +730,11 @@ async function rowsPage(
 ): Promise<boolean> {
   const { key } = table;
   at.counts[table.name] ??= 0;
-  const where = at.after ? `WHERE ${keyTuple(table)} > ${valueTuple(at.after)}` : "";
+  const conditions = [
+    ...(at.after ? [`${keyTuple(table)} > ${valueTuple(at.after)}`] : []),
+    ...(table.name === "core_meta" ? [hostOnlyMeta] : []),
+  ];
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const order = key.map((k) => ref(table, k)).join(", ");
   const keys = key.map((k, i) => `${encode(ref(table, k))} AS k${i}`).join(", ");
   const length =
@@ -1357,6 +1368,10 @@ async function finish(db: D1Database, source: ExportSource, options: ImportOptio
     throw new SqlExportError(
       `the import was refused and the database emptied: its schema is not what this code makes (${differ.slice(0, 10).join("; ")}${differ.length > 10 ? `; and ${differ.length - 10} more` : ""})`,
     );
+  }
+  // An older export may carry the host-only records: they vouch for another host's objects.
+  if (actual.some((row) => row.type === "table" && row.name === "core_meta")) {
+    await db.prepare(`DELETE FROM core_meta WHERE NOT (${hostOnlyMeta})`).run();
   }
   await db.prepare(`DROP TABLE ${ident(IMPORT_TABLE)}`).run();
 }

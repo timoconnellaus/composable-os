@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import { defineProduct } from "../packages/product/src/index.ts";
 import { CloudflareClient } from "../packages/release/src/cloudflare.ts";
 import { FakeCloudflare } from "../packages/release/src/testing/fake-cloudflare.ts";
@@ -21,9 +21,13 @@ import {
   describeFetchError,
   explainFailure,
   exportFacts,
+  FIRST_OP_BOUND_MS,
   hostnamesOf,
   inventory,
   owned,
+  PACKS_BOUND_MS,
+  PACKS_POLL_MS,
+  packsAnswer,
   parseClientList,
   prefixOf,
   productDefinition,
@@ -1312,6 +1316,138 @@ test("the requests step: B's password at A must be the wrong-password answer, no
     assert.equal(ops.bravo, bravoFails ? 3 : 2);
     assert.equal(cancelled, repeat === 200 ? 1 : 0);
     assert.ok(slept.includes(5000));
+  }
+});
+
+test("a client's packs must answer within PACKS_BOUND_MS: at once, after 503s still installing, or never (issue #558)", async () => {
+  const installing = () =>
+    new Response(
+      JSON.stringify({
+        error: { code: "timeout", message: "still installing", details: { installing: true } },
+      }),
+      { status: 503 },
+    );
+  /** A fetch whose pack read answers 503 "still installing" `busy` times, then `then`. */
+  const ctxWith = (busy, then = () => new Response("{}", { status: 200 })) => {
+    let asked = 0;
+    const slept = [];
+    const ctx = {
+      ...stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }) }),
+      fetch: async (url, init = {}) => {
+        if (url.endsWith("/api/v1/op/record.list")) {
+          assert.equal(JSON.parse(init.body).object, "deals.deal");
+          asked += 1;
+          return asked <= busy ? installing() : then();
+        }
+        return new Response("{}", { status: 200 });
+      },
+      sleep: async (ms) => {
+        slept.push(ms);
+      },
+    };
+    ctx.staff[CLIENTS.a] = { cookie: "c" };
+    return { ctx, asked: () => asked, slept };
+  };
+  const now = ctxWith(0);
+  assert.match(await packsAnswer(now.ctx, CLIENTS.a), /^alpha's packs answered after \d+\.\d s$/);
+  assert.equal(now.asked(), 1);
+
+  const later = ctxWith(2);
+  assert.match(
+    await packsAnswer(later.ctx, CLIENTS.a, " after the upgrade"),
+    /^alpha's packs answered after the upgrade after \d+\.\d s$/,
+  );
+  assert.equal(later.asked(), 3);
+  assert.deepEqual(later.slept, [PACKS_POLL_MS, PACKS_POLL_MS]);
+
+  const never = ctxWith(Number.POSITIVE_INFINITY);
+  await assert.rejects(
+    packsAnswer(never.ctx, CLIENTS.a),
+    /alpha's packs were still installing after 120 s/,
+  );
+  assert.equal(never.asked(), PACKS_BOUND_MS / PACKS_POLL_MS);
+
+  // Any other refusal fails at once, without waiting.
+  const refused = ctxWith(
+    0,
+    () => new Response(JSON.stringify({ error: { code: "unknown_operation" } }), { status: 404 }),
+  );
+  await assert.rejects(
+    packsAnswer(refused.ctx, CLIENTS.a),
+    /alpha's record\.list of deals\.deal answered 404/,
+  );
+  assert.equal(refused.asked(), 1);
+});
+
+test("a client's first operation must answer within FIRST_OP_BOUND_MS: a fresh client's (step 3) and the first after an upgrade (step 5), issue #558", async () => {
+  assert.equal(FIRST_OP_BOUND_MS, 5000);
+  const host = (url) => new URL(url).hostname.split("-admin.")[0];
+  /** Every call answers as it should; `slow`'s first person.list takes `ms` (a clock moved on). */
+  const fetchWith =
+    ({ slow, ms, version = () => VERSIONS.from }) =>
+    async (url, init = {}) => {
+      if (url.endsWith("/api/auth/sign-up/email")) {
+        return new Response("{}", {
+          status: 200,
+          headers: { "set-cookie": `__Host-cos.session_token=${host(url)}; Path=/` },
+        });
+      }
+      if (url.endsWith("/api/auth/sign-in/email")) return new Response("{}", { status: 401 });
+      if (url.includes("/api/v1/op/")) {
+        if (init.headers?.cookie !== `__Host-cos.session_token=${host(url)}`)
+          return new Response(JSON.stringify({ error: { code: "unauthenticated" } }), {
+            status: 401,
+          });
+        if (host(url) === slow.id && !slow.done) {
+          slow.done = true;
+          mock.timers.tick(ms);
+        }
+        return new Response("{}", { status: 200 });
+      }
+      if (url.endsWith("/api/health"))
+        return new Response(JSON.stringify({ host: true, version: version() }));
+      if (url.includes("/api/media")) return new Response("{}", { status: 201 });
+      return new Response("ok", { status: url.includes("workers.dev") ? 404 : 200 });
+    };
+  mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  try {
+    const requests = (ms) =>
+      step("requests").run({
+        ...stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }) }),
+        subdomain: "x",
+        fetch: fetchWith({ slow: { id: CLIENTS.b }, ms }),
+      });
+    // Staging run 46007691132: a fresh client's first person.list answered in 18.3 s.
+    await assert.rejects(
+      requests(18_300),
+      /bravo's first person\.list took 200 in 18\.3 s: more than 5 s for a first operation/,
+    );
+    await assert.doesNotReject(requests(FIRST_OP_BOUND_MS - 1000));
+
+    const upgrade = (ms) => {
+      const good = upgradeCos();
+      const ctx = stepCtx({
+        answer: good.answer,
+        version: () => good.state.version,
+        fetch: fetchWith({
+          slow: { id: CLIENTS.a },
+          ms,
+          version: () => good.state.version,
+        }),
+      });
+      for (const id of [CLIENTS.a, CLIENTS.b])
+        ctx.staff[id] = { cookie: `__Host-cos.session_token=${id}` };
+      return step("upgrade").run(ctx);
+    };
+    await assert.rejects(
+      upgrade(19_300),
+      /after the upgrade alpha's first person\.list took 200 in 19\.3 s: more than 5 s/,
+    );
+    const ok = await upgrade(1000);
+    assert.match(ok.note, /alpha's first person\.list after the upgrade answered 200 in 1\.0 s/);
+    assert.match(ok.note, /bravo's first person\.list after the upgrade answered 200 in 0\.0 s/);
+  } finally {
+    mock.timers.reset();
   }
 });
 

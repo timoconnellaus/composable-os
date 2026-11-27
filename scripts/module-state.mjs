@@ -79,7 +79,7 @@ export const MODULE_STATE = {
   ],
   "apps/app/src/server/operations.ts#shippedInstalls": [
     "client",
-    "the shipped extensions' install, once per client environment (one slot on a single client)",
+    "the shipped extensions' check or install, once per client environment (one slot on a single client)",
   ],
   "apps/app/src/server/person-codes.ts#cached": [
     "client",
@@ -91,6 +91,10 @@ export const MODULE_STATE = {
   "apps/runner/src/extensions/shipped-list.ts#orgCache": [
     "client",
     "a client's own extensions, by client environment then content hash",
+  ],
+  "apps/runner/src/extensions/shipped-stamp.ts#listHashes": [
+    "client",
+    "the hash of a client's shipped list, by client environment (one slot on a single client)",
   ],
 
   // --- packs ---------------------------------------------------------------------------------
