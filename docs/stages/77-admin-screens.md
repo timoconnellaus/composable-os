@@ -79,6 +79,9 @@ loads.
 | 10 | A custom block is written as JSX and run on the host, in the organisation's extension sandbox under Worker Loader. It hands back a description that the admin draws with our components. No code of the organisation's runs in the browser. This is the owner's proposal, in place of a frame in the browser, a worker in the browser, and the build service decided earlier the same day, which is not built |
 | 11 | A custom block uses our components only. A block that brings its own page, in a frame, may come later, for a whole area of a screen and never for a card |
 | 12 | The first regions are on the Bookings timetable, the Bookings class list and a person's record page |
+| 13 | A custom block's button acts as the person who pressed it, with a confirmation drawn by us for anything riskier than an ordinary edit (interview `acd7a47d-5119-4107-a90b-04cf99940d2e`, 2026-11-27). This differs, knowingly, from the assistant's cards, whose buttons act as the assistant (ADR 0346, amended 2026-11-06) |
+| 14 | A new version of a custom block goes live when its extension's change is approved, with no separate publish (the same interview) |
+| 15 | While someone is editing, they see their block that is not yet approved, drawn with its buttons switched off (the same interview) |
 
 ## The design in one page
 
@@ -247,7 +250,9 @@ loads.
     press is bound to a handle the host issued when it made the tree (the person, the block,
     its commit, the tool, a hash of the input, an expiry), so a press can only be the button
     that was drawn. Step 9 records this against ADR 0346.
-  - **The actor is the owner's to confirm** before steps 8 and 9 are built (see Status).
+  - **Decided by the owner** (decision 13). Step 9 amends ADR 0346 with a dated note: a custom
+    block's button is the person's, behind the admin's own confirmation and the handle, where
+    a card's button is the assistant's.
 - **What a block can therefore do** is bounded twice: by what the person looking may see, and
   by its extension's tools, each of which a person approved with the extension and may only do
   what the extension's permissions allow. A block that newly names a tool, or an extension that
@@ -469,7 +474,6 @@ Steps 1 to 10 need nothing from stage 75. Steps 11 and 12 are independent of all
 - **A block's buttons run only its own extension's tools.** There is no list of refused
   operations to keep, because a block names no operation directly.
 - **A fill that no longer fits is switched off; it does not stop the update.**
-- **A new commit of a block is live at its extension's approval.**
 - **A fill belongs to one screen.**
 - **Few regions at first.** Every region is a promise a release must keep. A block starts with
   the regions a real need asked for, and gains more the same way.
@@ -484,16 +488,13 @@ Steps 1 to 10 need nothing from stage 75. Steps 11 and 12 are independent of all
 
 ## Questions for the owner
 
-None open. Decisions 9 to 12 answer this stage's interview (2026-11-27).
+None open. Decisions 9 to 12 answer this stage's interview, and decisions 13 to 15 the coordinator's
+(2026-11-27).
 
 ## Status
 
 Spec agreed (owner, 2026-11-27). No build step is built yet. Each build step changes its own
 line here (CONTRIBUTING.md, Working in parallel).
-
-Steps 8 and 9 wait for the owner's answer on three things this spec decided: a block's button
-running as the person (which differs from ADR 0346's cards), a new commit of a block going live
-at its extension's approval, and an unapproved block being drawn for the person editing it.
 
 - **Step 1** — not built — The region contract, block settings and the first regions
 
@@ -509,9 +510,9 @@ at its extension's approval, and an unapproved block being drawn for the person 
 
 - **Step 7** — not built — needs: step 1, step 6 — Custom blocks, declared and checked
 
-- **Step 8** — not built — needs: step 2, step 5, step 7, an owner decision — Custom blocks, run
+- **Step 8** — not built — needs: step 2, step 5, step 7 — Custom blocks, run
 
-- **Step 9** — not built — needs: step 8, an owner decision — Custom blocks, drawn
+- **Step 9** — not built — needs: step 8 — Custom blocks, drawn
 
 - **Step 10** — not built — needs: step 3 — Edit mode
 
