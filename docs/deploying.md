@@ -1608,6 +1608,101 @@ hundred Worker requests, a few thousand Durable Object, D1 and R2 operations, a 
 and kilobytes of storage for under an hour: within the usage the Workers Paid plan includes, so
 cents at most. A Custom Domain's certificate costs nothing.
 
+## Operating a host of many clients from GitHub (stage 66)
+
+A real fleet is operated from `.github/workflows/fleet-operate.yml` (*Fleet operate*), never from a
+laptop: nobody holds the fleet's Cloudflare token or its keys file outside GitHub. One run is one
+`cos` command against the staging or the live fleet. Its logic is `scripts/fleet-operate.mjs`,
+tested against the fake Cloudflare API (`scripts/fleet-operate.test.mjs`, run by `pnpm lint`).
+
+**What it allows.** The command is one of a fixed list, each mapped to fixed `cos` arguments; there
+is no free-form command line:
+
+| `command` | runs | needs |
+| --- | --- | --- |
+| `client-list` | `cos client list` | |
+| `client-add` | `cos client add <client> [--location] [--setting NAME=VALUE]…` | `client`, `settings` (optional) |
+| `client-pause`, `client-resume` | `cos client pause/resume <client>` | `client` (a live pause: `confirm`) |
+| `client-export` | `cos client export <client>`: into the fleet's exports bucket, kept 90 days. Never `--out`, which writes the client's secrets in plain text | `client` |
+| `client-remove` | `cos client remove <client>` | `client`, `confirm` |
+| `client-secret-set` | `cos client secret set <client> <NAME> --value-file <file>`, the value from the environment secret `CLIENT_<ID>_<NAME>` | `client` (no hyphen), `secret_name`; `confirm` to replace a stored value |
+| `client-secret-remove` | `cos client secret remove <client> <NAME>` | `client`, `secret_name`, `confirm` |
+| `sender-add`, `sender-verify`, `sender-unverify`, `sender-remove` | `cos client sender <verb> <client> <domain>` | `client`, `sender_domain`; `confirm` for all but add |
+| `hostname-list`, `hostname-add`, `hostname-verify`, `hostname-remove` | `cos client hostname …` (they arrive with PR #543: until then they are refused, saying so) | `client`, `hostname`; `confirm` for remove |
+| `fleet-install` | `cos fleet install --keys-file … --callback-hostname --domain --version [--ai] [--location] [--zone]` | `version`, `domain`, `callback_hostname`; `zone` after #543 |
+| `fleet-upgrade` | `cos fleet upgrade --keys-file … --version` | `version`; on live, `confirm` = the version |
+
+- **Every input is checked**: first by a job of its own with no secret, then again by the script
+  before anything runs. The client id is checked against the registry's rule. A version is
+  `x.y.z[-beta.n]` and a domain a hostname. A setting must be a client setting's name with a
+  plain value, and a secret name a given secret's. An input meant for another command is
+  refused. Inputs reach the script only through the environment, never a shell line.
+- **`dry_run` is on by default.** Where `cos` has a dry run, the run makes one. `fleet install`
+  has none: it is only planned (the command line printed) until `dry_run` is off.
+- **The confirm rule.** With `dry_run` off, a command that removes, unverifies, vouches
+  (`sender-verify`) or overwrites gets `--yes` only when `confirm` is the client's id, as do
+  `client-secret-remove` and a live `client-pause`. Otherwise the run stops before `cos`.
+  `client-secret-set` without `confirm` stores a new value and never replaces a stored one. A live
+  `fleet-upgrade` needs `confirm` to be the version. `--skip-staging` is never offered.
+- **One command at a time per fleet** (a concurrency group per environment), beside `cos`'s own
+  one-session rule. `take_over` passes `--take-over` for a command that was killed.
+- **Always the repository's product** (the CRM, cos's default), **from a published, attested
+  release**: `cos` downloads it, checks `SHA256SUMS` and its build attestation, and with
+  `--require-gh` also runs `gh attestation verify`. Never `--bundle-dir`, `--unverified` or
+  `--product-file`.
+- **Output.** The job summary says who ran what, on which fleet and for which client, the `cos`
+  command line and its outcome, and `cos`'s output. The token, the account id, its `workers.dev`
+  subdomain, the keys and any secret value are masked and cut out. There are no artifacts.
+
+**The staging check and this never meet.** The staging check operates only `cosstg-<run id>`, a
+throwaway product that `cos` takes from a file only when its id and every name start with
+`cosstg-`; its teardown deletes only names with that exact prefix. This workflow passes no product
+(so the CRM's names: `crm-…`, the `crm` and `crm-staging` databases) and refuses any input or
+product that names `cosstg`. The forced-failure switch (`COS_FLEET_FORCE_FAILURE`) is never passed
+to `cos` here, and `cos` refuses it outside the staging check.
+
+**What the owner does once** (the keys and the secrets never pass through anyone else):
+
+1. **The keys files.** On his own machine, outside any git checkout, with a built `cos` (no
+   Cloudflare token is needed):
+   ```sh
+   cos fleet keys --env staging --out ~/fleet-keys/staging.json
+   cos fleet keys --env live --out ~/fleet-keys/live.json
+   ```
+   Keep each in the password manager as well: losing one means a planned move of every client
+   (see the keys file, above).
+2. **The environments.** In Settings → Environments:
+   - **`fleet`** (staging):
+     - the secrets `FLEET_CLOUDFLARE_API_TOKEN`, `FLEET_CLOUDFLARE_ACCOUNT_ID` and `FLEET_KEYS`, the last being `base64 -w0 ~/fleet-keys/staging.json` (on macOS, `base64 -i … | tr -d '\n'`) on one line, so GitHub masks it whole;
+     - a deployment branch policy of `main`.
+   - **`fleet-live`** (live): the same three secrets, `FLEET_KEYS` from `live.json`; **required reviewer: the owner**; a deployment branch policy of `main` only.
+   - The two Cloudflare secrets may stay at repository level for `fleet` (the staging check uses them), but `FLEET_KEYS` must be an environment secret. Moving everything into the environments, with the branch policy, means no other branch's workflow can read them.
+3. **A client's secret values** (Stripe keys and the like), as environment secrets of the fleet
+   they are for, named `CLIENT_<ID>_<NAME>`: for example `CLIENT_GHETTO_STRIPE_SECRET_KEY`. A
+   client id with a hyphen cannot be named so: set its secrets another way, or use an id without
+   one.
+4. **The token's permissions** (one token, on the fleet's account):
+   - on the account: Workers Scripts Edit, D1 Edit, Workers R2 Storage Edit, Workers KV Storage Edit, Queues Edit, Vectorize Edit and Account Settings Read; with AI on, also AI Gateway Edit and Account API Tokens Edit;
+   - on the fleet's zone (`composableos.app`): Zone Read, Workers Routes Edit, DNS Edit, and SSL and Certificates Edit (Workers Custom Domains for the staff and callback hostnames; Cloudflare for SaaS custom hostnames for a client's own web domain, PR #543).
+5. **A release** to install. The release workflow builds one from a `vX.Y.Z` or `vX.Y.Z-beta.N`
+   tag, with the fleet's Workers in it; the fleet installs it with `version`.
+
+**A staging fleet and its first client**, for example:
+
+```sh
+# The fleet (after PR #543, so its hostnames are attached; plan it first with dry_run true):
+gh workflow run fleet-operate.yml --ref main -f env=staging -f command=fleet-install \
+  -f version=<x.y.z-beta.n> -f domain=staging.composableos.app \
+  -f callback_hostname=callback.staging.composableos.app -f zone=composableos.app \
+  -f location=oc -f ai=off -f dry_run=false
+# A client, with the Ticketing pack: a dry run, then for real.
+gh workflow run fleet-operate.yml --ref main -f env=staging -f command=client-add \
+  -f client=ghetto -f location=oc -f settings=COS_PACKS=ticketing
+gh workflow run fleet-operate.yml --ref main -f env=staging -f command=client-add \
+  -f client=ghetto -f location=oc -f settings=COS_PACKS=ticketing -f dry_run=false
+gh workflow run fleet-operate.yml --ref main -f env=staging -f command=client-list
+```
+
 ## Manual end-to-end run (needs a human)
 
 Stage 8 acceptance criterion 8. **Status: not yet run; needs a human with a Cloudflare account.**

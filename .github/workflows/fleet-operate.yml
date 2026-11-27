@@ -1,0 +1,189 @@
+# Stage 66 (ADR 0618): the operator's commands against a REAL host of many clients, run by hand
+# from here, because nobody holds the fleet's Cloudflare token or its keys file on a laptop
+# (docs/deploying.md, "Operating a host of many clients from GitHub"). Its logic is
+# scripts/fleet-operate.mjs.
+#
+#   - One command a run, from a fixed list, mapped to fixed cos arguments: no free-form command
+#     line. Every input is checked against a strict pattern, first by its own job with no secret,
+#     then again by the script, and reaches it only through the environment, never a shell line.
+#   - Dry run by default where cos has one; a command without one is only planned until dry_run
+#     is false. A command that removes, vouches for or overwrites something (and an upgrade of
+#     live) gets --yes only when `confirm` is the client's id (or, for live, the version).
+#   - Staging runs in the `fleet` environment, live in `fleet-live` (the owner: required reviewer,
+#     `main` only). One command at a time per environment.
+#   - The keys file (FLEET_KEYS, an environment secret) reaches only fleet install and upgrade, as
+#     a 0600 temporary file deleted at the end; a client's secret value comes from the environment
+#     secret CLIENT_<ID>_<NAME> by file. Neither is printed or uploaded; there are no artifacts.
+#   - The repository's product only, from a published, attested release (cos --require-gh). The
+#     staging check's throwaway names (cosstg-…) are refused.
+name: Fleet operate
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: Which fleet
+        type: choice
+        default: staging
+        options: [staging, live]
+      command:
+        description: The one cos command to run
+        type: choice
+        default: client-list
+        options:
+          - client-list
+          - client-add
+          - client-pause
+          - client-resume
+          - client-export
+          - client-remove
+          - client-secret-set
+          - client-secret-remove
+          - sender-add
+          - sender-verify
+          - sender-unverify
+          - sender-remove
+          - hostname-list
+          - hostname-add
+          - hostname-verify
+          - hostname-remove
+          - fleet-install
+          - fleet-upgrade
+      dry_run:
+        description: Dry run (cos changes nothing; a command with none is only planned)
+        type: boolean
+        default: true
+      confirm:
+        description: For remove, unverify, verify, secret remove, a live pause, the client's id; for a live upgrade, the version
+        default: ""
+      client:
+        description: The client's id (lowercase letters, digits, single hyphens)
+        default: ""
+      version:
+        description: fleet install and upgrade only, a published release (x.y.z or x.y.z-beta.n)
+        default: ""
+      domain:
+        description: fleet install only, the fleet's domain
+        default: ""
+      callback_hostname:
+        description: fleet install only, the fleet's callback hostname
+        default: ""
+      zone:
+        description: fleet install only, the zone the fleet's domain is on (after PR #543)
+        default: ""
+      location:
+        description: fleet install and client add only, a location hint (oc, apac, wnam, enam, weur, eeur), or empty
+        default: ""
+      ai:
+        description: fleet install only, AI at the first install (as-installed passes nothing, for a re-run)
+        type: choice
+        default: as-installed
+        options: [as-installed, "off", "on"]
+      settings:
+        description: client add only, client settings as NAME=VALUE separated by spaces (e.g. COS_PACKS=ticketing)
+        default: ""
+      hostname:
+        description: hostname commands only, the client's own web hostname
+        default: ""
+      sender_domain:
+        description: sender commands only, the domain
+        default: ""
+      secret_name:
+        description: secret commands only, a given secret's name (its value is the environment secret CLIENT_<ID>_<NAME>)
+        default: ""
+      take_over:
+        description: Take the operator's session from a command that was killed
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  inputs:
+    name: Check the inputs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      # The registry's own rules (client ids, settings, secret names) are read from packages/db.
+      - run: pnpm install --frozen-lockfile
+      # No secret here: the same checks the script makes before it runs anything.
+      - name: Validate
+        env:
+          OP_ENV: ${{ inputs.env }}
+          OP_COMMAND: ${{ inputs.command }}
+          OP_DRY_RUN: ${{ inputs.dry_run }}
+          OP_CONFIRM: ${{ inputs.confirm }}
+          OP_CLIENT: ${{ inputs.client }}
+          OP_VERSION: ${{ inputs.version }}
+          OP_DOMAIN: ${{ inputs.domain }}
+          OP_CALLBACK_HOSTNAME: ${{ inputs.callback_hostname }}
+          OP_ZONE: ${{ inputs.zone }}
+          OP_LOCATION: ${{ inputs.location }}
+          OP_AI: ${{ inputs.ai }}
+          OP_SETTINGS: ${{ inputs.settings }}
+          OP_HOSTNAME: ${{ inputs.hostname }}
+          OP_SENDER_DOMAIN: ${{ inputs.sender_domain }}
+          OP_SECRET_NAME: ${{ inputs.secret_name }}
+          OP_TAKE_OVER: ${{ inputs.take_over }}
+        run: node scripts/fleet-operate.mjs validate
+
+  operate:
+    name: Run the command
+    needs: inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Staging and live are separate environments, each with its own secrets and protection.
+    environment: ${{ inputs.env == 'live' && 'fleet-live' || 'fleet' }}
+    # One command at a time per fleet (cos's own one-session rule stands besides).
+    concurrency:
+      group: fleet-operate-${{ inputs.env }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      # gh attestation verify (cos --require-gh) reads the release's attestation.
+      attestations: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      # No secret in these steps' environment: dependencies' install scripts run without them.
+      - run: pnpm install --frozen-lockfile
+      - name: Build cos
+        run: pnpm --filter create-composable-os build
+      - name: Run
+        env:
+          OP_ENV: ${{ inputs.env }}
+          OP_COMMAND: ${{ inputs.command }}
+          OP_DRY_RUN: ${{ inputs.dry_run }}
+          OP_CONFIRM: ${{ inputs.confirm }}
+          OP_CLIENT: ${{ inputs.client }}
+          OP_VERSION: ${{ inputs.version }}
+          OP_DOMAIN: ${{ inputs.domain }}
+          OP_CALLBACK_HOSTNAME: ${{ inputs.callback_hostname }}
+          OP_ZONE: ${{ inputs.zone }}
+          OP_LOCATION: ${{ inputs.location }}
+          OP_AI: ${{ inputs.ai }}
+          OP_SETTINGS: ${{ inputs.settings }}
+          OP_HOSTNAME: ${{ inputs.hostname }}
+          OP_SENDER_DOMAIN: ${{ inputs.sender_domain }}
+          OP_SECRET_NAME: ${{ inputs.secret_name }}
+          OP_TAKE_OVER: ${{ inputs.take_over }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.FLEET_CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.FLEET_CLOUDFLARE_ACCOUNT_ID }}
+          # Downloads the release and its attestation (and raises GitHub's rate limit).
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          # The keys file, for fleet install and upgrade only.
+          FLEET_KEYS: ${{ (inputs.command == 'fleet-install' || inputs.command == 'fleet-upgrade') && secrets.FLEET_KEYS || '' }}
+          # A client's secret value, for client-secret-set only: always a CLIENT_ secret.
+          SECRET_VALUE: ${{ inputs.command == 'client-secret-set' && secrets[format('CLIENT_{0}_{1}', inputs.client, inputs.secret_name)] || '' }}
+        run: node scripts/fleet-operate.mjs run
