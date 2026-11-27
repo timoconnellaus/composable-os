@@ -56,6 +56,7 @@ import {
   removeClient,
   removeSecret,
   resumeClient,
+  senderCommand,
   setSecret,
 } from "./clients.ts";
 import { d1OverRest } from "./d1-rest.ts";
@@ -80,6 +81,7 @@ export const CLIENT_COMMANDS = [
   "export",
   "import",
   "remove",
+  "sender",
 ] as const;
 
 export const FLEET_USAGE = `cos fleet: a host of many clients (stage 66, docs/deploying.md "A host of many clients")
@@ -94,6 +96,9 @@ cos client: the clients of a host of many clients (each takes --env <live|stagin
   cos client export <id> [--out <dir>] [--leaving]
   cos client import <id> --from <dir> [--without-secrets] [--staff-hostname h] [--web-hostname h]
   cos client remove <id>
+  cos client sender add|verify|unverify|remove <id> <domain>
+                 a client's sender domains; verify is your confirmation that the domain is
+                 onboarded to Email Sending in this account with valid records
 Every command that removes or overwrites asks for the client's id (or --yes); --dry-run changes nothing.
 One command at a time uses the operator's Worker; --take-over takes it from one that was killed.`;
 
@@ -524,6 +529,13 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
         }
         case "remove":
           return removeClient(ctx, positional[0] as string);
+        case "sender": {
+          const [verb, id, domain] = positional;
+          if (!verb || !id || !domain) {
+            throw new CliError("cos client sender add|verify|unverify|remove <id> <domain>");
+          }
+          return senderCommand(ctx, verb, id, domain);
+        }
         default:
           throw new CliError(FLEET_USAGE);
       }

@@ -194,6 +194,22 @@ the control plane), as one later step. Recorded in ADR 0616 too.
 - **F-d.** `cos client add` and `import` are refused while an update is unfinished.
 - Later work from the review is issue #528.
 
+### Email sending per client, wired (2026-11-28; issue #529)
+- A fleet deploy sets `SENDER_DOMAINS_PER_CLIENT=true` on the email-send gatekeeper (tested; a
+  single-client deployment's stays as it was).
+- `cos client sender add|verify|unverify|remove <id> <domain>` over
+  `@composable-os/db/registry-senders`. A domain is added unverified. `verify` asks for the
+  client's id and says what the operator confirms: that the domain is onboarded to Email Sending
+  in this deployment's Cloudflare account with its sending records valid (nothing checks it). `remove`
+  asks too. These touch only the registry, never the operator's Worker.
+- `addSenderDomain` refuses a shared suffix (`co.uk`, `github.io` and a short built-in list), a
+  shared mail domain or a name under one (`gmail.com` and the like), and the fleet's own
+  registrable domain or a name of its tree (issue #529, F2).
+- Registry migration 0797: a domain given to another client starts unverified, whether by an
+  `UPDATE` of its client, an upsert or an `INSERT OR REPLACE` (issue #529, F1).
+- An export lists the client's sender domains in its manifest; an import adds each unverified (one
+  another client holds is named, not added).
+
 ## What is left out, and why
 - **Videos are not copied.** Step 5 (#522, merged) stamps each video with its client's creator
   (`<environment>:<client>`) and refuses one without. An import re-stamps every video the client's

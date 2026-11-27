@@ -1207,6 +1207,9 @@ cos fleet install --env staging --keys-file ~/fleet-keys/staging.json \
 # A client: its registry rows, its database made and migrated, its hostnames. No upload.
 cos client add gym-a --env staging --location oc --web-hostname staging.gym-a.example
 cos client secret set gym-a GOOGLE_CLIENT_SECRET --env staging   # asked for, hidden; sealed
+# Its sender domain: added unverified; verify once it is onboarded to Email Sending in this account.
+cos client sender add gym-a gym-a.example --env staging
+cos client sender verify gym-a gym-a.example --env staging
 # A release across every client: staging first, then live.
 cos fleet upgrade --env staging --keys-file ~/fleet-keys/staging.json --version 1.4.0
 cos fleet upgrade --env live --keys-file ~/fleet-keys/live.json --version 1.4.0

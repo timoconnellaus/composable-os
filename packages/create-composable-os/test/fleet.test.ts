@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { applyMigrations, type Migration, type MigrationLevel } from "@composable-os/db";
 import { type ClientId, REGISTRY_MIGRATIONS_TABLE, readRegistry } from "@composable-os/db/registry";
 import { newHostKeys } from "@composable-os/db/registry-sealing";
+import { listSenderDomains } from "@composable-os/db/registry-senders";
 import { readClient, unfinishedOperation, wasRemoved } from "@composable-os/db/registry-writes";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -21,6 +22,7 @@ import {
   registrableDomain,
   removeClient,
   resumeClient,
+  senderCommand,
   setSecret,
 } from "../src/fleet/clients.ts";
 import {
@@ -627,6 +629,57 @@ describe("one operator's command at a time (review of #526, S1)", () => {
     });
     await over.op("health");
     expect(opener.opens()).toBe(3);
+  });
+});
+
+describe("a client's sender domains (issue #529)", () => {
+  it("are added unverified, verified only once the operator confirms what it is confirming, and removed only when asked", async () => {
+    await addClient(ctx(), { id: "gym-a" });
+    // Not the fleet's own domain, nor a shared mail domain.
+    await expect(senderCommand(ctx(), "add", "gym-a", "news.fleet.example")).rejects.toThrow(
+      /fleet's own/,
+    );
+    await expect(senderCommand(ctx(), "add", "gym-a", "gmail.com")).rejects.toThrow(/shared mail/);
+    expect(await senderCommand(ctx(), "add", "gym-a", "gym-a.example")).toBe(0);
+    expect(await listSenderDomains(registry, "gym-a")).toMatchObject([
+      { domain: "gym-a.example", verified: false },
+    ]);
+    // Verifying asks, and says what the operator confirms.
+    const asked: string[] = [];
+    const io = { ...testIo([], true).io, ask: async (q: string) => (asked.push(q), "gym-a") };
+    await expect(senderCommand(ctx(), "verify", "gym-a", "gym-a.example")).rejects.toThrow(
+      /pass --yes/,
+    );
+    expect(await senderCommand(ctx({ io }), "verify", "gym-a", "gym-a.example")).toBe(0);
+    expect(asked[0]).toMatch(/onboarded to Email Sending in this deployment's Cloudflare account/);
+    expect((await listSenderDomains(registry, "gym-a"))[0]?.verified).toBe(true);
+    expect(await senderCommand(ctx(), "unverify", "gym-a", "gym-a.example")).toBe(0);
+    expect((await listSenderDomains(registry, "gym-a"))[0]?.verified).toBe(false);
+    await expect(senderCommand(ctx(), "remove", "gym-a", "gym-a.example")).rejects.toThrow(
+      /pass --yes/,
+    );
+    expect(await senderCommand(ctx({ yes: true }), "remove", "gym-a", "gym-a.example")).toBe(0);
+    expect(await listSenderDomains(registry, "gym-a")).toEqual([]);
+  });
+
+  it("go with an export, and come in with an import unverified", async () => {
+    await addClient(ctx(), { id: "gym-a" });
+    await senderCommand(ctx(), "add", "gym-a", "gym-a.example");
+    await senderCommand(ctx({ yes: true }), "verify", "gym-a", "gym-a.example");
+    const dir = join(mkdtempSync(join(tmpdir(), "s66s7-")), "export");
+    await exportClient(ctx(), { id: "gym-a", out: dir, leaving: true });
+    expect(JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")).senderDomains).toEqual([
+      "gym-a.example",
+    ]);
+    // Imported as another client while the first still holds it: named, not added.
+    await importClient(ctx(), { id: "gym-b", from: dir });
+    expect(await listSenderDomains(registry, "gym-b")).toEqual([]);
+    expect(out.lines.join("\n")).toContain("sender domain gym-a.example: not added");
+    await senderCommand(ctx({ yes: true }), "remove", "gym-a", "gym-a.example");
+    await importClient(ctx(), { id: "gym-c", from: dir });
+    expect(await listSenderDomains(registry, "gym-c")).toMatchObject([
+      { domain: "gym-a.example", verified: false },
+    ]);
   });
 });
 

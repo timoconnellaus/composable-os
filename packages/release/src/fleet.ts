@@ -353,6 +353,18 @@ export function fleetBindings(
     // Every gatekeeper's BASE_URL is under the one callback address (ADR 0616).
     const base = `https://${f.callbackHostname}/gatekeeper/${worker.shortName}`;
     change = (b) => (b.type === "plain_text" && b.name === "BASE_URL" ? { ...b, text: base } : b);
+    // Email sending takes each client's own sender domains, never the deployment's list (ADR
+    // 0616, "Email sending per client"; issue #529).
+    if (worker.shortName === "email-send") {
+      const flag: ManifestBinding = {
+        type: "plain_text",
+        name: "SENDER_DOMAINS_PER_CLIENT",
+        text: "true",
+      };
+      const before = change;
+      change = (b) => (b.type === "plain_text" && b.name === flag.name ? flag : before(b));
+      add.push(flag);
+    }
   }
   return { add, change };
 }

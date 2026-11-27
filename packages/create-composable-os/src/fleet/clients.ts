@@ -29,6 +29,13 @@ import {
   writeImportedSecret,
 } from "@composable-os/db/registry-sealing";
 import {
+  addSenderDomain,
+  listSenderDomains,
+  removeSenderDomain,
+  unverifySenderDomain,
+  verifySenderDomain,
+} from "@composable-os/db/registry-senders";
+import {
   addClientRows,
   beginOperation,
   finishOperation,
@@ -435,6 +442,61 @@ export async function removeSecret(ctx: FleetContext, raw: string, name: string)
   return 0;
 }
 
+// --- sender domains (issue #529) -------------------------------------------------------------------
+
+/** The fleet's own registrable domain, which no client sends as. */
+function fleetRegistrable(ctx: FleetContext): string {
+  return registrableDomain(canonicalDomain(ctx.fleet.domain) ?? ctx.fleet.domain);
+}
+
+/**
+ * `cos client sender add|verify|unverify|remove <id> <domain>`: a client's sender domains
+ * (`@composable-os/db/registry-senders`). Added unverified. Verifying is the operator's own
+ * confirmation that the domain is onboarded to Email Sending in this deployment's Cloudflare
+ * account with its sending records valid (nothing checks it automatically), so it is asked for by
+ * the client's id; removing asks too.
+ */
+export async function senderCommand(
+  ctx: FleetContext,
+  verb: string,
+  raw: string,
+  domain: string,
+): Promise<number> {
+  const id = idOf(raw);
+  if (!(await readClient(ctx.registry, id))) throw new FleetError(`No client ${id}`);
+  if (!["add", "verify", "unverify", "remove"].includes(verb)) {
+    throw new FleetError("cos client sender add|verify|unverify|remove <id> <domain>");
+  }
+  if (ctx.dryRun) {
+    ctx.io.out(
+      `Would ${verb} the sender domain ${domain} of ${id}. Nothing was changed (--dry-run).`,
+    );
+    return 0;
+  }
+  if (verb === "add") {
+    await addSenderDomain(ctx.registry, id, domain, { fleetDomain: fleetRegistrable(ctx) });
+    ctx.io.out(
+      `Added ${domain} to ${id}'s sender domains, unverified: it sends nothing from it yet.`,
+    );
+  } else if (verb === "verify") {
+    await confirmFor(
+      ctx,
+      id,
+      `This confirms that ${domain} is onboarded to Email Sending in this deployment's Cloudflare account, with its sending records valid, and lets ${id} send as it`,
+    );
+    await verifySenderDomain(ctx.registry, id, domain);
+    ctx.io.out(`Verified ${domain} for ${id}. ${REFRESH_NOTE}`);
+  } else if (verb === "unverify") {
+    await unverifySenderDomain(ctx.registry, id, domain);
+    ctx.io.out(`${id} no longer sends from ${domain}. ${REFRESH_NOTE}`);
+  } else {
+    await confirmFor(ctx, id, `This removes ${domain} from ${id}'s sender domains`);
+    await removeSenderDomain(ctx.registry, id, domain);
+    ctx.io.out(`Removed ${domain} from ${id}'s sender domains. ${REFRESH_NOTE}`);
+  }
+  return 0;
+}
+
 // --- export ----------------------------------------------------------------------------------------
 
 export const EXPORT_FORMAT = "cos-client-export/1";
@@ -454,6 +516,11 @@ export interface ExportManifest {
   files: { key: string; size: number; sha256: string }[];
   /** Videos are not in an export yet: see the spec's Status (#522 stamps the creator). */
   videos: "not exported";
+  /**
+   * The client's sender domains (issue #529): an import adds them unverified, for the operator to
+   * verify again where the client now sends from. Absent in an export made before.
+   */
+  senderDomains?: string[];
 }
 
 interface ExportState {
@@ -618,6 +685,7 @@ export async function exportClient(ctx: FleetContext, input: ExportInput): Promi
     },
     files: [...state.files].sort((a, b) => a.key.localeCompare(b.key)),
     videos: "not exported",
+    senderDomains: (await listSenderDomains(ctx.registry, id)).map((d) => d.domain),
   };
   await ctx.operator.op("export-manifest", { client: id, exportKey: state.exportKey, manifest });
   if (input.out) await downloadExport(ctx, id, state.exportKey, manifest, input.out);
@@ -856,6 +924,17 @@ export async function importClient(ctx: FleetContext, input: ImportInput): Promi
     ctx.io.out(
       `  secrets: ${n} stored sealed${n ? "" : " (every secret is derived: staff and customers sign in again)"}`,
     );
+  }
+  // Its sender domains, unverified: the operator verifies each again where it now sends from.
+  for (const domain of folder.manifest.senderDomains ?? []) {
+    try {
+      await addSenderDomain(ctx.registry, id, domain, { fleetDomain: fleetRegistrable(ctx) });
+      ctx.io.out(
+        `  sender domain ${domain}: added, unverified (cos client sender verify ${id} ${domain})`,
+      );
+    } catch (error) {
+      ctx.io.err(`  sender domain ${domain}: not added (${(error as Error).message})`);
+    }
   }
   // Its videos: stamped with its creator, so the video host (step 5) serves them to this client.
   const { results: videos } = await ctx.operator.op<{ results: { stream_uid: string }[] }>(

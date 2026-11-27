@@ -243,6 +243,35 @@ describe("a fleet deployment", () => {
   });
 });
 
+describe("email sending on a fleet (issue #529)", () => {
+  it("takes each client's own sender domains: SENDER_DOMAINS_PER_CLIENT on a fleet's, not on a single client's", async () => {
+    const bundle = await openBundle(
+      (await buildFixtureRelease({ version: "1.0.0", fleet: true, clientGatekeepers: true }))
+        .bundle,
+    );
+    const withEmail = { gatekeepers: ["demo-gatekeeper-email-send", "demo-gatekeeper-test"] };
+    const fleetSide = await setup();
+    await installRelease({
+      api: fleetSide.api,
+      bundle,
+      state: state({ ...withEmail, fleet: fleet("live") }),
+      secrets,
+      fleet: KEYS,
+    });
+    expect(
+      named(bindingsOf(fleetSide.cf, "demo-gatekeeper-email-send"), "SENDER_DOMAINS_PER_CLIENT"),
+    ).toMatchObject({
+      type: "plain_text",
+      text: "true",
+    });
+    const single = await setup();
+    await installRelease({ api: single.api, bundle, state: state(withEmail), secrets });
+    expect(
+      named(bindingsOf(single.cf, "demo-gatekeeper-email-send"), "SENDER_DOMAINS_PER_CLIENT")?.text,
+    ).not.toBe("true");
+  });
+});
+
 describe("an imported client's videos", () => {
   it("are stamped with their creator; one the account does not hold answers false", async () => {
     const { cf, api } = await setup();

@@ -36,6 +36,102 @@ export function senderDomainProblem(domain: unknown): string | null {
   return null;
 }
 
+/**
+ * Suffixes under which anyone registers a name (a country's second level, a hosting platform's
+ * shared domain): a short built-in list, not the Public Suffix List. A client holding one would
+ * hold every name under it, and block every other client's (issue #529, F2).
+ */
+export const SHARED_SUFFIXES: ReadonlySet<string> = new Set([
+  "co.uk",
+  "org.uk",
+  "ac.uk",
+  "gov.uk",
+  "com.au",
+  "net.au",
+  "org.au",
+  "edu.au",
+  "gov.au",
+  "co.nz",
+  "org.nz",
+  "co.za",
+  "com.br",
+  "co.jp",
+  "co.in",
+  "com.sg",
+  "github.io",
+  "gitlab.io",
+  "pages.dev",
+  "workers.dev",
+  "vercel.app",
+  "netlify.app",
+  "herokuapp.com",
+  "appspot.com",
+  "web.app",
+  "firebaseapp.com",
+  "blogspot.com",
+  "azurewebsites.net",
+  "cloudfront.net",
+  "fly.dev",
+  "onrender.com",
+]);
+
+/**
+ * Mail domains shared by everyone who has an address there: no client sends as one (its own
+ * staff's personal addresses are not its domain), nor as a name under one.
+ */
+export const SHARED_MAIL_DOMAINS: ReadonlySet<string> = new Set([
+  "gmail.com",
+  "googlemail.com",
+  "outlook.com",
+  "hotmail.com",
+  "live.com",
+  "msn.com",
+  "yahoo.com",
+  "ymail.com",
+  "icloud.com",
+  "me.com",
+  "mac.com",
+  "aol.com",
+  "proton.me",
+  "protonmail.com",
+  "gmx.com",
+  "gmx.net",
+  "mail.com",
+  "yandex.com",
+  "zoho.com",
+  "fastmail.com",
+  "hey.com",
+  "qq.com",
+  "163.com",
+  "bigpond.com",
+  "optusnet.com.au",
+]);
+
+/**
+ * Why a client may not hold `domain` as a sender domain beyond its shape (issue #529, F2), or null:
+ * a single-label top-level domain is refused by its shape already; refused here are a shared
+ * suffix (`co.uk`, `github.io`), a shared mail domain (`gmail.com`) or a name under one, and the
+ * fleet's own domain or a name of its tree (a client would send as the platform).
+ */
+export function senderDomainRefusal(
+  domain: string,
+  options: { fleetDomain?: string | null } = {},
+): string | null {
+  if (SHARED_SUFFIXES.has(domain)) {
+    return `${domain} is a suffix anyone registers under, no one's sender domain`;
+  }
+  for (const shared of SHARED_MAIL_DOMAINS) {
+    if (domain === shared || domain.endsWith(`.${shared}`)) {
+      return `${domain} is a shared mail domain (${shared}), no client's`;
+    }
+  }
+  const fleet = options.fleetDomain ? canonicalSenderDomain(options.fleetDomain) : null;
+  if (fleet && sameDomainTree(fleet, domain)) {
+    return `${domain} is the fleet's own domain (${fleet}), or under or over it: no client sends as the platform`;
+  }
+  return null;
+}
+
 function checkedDomain(domain: string): string {
   const problem = senderDomainProblem(domain);
   if (problem) throw new RangeError(`Not a sender domain: ${problem}`);
@@ -73,15 +169,19 @@ export async function listSenderDomains(
 /**
  * Adds `domain` to `client`'s sender domains, unverified. Refused, before anything is written,
  * when another client holds it or a domain of its tree (one under or over it); the registry's
- * triggers refuse the same, so two operators writing at once cannot both win.
+ * triggers refuse the same, so two operators writing at once cannot both win. Refused too: a
+ * shared suffix, a shared mail domain, and the fleet's own domain (`senderDomainRefusal`).
  */
 export async function addSenderDomain(
   registry: D1Database,
   client: string,
   domain: string,
+  options: { fleetDomain?: string | null } = {},
 ): Promise<void> {
   const id = validateClientId(client);
   const name = checkedDomain(domain);
+  const refused = senderDomainRefusal(name, options);
+  if (refused) throw new RangeError(`Not a sender domain of ${id}: ${refused}`);
   for (const other of await listSenderDomains(registry)) {
     if (other.client === id && other.domain === name) return;
     if (other.client !== id && sameDomainTree(other.domain, name)) {

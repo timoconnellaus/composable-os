@@ -195,6 +195,9 @@ A host of many clients (stage 66; docs/deploying.md "A host of many clients")
   cos client import <id> --from <dir>    an export brought in as a new, imported client
   cos client remove <id>                 exported (kept 90 days), then erased; its id is never
                                          used again
+  cos client sender add|verify|unverify|remove <id> <domain>
+                                         a client's sender domains (added unverified; verify is
+                                         your confirmation it is onboarded to Email Sending)
   Each asks for the client's id before removing or overwriting (or --yes); a re-run after a
   failure carries on where it stopped.
 
