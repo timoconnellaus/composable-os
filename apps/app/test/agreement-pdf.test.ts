@@ -8,7 +8,7 @@
 // All text here is fixture text.
 import { env } from "cloudflare:workers";
 import { createIdentityProvider, getCustomerIdentity } from "@composable-os/auth";
-import { inviteCustomer } from "@composable-os/core";
+import { inviteCustomer, issueDeviceSession, parseAllowedOrigins } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { type AgreementPdf, agreementPdf } from "@composable-os/pdf";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -227,5 +227,73 @@ describe("staff", () => {
       .first<{ result: string }>();
     expect(row?.result).toBeTruthy();
     expect(row?.result).not.toContain("Fixture Name");
+  });
+});
+
+describe("from another origin (stage 75 step 2's browser-only screens, issue #540)", () => {
+  // The screens' own address, listed in API_ALLOWED_ORIGINS as the surface lets it call.
+  const SCREENS = "https://screens.shop.test";
+  const allowedOrigins = parseAllowedOrigins(`${SCREENS}, views://desktop/index.html`);
+  const path = () => `/api/v1/agreements/acceptances/${acceptanceId}.pdf`;
+  const fromOrigin = (origin: string | null, init: { method?: string; token?: string } = {}) =>
+    handleAgreementPdf(
+      new Request(`${ORIGIN}${path()}`, {
+        method: init.method ?? "GET",
+        headers: {
+          ...(origin ? { origin } : {}),
+          ...(init.token ? { authorization: `Bearer ${init.token}` } : {}),
+        },
+      }),
+      { context: (req) => apiContext(req, pdfEnv), allowedOrigins },
+    );
+
+  async function adaToken(): Promise<string> {
+    const account = await db.query
+      .selectFrom("core_customer")
+      .select("id")
+      .where("person_id", "=", ada.personId)
+      .executeTakeFirstOrThrow();
+    const tokens = await issueDeviceSession(
+      db,
+      { audience: "customer", subjectId: account.id },
+      "Web browser",
+      new Date(),
+    );
+    return tokens.accessToken;
+  }
+
+  it("answers a listed origin's preflight, then its download with the bearer token", async () => {
+    const preflight = await fromOrigin(SCREENS, { method: "OPTIONS" });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe(SCREENS);
+    expect(preflight.headers.get("access-control-allow-headers")).toBe("authorization");
+    expect(preflight.headers.get("access-control-allow-methods")).toBe("GET");
+    const download = await fromOrigin(SCREENS, { token: await adaToken() });
+    expect(download.headers.get("access-control-allow-origin")).toBe(SCREENS);
+    // The page reads the file's name from Content-Disposition.
+    expect(download.headers.get("access-control-expose-headers")).toBe("content-disposition");
+    await expectPdf(download);
+  });
+
+  it("refuses any other origin, and Origin: null, before anything is looked at", async () => {
+    const token = await adaToken();
+    for (const origin of ["https://evil.test", "null"]) {
+      for (const method of ["GET", "OPTIONS"]) {
+        const answer = await fromOrigin(origin, { method, token });
+        expect(answer.status).toBe(403);
+        expect(answer.headers.get("access-control-allow-origin")).toBeNull();
+      }
+    }
+  });
+
+  it("is unchanged for the host's own pages and callers that send no Origin", async () => {
+    const token = await adaToken();
+    for (const origin of [ORIGIN, null]) {
+      const answer = await fromOrigin(origin, { token });
+      expect(answer.headers.get("access-control-allow-origin")).toBeNull();
+      await expectPdf(answer);
+    }
+    // Only GET, as before.
+    expect((await fromOrigin(SCREENS, { method: "POST", token })).status).toBe(405);
   });
 });

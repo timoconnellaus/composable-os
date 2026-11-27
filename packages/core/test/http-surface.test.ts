@@ -14,6 +14,7 @@ import {
   MAX_BODY_BYTES,
   type OpenOperationsFile,
   openOperations,
+  parseAllowedOrigins,
 } from "../src/index.ts";
 import {
   type Customer,
@@ -374,6 +375,19 @@ describe("cross-origin calls", () => {
       }),
     );
     expect(refused?.status).toBe(403);
+  });
+
+  it("never let in Origin: null, even when an origin that is not http(s) is listed (issue #540)", async () => {
+    // A desktop view's address, a file: page: each one's origin is the opaque "null".
+    const listed = parseAllowedOrigins("views://client-a/index.html, file:///tmp/x, https://shop.example");
+    expect(listed).toEqual(["https://shop.example"]);
+    const withNull = surfaceOver(fixtureRegistry, PUBLIC_CTX, { allowedOrigins: ["null"] });
+    for (const method of ["POST", "OPTIONS"]) {
+      const answer = await withNull.handle(from("null", method));
+      expect(answer?.status).toBe(403);
+      expect(answer?.headers.get("access-control-allow-origin")).toBeNull();
+      expect(answer?.headers.get("access-control-allow-credentials")).toBeNull();
+    }
   });
 });
 

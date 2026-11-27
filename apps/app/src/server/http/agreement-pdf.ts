@@ -14,8 +14,10 @@
 
 import {
   type AnyInvocationContext,
+  apiOriginCheck,
   coreInvoker,
   errorReply,
+  ForbiddenError,
   OperationError,
 } from "@composable-os/core";
 import { type AgreementPdf, agreementPdf } from "@composable-os/pdf";
@@ -38,11 +40,42 @@ function failure(error: unknown): Response {
 
 const notFound = () => failure(new OperationError("not_found", "Not found"));
 
+interface PdfOptions {
+  context(request: Request): Promise<AnyInvocationContext>;
+  /**
+   * The host's public address only (entry.ts): the origins `API_ALLOWED_ORIGINS` lets call the
+   * surface, by the surface's own rule (`apiOriginCheck`), so a page on one of them (a client's
+   * browser-only screens, stage 75) can download with its bearer token. Left out (the client-app
+   * binding), no Origin is looked at, as before.
+   */
+  allowedOrigins?: readonly string[];
+}
+
 /** Serves one request to the download routes. */
 export async function handleAgreementPdf(
   request: Request,
-  options: { context(request: Request): Promise<AnyInvocationContext> },
+  options: PdfOptions,
 ): Promise<Response> {
+  if (!options.allowedOrigins) return serve(request, options);
+  const origin = apiOriginCheck(request, options.allowedOrigins, "content-disposition");
+  if (!origin.ok) return failure(new ForbiddenError("This origin may not call the API"));
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        ...origin.cors,
+        "access-control-allow-methods": "GET",
+        "access-control-allow-headers": "authorization",
+        "access-control-max-age": "600",
+      },
+    });
+  }
+  const response = await serve(request, options);
+  for (const [name, value] of Object.entries(origin.cors)) response.headers.set(name, value);
+  return response;
+}
+
+async function serve(request: Request, options: PdfOptions): Promise<Response> {
   const { pathname } = new URL(request.url);
   const acceptance = ACCEPTANCE.exec(pathname)?.[1];
   const version = VERSION.exec(pathname)?.[1];

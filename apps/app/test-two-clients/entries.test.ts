@@ -35,6 +35,7 @@ import { clientOf, environmentFor } from "@composable-os/db/client-environment";
 import {
   NOT_STAFF_HOSTNAMES,
   setUpTwoClients,
+  TWO_CLIENT_SCREENS_ORIGIN,
   TWO_CLIENTS,
 } from "@composable-os/db/testing/two-clients";
 import { beforeAll, describe, expect, it, vi } from "vitest";
@@ -873,6 +874,40 @@ describe("erase on a host of many clients (criterion 14, ADR 0320)", () => {
         "email-bodies/shared-key",
       ),
     ).toBe(0);
+  });
+});
+
+describe("an origin one client lets call its API, at the other's address (issue #540)", () => {
+  // gym-a lists its screens' address in API_ALLOWED_ORIGINS; gym-b lists none.
+  const pdf = "/api/v1/agreements/acceptances/aga_none.pdf";
+  const preflight = (hostname: string, path: string) =>
+    fetchAt(hostname, path, {
+      method: "OPTIONS",
+      headers: {
+        origin: TWO_CLIENT_SCREENS_ORIGIN,
+        "access-control-request-method": path === pdf ? "GET" : "POST",
+        "access-control-request-headers": "authorization",
+      },
+    });
+
+  it("is let in at its own client's address, for the surface and the signed-agreement PDF", async () => {
+    for (const path of [pdf, "/api/v1/op/me.get"]) {
+      const answer = await preflight(a.hostname, path);
+      expect(answer.status, path).toBe(204);
+      expect(answer.headers.get("access-control-allow-origin")).toBe(TWO_CLIENT_SCREENS_ORIGIN);
+    }
+  });
+
+  it("is refused at the other client's", async () => {
+    for (const path of [pdf, "/api/v1/op/me.get"]) {
+      const answer = await preflight(b.hostname, path);
+      expect(answer.status, path).toBe(403);
+      expect(answer.headers.get("access-control-allow-origin")).toBeNull();
+    }
+    const download = await fetchAt(b.hostname, pdf, {
+      headers: { origin: TWO_CLIENT_SCREENS_ORIGIN },
+    });
+    expect(download.status).toBe(403);
   });
 });
 
