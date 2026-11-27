@@ -22,6 +22,7 @@ import {
   type DeploymentState,
   deployWorkers,
   FLEET_PACKAGES,
+  type FleetAttach,
   type FleetDeployInput,
   type FleetEnvironment,
   fleetDeploymentNames,
@@ -50,6 +51,7 @@ import {
   exportClient,
   type FleetContext,
   FleetError,
+  hostnameCommand,
   importClient,
   listClientsCommand,
   pauseClient,
@@ -68,6 +70,7 @@ import {
   readKeysFile,
   writeKeysFile,
 } from "./keys.ts";
+import { cloudflareEdge, setUpFleetZone, zoneOf } from "./hostnames.ts";
 import { openOperator } from "./operator-client.ts";
 import { lazyOperator } from "./session.ts";
 import { fleetUpdate } from "./update.ts";
@@ -82,15 +85,23 @@ export const CLIENT_COMMANDS = [
   "import",
   "remove",
   "sender",
+  "hostname",
 ] as const;
 
 export const FLEET_USAGE = `cos fleet: a host of many clients (stage 66, docs/deploying.md "A host of many clients")
   cos fleet keys --env <live|staging> --out <file>     the deployment's keys, into <file> (0600, outside any repository)
   cos fleet install --env <e> --keys-file <file> --callback-hostname <h> --domain <d> [--version x.y.z]
+                 [--zone <zone>] [--attach custom-domains|wildcard]
+                 the zone is the account's zone that holds --domain (learnt when not named);
+                 wildcard: one route for the whole domain, only when it is the zone's apex and
+                 the zone is the fleet's alone
   cos fleet upgrade --env <e> --keys-file <file> [--version x.y.z] [--dry-run] [--yes] [--skip-staging]
 cos client: the clients of a host of many clients (each takes --env <live|staging>, default live)
   cos client add <id> [--tier standard|bespoke] [--repository o/r] [--location oc] [--staff-hostname h]
-                 [--web-hostname h] [--setting NAME=VALUE]… [--dry-run]
+                 [--desk | --desk-hostname h] [--web-hostname h] [--setting NAME=VALUE]… [--dry-run]
+  cos client hostname add|verify|remove <id> <hostname> | hostname list <id>
+                 a client's own web domain: added unverified (the DNS records it needs are
+                 printed), verified once Cloudflare reports it active, then served by cos-front
   cos client pause <id> | resume <id> | list
   cos client secret set <id> <NAME> [--value-file <f>] | secret remove <id> <NAME>
   cos client export <id> [--out <dir>] [--leaving]
@@ -247,12 +258,36 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
       );
     }
   }
+  // The zone the fleet's domain is on (stage 66 step 8, ADR 0619): where its hostnames are
+  // attached. None: nothing is attached, and the commands say so.
+  const attachFlag = str(flags, "attach");
+  if (attachFlag && attachFlag !== "custom-domains" && attachFlag !== "wildcard") {
+    throw new CliError("--attach is custom-domains or wildcard");
+  }
+  let zone: { id: string; name: string } | null;
+  try {
+    zone = await zoneOf(s.api, s.accountId, fleetDomain, str(flags, "zone"));
+  } catch (error) {
+    throw new CliError((error as Error).message);
+  }
+  const attach =
+    (attachFlag as FleetAttach | undefined) ?? existing?.state?.fleet?.attach ?? "custom-domains";
+  if (attach === "wildcard" && zone?.name !== fleetDomain) {
+    throw new CliError(
+      `--attach wildcard needs --domain to be its zone's apex (${zone?.name ?? "no zone holds it"}): Universal SSL covers only one level under the apex, and the route takes every name of the zone. Use custom-domains.`,
+    );
+  }
+  if (zone && !callbackHostname.endsWith(`.${fleetDomain}`)) {
+    throw new CliError(`--callback-hostname ${callbackHostname} must be under --domain ${fleetDomain}`);
+  }
   state.fleet = {
     environment,
     callbackHostname,
     domain: fleetDomain,
     secretsPublicKey: state.fleet?.secretsPublicKey ?? keys.secretsPublicKey,
     keysFingerprint: state.fleet?.keysFingerprint ?? keysFingerprint(keys),
+    ...(zone ? { zone } : {}),
+    attach,
   };
   const log = (l: string) => deps.io.out(l);
   deps.io.out(`Installing a ${environment} host of many clients of ${s.product.label} ${version}:`);
@@ -288,6 +323,18 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
     fleet: fleetInput(keys, environment),
     log,
   });
+  // The fleet's zone, once its Workers exist: the callback hostname, and where clients' own
+  // domains point (each made once, so a re-run converges).
+  if (state.fleet.zone) {
+    await setUpFleetZone(
+      { api: s.api, accountId: s.accountId, fleet: state.fleet, ...edgeWorkers(manifest, state) },
+      log,
+    );
+  } else {
+    deps.io.err(
+      `  no zone of this account holds ${fleetDomain}: no hostname is attached (add the zone and run this again)`,
+    );
+  }
   deps.io.out(
     `\nDone: the ${environment} host is ${version}. Add a client with cos client add <id> --env ${environment}.`,
   );
@@ -369,6 +416,20 @@ async function fleetUpgrade(flags: Flags, deps: Deps): Promise<number> {
   });
 }
 
+/** cos-app's and cos-front's deployed names (the release names them from the product). */
+function edgeWorkers(
+  manifest: ReleaseBundle["manifest"],
+  state: DeploymentState,
+): { appWorker: string; frontWorker: string | null } {
+  const app = manifest.workers.find((w) => w.role === "app");
+  if (!app) throw new CliError("The release has no app Worker.");
+  const front = manifest.workers.find((w) => w.package === FLEET_PACKAGES.front);
+  return {
+    appWorker: state.workerNames[app.name] ?? app.name,
+    frontWorker: front ? (state.workerNames[front.name] ?? front.name) : null,
+  };
+}
+
 // --- cos client ----------------------------------------------------------------------------------
 
 /** Runs `body` with a fleet context: the registry over REST and an operator session. */
@@ -406,11 +467,18 @@ async function withContext(
       }),
     { command, ...(flags["take-over"] ? { takeOver: true } : {}) },
   );
+  const edge = cloudflareEdge({
+    api: s.api,
+    accountId: s.accountId,
+    fleet,
+    ...edgeWorkers(manifest, state),
+  });
   try {
     return await body({
       registry,
       operator,
       fleet,
+      ...(edge ? { edge } : {}),
       migrations: bundleMigrations(installed.bundle),
       io: deps.io,
       yes: Boolean(flags.yes),
@@ -489,8 +557,19 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
             ...(str(flags, "web-hostname")
               ? { webHostname: str(flags, "web-hostname") as string }
               : {}),
+            ...(flags.desk ? { desk: true } : {}),
+            ...(str(flags, "desk-hostname")
+              ? { deskHostname: str(flags, "desk-hostname") as string }
+              : {}),
             settings: settingsOf(flags),
           });
+        case "hostname": {
+          const [verb, id, name] = positional;
+          if (!verb || !id) {
+            throw new CliError("cos client hostname add|verify|remove <id> <hostname> | list <id>");
+          }
+          return hostnameCommand(ctx, verb, id, name);
+        }
         case "pause":
           return pauseClient(ctx, positional[0] as string);
         case "resume":

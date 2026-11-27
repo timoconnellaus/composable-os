@@ -10,6 +10,14 @@ export interface CloudflareAccessOptions {
   audience: string;
   /** Key source override for tests. Defaults to the team's published certs. */
   jwks?: JWTVerifyGetKey;
+  /**
+   * Read only the `Cf-Access-Jwt-Assertion` header Access adds at the edge, never the
+   * `CF_Authorization` cookie: on a host of many clients (stage 66 step 8, ADR 0619, rule (c))
+   * no cookie without the `__Host-` prefix is read, since a sibling hostname under the fleet's
+   * domain could set `CF_Authorization` for the whole domain. Access sends the header on every
+   * request it lets through, so nothing is lost.
+   */
+  headerOnly?: boolean;
 }
 
 export const ACCESS_JWT_HEADER = "cf-access-jwt-assertion";
@@ -26,9 +34,10 @@ export function normaliseTeamDomain(teamDomain: string): string {
 
 const remoteKeySets = new Map<string, JWTVerifyGetKey>();
 
-function readToken(request: Request): string | null {
+function readToken(request: Request, headerOnly = false): string | null {
   const header = request.headers.get(ACCESS_JWT_HEADER);
   if (header) return header;
+  if (headerOnly) return null;
   const cookies = request.headers.get("cookie") ?? "";
   for (const part of cookies.split(";")) {
     const [name, ...rest] = part.trim().split("=");
@@ -50,7 +59,7 @@ export function cloudflareAccessProvider(options: CloudflareAccessOptions): Iden
     signInPath: null,
     signOutUrl: "/cdn-cgi/access/logout",
     async resolve(request): Promise<Principal | null> {
-      const token = readToken(request);
+      const token = readToken(request, options.headerOnly);
       if (!token) return null;
       try {
         const { payload } = await jwtVerify(token, jwks, {

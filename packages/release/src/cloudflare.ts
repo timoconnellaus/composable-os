@@ -58,6 +58,21 @@ export interface ScriptInfo {
   migration_tag?: string;
 }
 
+/** A Cloudflare for SaaS custom hostname, as much of it as cos reads. */
+export interface CustomHostname {
+  id: string;
+  hostname: string;
+  /** `pending` until its ownership is proved, then `active` (or `moved`, `blocked`, …). */
+  status: string;
+  /** The TXT record that proves the hostname's owner controls it. */
+  ownership_verification?: { type?: string; name?: string; value?: string };
+  ssl?: {
+    /** `initializing`, `pending_validation`, …, `active`. */
+    status?: string;
+    validation_records?: { txt_name?: string; txt_value?: string }[];
+  };
+}
+
 /** An AI Gateway as the API returns it (the fields this package reads or writes back). */
 export interface AiGateway {
   id: string;
@@ -583,6 +598,93 @@ export class CloudflareClient {
     ).result;
   }
 
+  /**
+   * A client's own domain on a host of many clients (stage 66 step 8, ADR 0619): a custom
+   * hostname validated by TXT records (ownership and certificate), so the client proves control
+   * before any traffic moves. Its `ownership_verification` and `ssl.validation_records` are what
+   * the client adds to its DNS.
+   */
+  async createTxtCustomHostname(zoneId: string, hostname: string): Promise<CustomHostname> {
+    return (
+      await this.request<CustomHostname>("POST", `/zones/${zoneId}/custom_hostnames`, {
+        hostname,
+        ssl: { method: "txt", type: "dv" },
+      })
+    ).result;
+  }
+
+  /** A custom hostname whole (status, ownership and certificate records), or null. */
+  async findCustomHostname(zoneId: string, hostname: string): Promise<CustomHostname | null> {
+    const { result } = await this.request<CustomHostname[]>(
+      "GET",
+      `/zones/${zoneId}/custom_hostnames?hostname=${encodeURIComponent(hostname)}`,
+    );
+    return result.find((h) => h.hostname === hostname) ?? null;
+  }
+
+  async deleteCustomHostname(zoneId: string, id: string) {
+    await unless404(this.request("DELETE", `/zones/${zoneId}/custom_hostnames/${id}`));
+  }
+
+  /** The zone's Cloudflare for SaaS fallback origin: where custom hostnames' traffic is sent. */
+  async putFallbackOrigin(zoneId: string, origin: string) {
+    await this.request("PUT", `/zones/${zoneId}/custom_hostnames/fallback_origin`, { origin });
+  }
+
+  // ---- Workers routes and DNS records (stage 66 step 8) ---------------------------------------
+
+  listRoutes(zoneId: string) {
+    return this.request<{ id: string; pattern: string; script?: string }[]>(
+      "GET",
+      `/zones/${zoneId}/workers/routes`,
+    ).then((r) => r.result);
+  }
+
+  /** Puts `pattern` on `script`: the existing route changed, or a new one made. */
+  async putRoute(zoneId: string, pattern: string, script: string) {
+    const existing = (await this.listRoutes(zoneId)).find((r) => r.pattern === pattern);
+    if (existing) {
+      if (existing.script === script) return;
+      await this.request("PUT", `/zones/${zoneId}/workers/routes/${existing.id}`, {
+        pattern,
+        script,
+      });
+      return;
+    }
+    await this.request("POST", `/zones/${zoneId}/workers/routes`, { pattern, script });
+  }
+
+  /** Removes the route of `pattern`, if there is one. */
+  async deleteRoute(zoneId: string, pattern: string) {
+    const existing = (await this.listRoutes(zoneId)).find((r) => r.pattern === pattern);
+    if (existing) {
+      await unless404(this.request("DELETE", `/zones/${zoneId}/workers/routes/${existing.id}`));
+    }
+  }
+
+  listDnsRecords(zoneId: string, name: string) {
+    return this.request<{ id: string; type: string; name: string; content: string; proxied?: boolean }[]>(
+      "GET",
+      `/zones/${zoneId}/dns_records?name=${encodeURIComponent(name)}`,
+    ).then((r) => r.result);
+  }
+
+  /**
+   * A proxied `AAAA 100::` record for `name` (the documented placeholder for a hostname a Worker
+   * answers), made once: an existing record of that name is left as it is.
+   */
+  async ensureProxiedPlaceholder(zoneId: string, name: string): Promise<"made" | "there"> {
+    if ((await this.listDnsRecords(zoneId, name)).length) return "there";
+    await this.request("POST", `/zones/${zoneId}/dns_records`, {
+      type: "AAAA",
+      name,
+      content: "100::",
+      proxied: true,
+      comment: "Composable OS fleet (stage 66): answered by a Worker",
+    });
+    return "made";
+  }
+
   // ---- AI Gateway logs (metering, ADR 0213) --------------------------------------------------
 
   /**
@@ -667,6 +769,18 @@ export class CloudflareClient {
       zone_id: zoneId,
       environment: "production",
     });
+  }
+
+  /** The account's Workers Custom Domains: each hostname and the Worker it serves. */
+  listDomains(accountId: string) {
+    return this.all<{ id: string; hostname: string; service: string; zone_id: string }>(
+      `/accounts/${accountId}/workers/domains`,
+    );
+  }
+
+  /** Detaches a Custom Domain (Cloudflare removes the DNS record and certificate it made). */
+  async deleteDomain(accountId: string, id: string) {
+    await this.request("DELETE", `/accounts/${accountId}/workers/domains/${id}`);
   }
 
   // ---- AI Gateway (ADR 0180) -----------------------------------------------------------------

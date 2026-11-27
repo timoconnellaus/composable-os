@@ -1,6 +1,11 @@
 import { createLocalJWKSet } from "jose";
-import { describe, expect, it } from "vitest";
-import { ACCESS_JWT_HEADER, cloudflareAccessProvider, normaliseTeamDomain } from "../src/index.ts";
+import { describe, expect, it, vi } from "vitest";
+import {
+  ACCESS_JWT_HEADER,
+  cloudflareAccessProvider,
+  createIdentityProvider,
+  normaliseTeamDomain,
+} from "../src/index.ts";
 import { AUD, createAccessKeys, TEAM } from "./access-jwt.ts";
 
 const keys = await createAccessKeys();
@@ -31,6 +36,35 @@ describe("cloudflare-access adapter", () => {
     const principal = await provider.resolve(request({ cookie: `a=b; CF_Authorization=${token}` }));
     expect(principal?.email).toBe("ada@example.com");
     expect(principal?.name).toBe("ada@example.com");
+  });
+
+  it("on a host of many clients reads only Access's header, never the CF_Authorization cookie a sibling could plant (stage 66 step 8, rule (c))", async () => {
+    const headerOnly = cloudflareAccessProvider({
+      teamDomain: "crm-test",
+      audience: AUD,
+      jwks: createLocalJWKSet(keys.jwks),
+      headerOnly: true,
+    });
+    const token = await keys.sign({ sub: "user-1", email: "ada@example.com" });
+    expect(await headerOnly.resolve(request({ cookie: `CF_Authorization=${token}` }))).toBeNull();
+    expect(
+      (await headerOnly.resolve(request({ [ACCESS_JWT_HEADER]: token })))?.email,
+    ).toBe("ada@example.com");
+    // The provider a many-client host's environment makes is that one: the cookie is never read,
+    // so not even the team's keys are fetched for it.
+    const fetched = vi.spyOn(globalThis, "fetch");
+    try {
+      const provider = createIdentityProvider({
+        IDENTITY_PROVIDER: "cloudflare-access",
+        CF_ACCESS_TEAM_DOMAIN: "many-client-test",
+        CF_ACCESS_AUD: AUD,
+        COS_CLIENT_ID: "gym-a",
+      } as never);
+      expect(await provider.resolve(request({ cookie: `CF_Authorization=${token}` }))).toBeNull();
+      expect(fetched).not.toHaveBeenCalled();
+    } finally {
+      fetched.mockRestore();
+    }
   });
 
   it("rejects a request without a JWT", async () => {

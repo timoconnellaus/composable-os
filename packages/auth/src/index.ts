@@ -169,6 +169,8 @@ export function createIdentityProvider(env: IdentityEnv): IdentityProvider {
     return cloudflareAccessProvider({
       teamDomain: env.CF_ACCESS_TEAM_DOMAIN,
       audience: env.CF_ACCESS_AUD,
+      // A many-client host reads no cookie without the `__Host-` prefix (ADR 0619, rule (c)).
+      headerOnly: Boolean(env.COS_CLIENT_ID),
     });
   }
   const auth = getBetterAuth(env);

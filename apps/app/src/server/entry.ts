@@ -67,6 +67,12 @@ import { authorize } from "./identity.ts";
 import { type MediaEnv, mediaResizerFor, mediaStoreFor } from "./media.ts";
 import { runBlobDeletionCron, runScheduledMaintenance } from "./purge.ts";
 import { runInClientEnv } from "./request-env.ts";
+import {
+  type WriteOriginEnv,
+  type WriteOriginHost,
+  writeOriginRefusal,
+  writeOriginResponse,
+} from "./same-origin-writes.ts";
 import { handleSupportRoute, isSupportRoute } from "./support.ts";
 
 /**
@@ -77,11 +83,11 @@ export const EMBEDDING_CRON = "*/10 * * * *";
 
 /**
  * The surfaces of a client's hostnames this Worker serves on a many-client host: its staff
- * address. A client's web hostnames are its web app's (reached through `cos-front` and the
- * ClientApp binding, step 8) and its desk hostname is step 8's: a request to either here is the
- * same 404 as an unknown hostname.
+ * address and its desk hostname (stage 66 step 8: both on the fleet's domain, served by our code
+ * only; the desk's pages and calls only, `isDeskRequest`). A client's web hostnames are cos-front's
+ * (apps/front): a request for one here is the same 404 as an unknown hostname.
  */
-export const APP_SURFACES = ["staff"] as const;
+export const APP_SURFACES = ["staff", "desk"] as const;
 
 /** TanStack Start's handler behind OAuth and /mcp (src/server/mcp/handler.ts). */
 export interface AppHandler {
@@ -200,6 +206,12 @@ export async function hostFetch(
   const decided = await decideRequest(env, request, APP_SURFACES);
   if ("response" in decided) return decided.response;
   const clientEnv = decided.env;
+  // A change is made only from the client's own pages (stage 66 step 8, ADR 0619, rule (b)).
+  if (
+    writeOriginRefusal(request, clientEnv as unknown as WriteOriginEnv, env as WriteOriginHost)
+  ) {
+    return writeOriginResponse();
+  }
   return runInClientEnv(clientEnv, () => dispatch(request, clientEnv, ctx, parts));
 }
 

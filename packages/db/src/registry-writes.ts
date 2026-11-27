@@ -44,7 +44,12 @@ export interface NewClient {
   locationHint?: string | null;
   /** Added as an imported single-client deployment (migration 0793): set now, never after. */
   imported?: boolean;
-  hostnames: { hostname: string; surface: HostnameSurface }[];
+  /**
+   * Its hostnames. Each is verified, and its surface's address, unless `verified: false`: a
+   * client's own domain (a web hostname) is written unverified and verified only once Cloudflare
+   * reports its custom hostname active (stage 66 step 8, `verifyHostname`).
+   */
+  hostnames: { hostname: string; surface: HostnameSurface; verified?: boolean }[];
   /** Deploy-time settings by env name (`CLIENT_SETTINGS`). */
   settings?: Record<string, string>;
 }
@@ -200,13 +205,14 @@ export async function addClientRows(registry: D1Database, client: NewClient): Pr
         client.locationHint ?? null,
         client.imported ? 1 : 0,
       ),
-    ...client.hostnames.map(({ hostname, surface }) =>
-      registry
+    ...client.hostnames.map(({ hostname, surface, verified }) => {
+      const on = verified === false ? 0 : 1;
+      return registry
         .prepare(
-          "INSERT INTO registry_hostnames (hostname, client, surface, verified, is_primary) VALUES (?, ?, ?, 1, 1)",
+          "INSERT INTO registry_hostnames (hostname, client, surface, verified, is_primary) VALUES (?, ?, ?, ?, ?)",
         )
-        .bind(hostname, id, surface),
-    ),
+        .bind(hostname, id, surface, on, on);
+    }),
     ...Object.entries(client.settings ?? {}).map(([name, value]) =>
       registry
         .prepare("INSERT INTO registry_settings (client, name, value) VALUES (?, ?, ?)")
@@ -305,6 +311,120 @@ export async function removeClientRows(registry: D1Database, id: ClientId): Prom
       "DELETE FROM registry_clients WHERE id = ?",
     ].map((sql) => registry.prepare(sql).bind(client)),
   );
+}
+
+// --- A client's hostnames (stage 66 step 8, ADR 0619) --------------------------------------------
+
+export interface HostnameRow {
+  hostname: string;
+  surface: HostnameSurface;
+  verified: boolean;
+  primary: boolean;
+}
+
+/** A client's hostnames, verified or not, in hostname order. */
+export async function listHostnames(registry: D1Database, id: ClientId): Promise<HostnameRow[]> {
+  const { results } = await registry
+    .prepare(
+      "SELECT hostname, surface, verified, is_primary FROM registry_hostnames WHERE client = ? ORDER BY hostname",
+    )
+    .bind(validateClientId(id))
+    .all<{ hostname: string; surface: HostnameSurface; verified: number; is_primary: number }>();
+  return results.map((r) => ({
+    hostname: r.hostname,
+    surface: r.surface,
+    verified: Number(r.verified) === 1,
+    primary: Number(r.is_primary) === 1,
+  }));
+}
+
+/**
+ * Adds a hostname to a client, **unverified** (served nowhere until `verifyHostname`). Refused
+ * when it is not canonical, when another client holds it (the primary key: a hostname is one
+ * client's), or when it is the deployment's callback hostname.
+ */
+export async function addHostname(
+  registry: D1Database,
+  id: ClientId,
+  hostname: string,
+  surface: HostnameSurface,
+  deployment: { callbackHostname?: string | null } = {},
+): Promise<void> {
+  const client = validateClientId(id);
+  if (canonicalHostname(hostname) !== hostname) {
+    throw new RangeError(`${hostname} is not a canonical hostname`);
+  }
+  const callback = deployment.callbackHostname
+    ? callbackHostname({ COS_CALLBACK_HOSTNAME: deployment.callbackHostname })
+    : null;
+  if (callback && hostname === callback) {
+    throw new RangeError(`${hostname} is the deployment's callback hostname, no client's`);
+  }
+  const held = await registry
+    .prepare("SELECT client FROM registry_hostnames WHERE hostname = ?")
+    .bind(hostname)
+    .first<{ client: string }>();
+  if (held) {
+    if (held.client === client) return;
+    throw new RangeError(`${hostname} is ${held.client}'s`);
+  }
+  await registry
+    .prepare(
+      "INSERT INTO registry_hostnames (hostname, client, surface, verified, is_primary) VALUES (?, ?, ?, 0, 0)",
+    )
+    .bind(hostname, client, surface)
+    .run();
+}
+
+/**
+ * Marks a client's hostname verified, and its surface's address when the surface has none marked
+ * yet. Only the operator's command calls it, once Cloudflare reports the hostname's custom
+ * hostname and certificate active.
+ */
+export async function verifyHostname(
+  registry: D1Database,
+  id: ClientId,
+  hostname: string,
+): Promise<void> {
+  const client = validateClientId(id);
+  const row = await registry
+    .prepare("SELECT surface FROM registry_hostnames WHERE hostname = ? AND client = ?")
+    .bind(hostname, client)
+    .first<{ surface: string }>();
+  if (!row) throw new RangeError(`${hostname} is not ${client}'s`);
+  await registry.batch([
+    registry
+      .prepare("UPDATE registry_hostnames SET verified = 1 WHERE hostname = ? AND client = ?")
+      .bind(hostname, client),
+    registry
+      .prepare(
+        "UPDATE registry_hostnames SET is_primary = 1 WHERE hostname = ? AND client = ? AND NOT EXISTS (SELECT 1 FROM registry_hostnames WHERE client = ? AND surface = ? AND is_primary = 1)",
+      )
+      .bind(hostname, client, client, row.surface),
+  ]);
+}
+
+/**
+ * Removes a client's hostname (its mark first: only a verified hostname may be marked). A
+ * client's staff hostname is never removed this way: a client needs one.
+ */
+export async function removeHostname(
+  registry: D1Database,
+  id: ClientId,
+  hostname: string,
+): Promise<boolean> {
+  const client = validateClientId(id);
+  const row = await registry
+    .prepare("SELECT surface FROM registry_hostnames WHERE hostname = ? AND client = ?")
+    .bind(hostname, client)
+    .first<{ surface: string }>();
+  if (!row) return false;
+  if (row.surface === "staff") throw new RangeError("a client's staff hostname stays");
+  await registry
+    .prepare("DELETE FROM registry_hostnames WHERE hostname = ? AND client = ?")
+    .bind(hostname, client)
+    .run();
+  return true;
 }
 
 // --- Operations: a command's progress, so a re-run carries on (migration 0795) -------------------

@@ -111,10 +111,35 @@ export class FakeCloudflare {
    * real API, user Workers have no versions, deployments, schedules or workers.dev.
    */
   readonly namespaces = new Map<string, Map<string, FakeScript>>();
-  readonly customHostnames: { id: string; hostname: string; status: string }[] = [];
+  readonly customHostnames: {
+    id: string;
+    hostname: string;
+    status: string;
+    ssl?: { method?: string; status: string; validation_records?: unknown[] };
+    ownership_verification?: { type: string; name: string; value: string };
+  }[] = [];
+  /**
+   * Whether a custom hostname turns active on its next read (the control plane's tests, ADR
+   * 0210). Off: it stays pending until `activateCustomHostname`, as a real one does until its
+   * owner's DNS proves it (stage 66 step 8).
+   */
+  autoActivateCustomHostnames = true;
+  /** Each zone's Cloudflare for SaaS fallback origin. */
+  readonly fallbackOrigins = new Map<string, string>();
+  /** Workers routes on zones. */
+  readonly routes: { id: string; zone_id: string; pattern: string; script: string }[] = [];
+  /** DNS records on zones. */
+  readonly dnsRecords: {
+    id: string;
+    zone_id: string;
+    type: string;
+    name: string;
+    content: string;
+    proxied: boolean;
+  }[] = [];
   /** AI Gateway logs per gateway id, for metering tests (`addGatewayLog`). */
   readonly gatewayLogs = new Map<string, FakeGatewayLog[]>();
-  readonly domains: { hostname: string; service: string; zone_id: string }[] = [];
+  readonly domains: { id: string; hostname: string; service: string; zone_id: string }[] = [];
   readonly uploadedAssets = new Set<string>();
   /** AI Gateways by id, with their settings. */
   readonly gateways = new Map<string, Record<string, unknown>>();
@@ -155,6 +180,14 @@ export class FakeCloudflare {
   private id(prefix: string) {
     this.counter += 1;
     return `${prefix}-${this.counter.toString().padStart(6, "0")}`;
+  }
+
+  /** What the client's DNS would do: its custom hostname proved, ownership and certificate. */
+  activateCustomHostname(hostname: string) {
+    const found = this.customHostnames.find((h) => h.hostname === hostname);
+    if (!found) throw new Error(`no custom hostname ${hostname}`);
+    found.status = "active";
+    found.ssl = { ...(found.ssl ?? {}), status: "active" };
   }
 
   /** The deployed version's metadata of a script (what is live). */
@@ -251,18 +284,105 @@ export class FakeCloudflare {
     if (path === "/zones") return ok(this.options.zones ?? [], { page: 1, total_pages: 1 });
     // Cloudflare for SaaS: a new custom hostname is pending until its owner's DNS verifies it;
     // the fake verifies it on the next read.
+    const fallback = /^\/zones\/([^/]+)\/custom_hostnames\/fallback_origin$/.exec(path);
+    if (fallback && method === "PUT") {
+      this.fallbackOrigins.set(fallback[1] as string, String(b.origin));
+      return ok({ origin: b.origin, status: "pending_deployment" });
+    }
+    const chOne = /^\/zones\/([^/]+)\/custom_hostnames\/([^/]+)$/.exec(path);
+    if (chOne && method === "DELETE") {
+      const at = this.customHostnames.findIndex((h) => h.id === chOne[2]);
+      if (at === -1) return fail(404, 1436, "custom hostname not found");
+      this.customHostnames.splice(at, 1);
+      return ok({ id: chOne[2] });
+    }
     const ch = /^\/zones\/([^/]+)\/custom_hostnames$/.exec(path);
     if (ch) {
       if (method === "POST") {
-        const entry = { id: this.id("ch"), hostname: String(b.hostname), status: "pending" };
+        const hostname = String(b.hostname);
+        if (this.customHostnames.some((h) => h.hostname === hostname)) {
+          return fail(409, 1406, "Duplicate custom hostname found.");
+        }
+        const ssl = (b.ssl ?? {}) as { method?: string };
+        const token = this.id("tok");
+        const entry = {
+          id: this.id("ch"),
+          hostname,
+          status: "pending",
+          ssl: {
+            method: ssl.method ?? "http",
+            status: "pending_validation",
+            ...(ssl.method === "txt"
+              ? {
+                  validation_records: [
+                    { txt_name: `_acme-challenge.${hostname}`, txt_value: `acme-${token}` },
+                  ],
+                }
+              : {}),
+          },
+          ownership_verification: {
+            type: "txt",
+            name: `_cf-custom-hostname.${hostname}`,
+            value: `own-${token}`,
+          },
+        };
         this.customHostnames.push(entry);
         return ok(entry);
       }
       const wanted = url.searchParams.get("hostname");
       const found = this.customHostnames.filter((h) => !wanted || h.hostname === wanted);
       const shown = found.map((h) => ({ ...h }));
-      for (const h of found) h.status = "active";
+      if (this.autoActivateCustomHostnames) for (const h of found) h.status = "active";
       return ok(shown);
+    }
+    // Workers routes on a zone (stage 66 step 8).
+    const routes = /^\/zones\/([^/]+)\/workers\/routes$/.exec(path);
+    if (routes) {
+      const zone = routes[1] as string;
+      if (method === "POST") {
+        const pattern = String(b.pattern);
+        if (this.routes.some((r) => r.zone_id === zone && r.pattern === pattern)) {
+          return fail(409, 10020, "A route with the same pattern already exists");
+        }
+        const entry = { id: this.id("route"), zone_id: zone, pattern, script: String(b.script) };
+        this.routes.push(entry);
+        return ok(entry);
+      }
+      return ok(this.routes.filter((r) => r.zone_id === zone));
+    }
+    const route = /^\/zones\/([^/]+)\/workers\/routes\/([^/]+)$/.exec(path);
+    if (route) {
+      const at = this.routes.findIndex((r) => r.zone_id === route[1] && r.id === route[2]);
+      if (at === -1) return fail(404, 10019, "route not found");
+      const found = this.routes[at] as (typeof this.routes)[number];
+      if (method === "DELETE") {
+        this.routes.splice(at, 1);
+        return ok({ id: route[2] });
+      }
+      if (method === "PUT") {
+        found.pattern = String(b.pattern);
+        found.script = String(b.script);
+        return ok(found);
+      }
+    }
+    // DNS records on a zone (stage 66 step 8: the fleet's placeholders).
+    const dns = /^\/zones\/([^/]+)\/dns_records$/.exec(path);
+    if (dns) {
+      const zone = dns[1] as string;
+      if (method === "POST") {
+        const entry = {
+          id: this.id("dns"),
+          zone_id: zone,
+          type: String(b.type),
+          name: String(b.name),
+          content: String(b.content),
+          proxied: Boolean(b.proxied),
+        };
+        this.dnsRecords.push(entry);
+        return ok(entry);
+      }
+      const name = url.searchParams.get("name");
+      return ok(this.dnsRecords.filter((r) => r.zone_id === zone && (!name || r.name === name)));
     }
     if (path === `${a}/workers/subdomain`) {
       if (method === "PUT") {
@@ -609,8 +729,25 @@ export class FakeCloudflare {
     if (path === `${a}/workers/domains` && method === "PUT") {
       const existing = this.domains.find((d) => d.hostname === b.hostname);
       if (existing) Object.assign(existing, b);
-      else this.domains.push(b as { hostname: string; service: string; zone_id: string });
+      else
+        this.domains.push({
+          id: this.id("dom"),
+          ...(b as { hostname: string; service: string; zone_id: string }),
+        });
       return ok(b);
+    }
+    if (path === `${a}/workers/domains` && method === "GET") {
+      return ok(
+        this.domains.map((d) => ({ ...d })),
+        { page: 1, total_pages: 1 },
+      );
+    }
+    const domain = new RegExp(`^${a}/workers/domains/([^/]+)$`).exec(path);
+    if (domain && method === "DELETE") {
+      const at = this.domains.findIndex((d) => d.id === domain[1]);
+      if (at === -1) return fail(404, 100114, "domain not found");
+      this.domains.splice(at, 1);
+      return ok(null);
     }
     if (path === `${a}/workers/assets/upload`) {
       const jwt = auth.replace(/^Bearer /, "");

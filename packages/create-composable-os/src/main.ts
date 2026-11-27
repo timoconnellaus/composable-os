@@ -174,8 +174,11 @@ A host of many clients (stage 66; docs/deploying.md "A host of many clients")
                                          the deployment's keys, written only to <file> (mode
                                          0600, refused inside a git working tree), never printed
   cos fleet install --env <e> --keys-file <f> --callback-hostname <h> --domain <d>
-                                         the host, its registry, cos-client-db and the operator's
-                                         Worker, with every binding a fleet needs
+                    [--zone z] [--attach custom-domains|wildcard]
+                                         the host, its registry, cos-client-db, the operator's
+                                         Worker and cos-front, with every binding a fleet needs;
+                                         learns the domain's zone and attaches the callback
+                                         hostname and the CNAME target of clients' own domains
   cos fleet upgrade --env <e> --keys-file <f> [--version x.y.z] [--dry-run] [--yes]
                                          every client paused, bookmarked and migrated, the Workers
                                          uploaded once, smoke checked, resumed; a client whose
@@ -183,8 +186,13 @@ A host of many clients (stage 66; docs/deploying.md "A host of many clients")
                                          only after staging (--skip-staging, deliberately)
   cos client add <id> [--env e] [--tier t] [--location oc] [--setting NAME=VALUE]… [--dry-run]
                                          a client: its registry rows, its database made and
-                                         migrated, its staff hostname (a web one only with
-                                         --web-hostname, on its own domain); no upload
+                                         migrated, its staff hostname attached (a desk one with
+                                         --desk; a web one, on its own domain and unverified,
+                                         with --web-hostname); no upload
+  cos client hostname add|verify|remove <id> <hostname>, cos client hostname list <id>
+                                         a client's own web domain: added unverified with the
+                                         DNS records it needs, verified once Cloudflare reports
+                                         it active, then served by cos-front
   cos client pause|resume <id>, cos client list
   cos client secret set|remove <id> <NAME> [--value-file f]
                                          a client's given secret, sealed (this command cannot
@@ -304,6 +312,7 @@ export function parseArgs(argv: string[]): { command: string; flags: Flags } {
       "without-secrets",
       "skip-staging",
       "take-over",
+      "desk",
     ].includes(key);
     let value: string | boolean = true;
     if (takesValue) {

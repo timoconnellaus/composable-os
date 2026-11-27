@@ -26,7 +26,11 @@ export const TWO_CLIENTS = {
  */
 const GENERATION_TRIGGER = "registry_clients_secret_generation_ours";
 
-/** Hostnames that reach no client: an unverified one and gym-a's web and desk hostnames. */
+/**
+ * Hostnames that are not a client's staff address: an unverified one and gym-a's web hostname
+ * (cos-front's, never the app's), which reach no client in cos-app, and gym-a's desk hostname,
+ * which cos-app serves as gym-a's desk only (stage 66 step 8).
+ */
 export const NOT_STAFF_HOSTNAMES = {
   unverified: "pending.gym-b.test",
   web: "shop.gym-a.test",
