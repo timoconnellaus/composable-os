@@ -550,7 +550,8 @@ describe("token sessions (ADR 0419)", () => {
       const fetch: FetchLike = async (url, init) => {
         const path = url.replace("https://h", "");
         if (path === "/api/v1/auth/sign-out") return reply(200, { data: { ok: true } });
-        if (path === "/api/v1/auth/refresh") return reply(200, { data: tokens(2, 600_000, hostNow) });
+        if (path === "/api/v1/auth/refresh")
+          return reply(200, { data: tokens(2, 600_000, hostNow) });
         if (path === "/api/v1/auth/customer/sign-in") {
           return reply(200, { data: { ...tokens(9, 600_000, hostNow), sessionId: "dvs_9" } });
         }
