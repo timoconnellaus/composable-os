@@ -1369,6 +1369,11 @@
           "name": "INTERNAL_DOMAINS",
           "text": "",
           "type": "plain_text"
+        },
+        {
+          "name": "SENDER_DOMAINS_PER_CLIENT",
+          "text": "",
+          "type": "plain_text"
         }
       ],
       "compatibilityDate": "2026-09-04",
@@ -1408,7 +1413,7 @@
       "queueConsumers": [],
       "role": "gatekeeper",
       "secrets": [],
-      "sha256": "8e4daf5daaff42213d9c45555ea80f5cd0d070ac2587b8d9add5933aad382db5",
+      "sha256": "eb4f0d68864b8b13d1d21cbbcf2eb6f98bc85ce96ed30648fef5e072e7894904",
       "shortName": "email-send"
     },
     {

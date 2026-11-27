@@ -245,6 +245,8 @@ export interface ClientPart {
   /** Derivable secrets a deployment imported as this client brought: they override `derived`. */
   imported?: Readonly<Record<string, string>>;
   addresses?: ClientAddresses;
+  /** Its verified sender domains (`RegistrySnapshot.senderDomains`): `COS_SENDER_DOMAINS`. */
+  senderDomains?: readonly string[];
 }
 
 /** The value of an address name for a client, or undefined when it has no such address. */
@@ -388,6 +390,13 @@ export function buildClientEnvironment<E extends HostBindings>(env: E, part: Cli
       const value = addressValue(use, part.addresses);
       if (value !== undefined) out[name] = value;
     }
+  }
+  // Its verified sender domains, the only ones its email is sent from; with none the name is left
+  // out, and the email-send gatekeeper refuses every send of the client.
+  for (const name of Object.keys(ENV_NAMES)) {
+    if (perClientUse(name)?.what !== "senders") continue;
+    const domains = (part.senderDomains ?? []).filter((d) => typeof d === "string" && d);
+    if (domains.length > 0) out[name] = domains.join(",");
   }
   out.DB = frozen(openClientDatabase(env, client));
   Object.freeze(out);

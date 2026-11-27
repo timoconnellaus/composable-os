@@ -11,7 +11,7 @@ import type {
 } from "@composable-os/gatekeeper-interface/gatekeeper";
 import type { OutgoingEmail } from "../src/transport";
 import type { EmailSendSession } from "../src/types";
-import { EmailSendGatekeeper } from "../src/worker";
+import { EmailSendAccount, EmailSendGatekeeper } from "../src/worker";
 import { fakeEmail, observations, sentEmails, submissions } from "./fakes";
 
 /**
@@ -24,15 +24,28 @@ export class SeedableEmailSendGatekeeper extends EmailSendGatekeeper {
   }
 }
 
+/** This Worker's env as a host of many clients has it (`SENDER_DOMAINS_PER_CLIENT`, stage 66). */
+const perClient = (env: Cloudflare.Env): Cloudflare.Env =>
+  ({ ...env, SENDER_DOMAINS_PER_CLIENT: "true" }) as Cloudflare.Env;
+
+/** The real facet on a host of many clients: the same code, the deployment's flag set. */
+export class PerClientEmailSendGatekeeper extends EmailSendGatekeeper {
+  constructor(ctx: DurableObjectState<{ sender: string }>, env: Cloudflare.Env) {
+    super(ctx, perClient(env));
+  }
+}
+
+/** The real account on a host of many clients. */
+export class PerClientEmailSendAccount extends EmailSendAccount {
+  constructor(ctx: ExecutionContext, env: Cloudflare.Env) {
+    super(ctx, perClient(env));
+  }
+}
+
 // Named one by one: the Workers pool derives ctx.exports from the main module's own export names,
 // and does not follow `export *`.
-export {
-  default,
-  EmailSendAccount,
-  EmailSendGatekeeper,
-  EmailSendVerifier,
-  GatekeeperVendor,
-} from "../src/worker";
+export { default, EmailSendVerifier, GatekeeperVendor } from "../src/worker";
+export { EmailSendAccount, EmailSendGatekeeper };
 
 /** Stands in for Email Service's `send_email` binding. */
 export class FakeEmail extends WorkerEntrypoint {
@@ -67,6 +80,16 @@ class FakeQueue extends RpcTarget {
     this.#hostSignIn = hostSignIn;
     this.#routine = routine;
     this.#hostAgreement = hostAgreement;
+  }
+
+  /**
+   * The client's verified sender domains, as a host of many clients answers from the client's
+   * environment (stage 66). Undefined: the method is missing, as a single-client host's queue.
+   */
+  senderDomainsAnswer: unknown = undefined;
+  async senderDomains(): Promise<unknown> {
+    if (this.senderDomainsAnswer === undefined) throw new Error("senderDomains is not a method");
+    return this.senderDomainsAnswer;
   }
 
   /** What the host says opened the queue (ADR 0645): one of its own purposes, or null. */
@@ -156,20 +179,27 @@ export class TestHost extends DurableObject<Cloudflare.Env> {
        * its plain refusal. Absent: a host older than it.
        */
       contact?: { drop: string[]; stops: Record<string, string> } | "refuse";
+      /**
+       * A host of many clients (stage 66): the facet with the deployment's flag set, and how its
+       * queue answers the client's sender domains (absent: the method is missing).
+       */
+      perClient?: { domains?: unknown };
     } = {},
   ): Promise<ResourceDescription> {
-    const account = this.ctx.exports.EmailSendAccount({});
-    const { class: gatekeeperClass } = await account.getGatekeeperClassFor(url);
+    const exported = this.ctx.exports as unknown as Record<
+      string,
+      (o: { props: unknown }) => unknown
+    >;
+    const sender = decodeURIComponent(url.slice(url.lastIndexOf("/") + 1));
+    const { class: gatekeeperClass } = options.perClient
+      ? { class: exported.PerClientEmailSendGatekeeper?.({ props: { sender } }) }
+      : await this.ctx.exports.EmailSendAccount({}).getGatekeeperClassFor(url);
     const facet = this.ctx.facets.get<SeedableEmailSendGatekeeper>("gatekeeper", () => ({
       // The real class, with a seeding method for tests; the sender is the URL's, as the
       // account's class would have it.
       class: (options.seedable
         ? // A test-only export: the generated types know the Worker's main module only.
-          (
-            this.ctx.exports as unknown as Record<string, (o: { props: unknown }) => unknown>
-          ).SeedableEmailSendGatekeeper?.({
-            props: { sender: decodeURIComponent(url.slice(url.lastIndexOf("/") + 1)) },
-          })
+          exported.SeedableEmailSendGatekeeper?.({ props: { sender } })
         : gatekeeperClass) as unknown as DurableObjectClass<SeedableEmailSendGatekeeper>,
     }));
     this.#facet = facet;
@@ -180,6 +210,9 @@ export class TestHost extends DurableObject<Cloudflare.Env> {
       options.hostAgreement === true,
     );
     queue.hostPurposeAnswer = options.hostPurpose;
+    if (options.perClient && "domains" in options.perClient) {
+      queue.senderDomainsAnswer = options.perClient.domains;
+    }
     queue.callerKeySpaceAnswer = options.callerKeySpace ?? "";
     if (options.contact === "refuse") queue.contactAnswer = "refuse";
     else if (options.contact) {
@@ -228,6 +261,15 @@ export class TestHost extends DurableObject<Cloudflare.Env> {
         applyStoppable(id: number, links: unknown): Promise<void>;
       }
     ).applyStoppable(id, links);
+  }
+
+  /** Applies on a host of many clients, with the client's sender domains (stage 66). */
+  async applyForClient(id: number, input: unknown): Promise<void> {
+    await (
+      this.#requireFacet() as unknown as {
+        applyForClient(id: number, input: unknown): Promise<void>;
+      }
+    ).applyForClient(id, input);
   }
 
   async reject(id: number): Promise<void> {

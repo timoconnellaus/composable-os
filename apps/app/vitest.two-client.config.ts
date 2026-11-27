@@ -18,11 +18,18 @@ const registryMigrationsDir = fileURLToPath(
 );
 
 // A stand-in cos-runner that answers `callAs` with the client it was called as, so the suite sees
-// what the app's RUNNER wrapper sends (the real runner's entries are apps/runner's suite).
+// what the app's RUNNER wrapper sends (the real runner's entries are apps/runner's suite). It
+// keeps the last calls, which the suite reads with recorded() on the host's own binding.
 const RUNNER_STUB = `
 import { WorkerEntrypoint } from "cloudflare:workers";
+const calls = [];
 export default class extends WorkerEntrypoint {
-  async callAs(client, method, args) { return { client, method, args }; }
+  async callAs(client, method, args) {
+    calls.push(JSON.parse(JSON.stringify({ client, method, args })));
+    if (calls.length > 200) calls.shift();
+    return { client, method, args };
+  }
+  async recorded() { return calls; }
   async gatekeeperCallback(vendor) { return new Response("callback for " + vendor); }
   async ping() { throw new Error("a many-client host's runner is called as a client"); }
 }`;

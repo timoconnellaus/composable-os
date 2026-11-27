@@ -22,6 +22,7 @@
     "./registry-writes": "./src/registry-writes.ts",
     "./sql-split": "./src/sql-split.ts",
     "./operator": "./src/operator.ts",
+    "./registry-senders": "./src/registry-senders.ts",
     "./callbacks": "./src/callbacks.ts",
     "./testing/vitest": "./testing/vitest.ts",
     "./testing/conformance": "./testing/conformance.ts",

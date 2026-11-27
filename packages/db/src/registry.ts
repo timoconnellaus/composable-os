@@ -300,6 +300,11 @@ export interface RegistrySnapshot {
   /** Each client's addresses, from its verified hostnames (`ClientAddresses`). */
   addresses: ReadonlyMap<ClientId, ClientAddresses>;
   /**
+   * Each client's verified sender domains (migration 0796), sorted: the only domains its email
+   * is sent from on a host of many clients. A client with none has no entry.
+   */
+  senderDomains: ReadonlyMap<ClientId, readonly string[]>;
+  /**
    * Rows the code would not accept and so left out, one line each, for the operator: an id
    * `validateClientId` refuses, a setting not in `CLIENT_SETTINGS`, a hostname that is not
    * canonical. A host logs them once per stamp; `cos` (step 7) shows them.
@@ -342,14 +347,14 @@ interface ClientRow {
 }
 
 /**
- * The whole registry in one batch of four statements, whatever the number of clients: no
+ * The whole registry in one batch of five statements, whatever the number of clients: no
  * statement binds a parameter or joins a compound SELECT, so D1's limits (100 bound parameters,
  * 5 terms a compound SELECT, 1,000 statements an invocation) hold with any number. A batch is one
  * transaction, so the stamp is the stamp of the rows read with it. A row the code would not
  * accept is left out and named in `problems`.
  */
 export async function readRegistry(registry: D1Database): Promise<RegistrySnapshot> {
-  const [meta, clients, settings, hostnames] = await registry.batch([
+  const [meta, clients, settings, hostnames, senders] = await registry.batch([
     registry.prepare(STAMP_SQL),
     registry.prepare(
       "SELECT id, environment, status, tier, repository, location_hint, schema_version, secret_generation, imported FROM registry_clients",
@@ -358,6 +363,7 @@ export async function readRegistry(registry: D1Database): Promise<RegistrySnapsh
     registry.prepare(
       "SELECT hostname, client, surface, verified, is_primary FROM registry_hostnames",
     ),
+    registry.prepare("SELECT domain, client, verified FROM registry_sender_domains"),
   ]);
   const { version, stamp } = stampOf(
     meta?.results[0] as { value: number; nonce: string } | undefined,
@@ -469,8 +475,83 @@ export async function readRegistry(registry: D1Database): Promise<RegistrySnapsh
     hostnames: hostnameMap,
     unverified,
     addresses: addressMap,
+    senderDomains: readSenderDomains(
+      (senders?.results ?? []) as SenderDomainRow[],
+      clientMap,
+      problems,
+    ),
     problems,
   };
+}
+
+// --- Sender domains ------------------------------------------------------------------------
+
+interface SenderDomainRow {
+  domain: string;
+  client: string;
+  verified: number;
+}
+
+/**
+ * A sender domain as the registry holds them (a hostname's shape, at least two labels), or null.
+ * The operator's command writes only what this accepts (`registry-senders.ts`).
+ */
+export function canonicalSenderDomain(domain: string | null | undefined): string | null {
+  const name = canonicalHostname(domain);
+  if (!name || name !== String(domain).trim().toLowerCase()) return null;
+  return name.includes(".") ? name : null;
+}
+
+/** Whether one of two domains is the other or under it. */
+export function sameDomainTree(a: string, b: string): boolean {
+  return a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`);
+}
+
+/**
+ * Each client's verified sender domains. The registry's own rules (migration 0796: one client a
+ * domain, no domain under or over another client's) are held here again, failing closed: a row
+ * that breaks them is left out for both clients and named in `problems`, so no client sends from
+ * a domain another may also claim.
+ */
+function readSenderDomains(
+  rows: SenderDomainRow[],
+  clients: ReadonlyMap<ClientId, ClientRecord>,
+  problems: string[],
+): ReadonlyMap<ClientId, readonly string[]> {
+  const rowsKept: { domain: string; client: ClientId; verified: boolean }[] = [];
+  for (const row of rows) {
+    if (!isClientId(row.client) || !clients.has(row.client)) continue;
+    if (canonicalSenderDomain(row.domain) !== row.domain) {
+      problems.push(
+        `sender domain ${JSON.stringify(row.domain)} of ${row.client} left out: not canonical`,
+      );
+      continue;
+    }
+    rowsKept.push({ domain: row.domain, client: row.client, verified: Number(row.verified) === 1 });
+  }
+  const shared = new Set<string>();
+  for (const one of rowsKept) {
+    for (const other of rowsKept) {
+      if (one.client !== other.client && sameDomainTree(one.domain, other.domain)) {
+        shared.add(one.domain);
+      }
+    }
+  }
+  const out = new Map<ClientId, string[]>();
+  for (const { domain, client, verified } of rowsKept) {
+    if (shared.has(domain)) {
+      problems.push(
+        `sender domain ${domain} of ${client} left out: another client holds a domain of its tree`,
+      );
+      continue;
+    }
+    if (!verified) continue;
+    const list = out.get(client) ?? [];
+    list.push(domain);
+    out.set(client, list);
+  }
+  for (const list of out.values()) list.sort();
+  return out;
 }
 
 // --- A client whose schema is behind -------------------------------------------------------

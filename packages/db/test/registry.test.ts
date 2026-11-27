@@ -50,6 +50,7 @@ describe("the registry's migrations", () => {
       "registry_operator_session",
       "registry_removed_clients",
       "registry_secrets",
+      "registry_sender_domains",
       "registry_settings",
       "sqlite_sequence",
     ]);
@@ -396,7 +397,7 @@ describe("readRegistry", () => {
     expect(await readRegistryStamp(registry)).toBe(after.stamp);
   });
 
-  it("stays within D1's limits with hundreds of clients: four statements, no bound parameter", async () => {
+  it("stays within D1's limits with hundreds of clients: five statements, no bound parameter", async () => {
     const clients = 400;
     const statements: D1PreparedStatement[] = [];
     for (let i = 0; i < clients; i++) {
@@ -417,10 +418,10 @@ describe("readRegistry", () => {
     const snapshot = await readRegistry(meter.db);
     expect(snapshot.clients.size).toBe(clients);
     expect(snapshot.hostnames.size).toBe(clients * 2);
-    expect(meter.statements()).toBe(4);
+    expect(meter.statements()).toBe(5);
     expect(meter.mostBound()).toBe(0);
     expect(await readRegistryVersion(meter.db)).toBe(snapshot.version);
-    expect(meter.statements()).toBe(5);
+    expect(meter.statements()).toBe(6);
   });
 
   it("refuses a registry whose migrations have not run", async () => {

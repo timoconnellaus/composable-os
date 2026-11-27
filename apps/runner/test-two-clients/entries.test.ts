@@ -442,10 +442,21 @@ describe("gatekeepers on a many-client host (B1)", () => {
       const admitted = await environmentFor(host, id);
       if (!admitted.served) throw new Error("served");
       const offered = availableVendors(admitted.env).sort();
+      // Email sending takes each client's own verified sender domains (ADR 0616, "Email sending
+      // per client"); both suite clients have one.
       expect(offered).toEqual(
-        ["google", "mcp", "microsoft", "slack", "slack-post", "websearch", "zoominfo"].sort(),
+        [
+          "email-send",
+          "google",
+          "mcp",
+          "microsoft",
+          "slack",
+          "slack-post",
+          "websearch",
+          "zoominfo",
+        ].sort(),
       );
-      for (const vendor of ["payments", "text", "webhook", "email", "email-send"]) {
+      for (const vendor of ["payments", "text", "webhook", "email"]) {
         // Not in the client's environment at all, and the reason says why.
         expect(vendorBinding(vendor) in admitted.env, vendor).toBe(false);
         const why = gatekeeperOffered(admitted.env, vendorBinding(vendor));
@@ -470,7 +481,8 @@ describe("gatekeepers on a many-client host (B1)", () => {
     const at = (vendor: string) =>
       door.gatekeeperCallback(vendor, new Request(`https://callbacks.test/gatekeeper/${vendor}/x`));
     expect(await (await at("google")).text()).toBe("google");
-    for (const vendor of ["payments", "text", "webhook", "email", "email-send", "nobody"]) {
+    expect(await (await at("email-send")).text()).toBe("email-send");
+    for (const vendor of ["payments", "text", "webhook", "email", "nobody"]) {
       expect((await at(vendor)).status, vendor).toBe(404);
     }
     const stranger = new Runner(createExecutionContext(), host) as unknown as typeof door;

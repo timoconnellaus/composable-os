@@ -944,11 +944,17 @@ describe("a many-client host", () => {
       "GATEKEEPER_TEXT",
       "GATEKEEPER_WEBHOOK",
       "GATEKEEPER_EMAIL",
-      "GATEKEEPER_EMAIL_SEND",
     ]) {
       expect(envNameUse(name), name).toMatchObject({ use: "kept-apart" });
     }
-    for (const name of ["GATEKEEPER_GOOGLE", "GATEKEEPER_MICROSOFT", "GATEKEEPER_SLACK"]) {
+    // Email sending takes each client's own sender domains from the host (registry migration
+    // 0796; test/registry-senders.test.ts).
+    for (const name of [
+      "GATEKEEPER_GOOGLE",
+      "GATEKEEPER_MICROSOFT",
+      "GATEKEEPER_SLACK",
+      "GATEKEEPER_EMAIL_SEND",
+    ]) {
       expect(envNameUse(name), name).toMatchObject({ use: "shared" });
     }
     const built = fields(

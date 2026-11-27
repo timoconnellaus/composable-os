@@ -67,6 +67,7 @@ import { inClientScope } from "../client-scope.ts";
 import { runnerJudge } from "../extensions/ai.ts";
 import { paymentEventDeps } from "./payments.ts";
 import { HostQueue, type QueueCaller, type QueueHost } from "./queue.ts";
+import { EMAIL_SEND_VENDOR, senderOptions } from "./senders.ts";
 import { adapterFor, type SyncKind } from "./sync.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: gatekeeper accounts, facets and sessions are RPC stubs whose types live in each vendor's package; the host treats them structurally.
@@ -392,7 +393,9 @@ export class IntegrationHost extends ClientDurableObject(DurableObject<Env>) {
       throw new Error(
         offered.why.includes("not available on this host")
           ? `The ${vendor} gatekeeper is not available on this host yet`
-          : `The ${vendor} gatekeeper is not deployed here`,
+          : offered.why.includes("no verified sender domain")
+            ? `The ${vendor} gatekeeper is not available to this business yet: it has no verified sender domain`
+            : `The ${vendor} gatekeeper is not deployed here`,
       );
     }
     const binding = (this.env as unknown as Record<string, unknown>)[vendorBinding(vendor)];
@@ -719,7 +722,12 @@ export class IntegrationHost extends ClientDurableObject(DurableObject<Env>) {
     let vendor = meta.vendor;
     let minted: { class: Stub; resource: { urlPattern: string } };
     try {
-      minted = await (await this.#account()).getGatekeeperClassFor(url);
+      // On a host of many clients an email-send sender is bound only on the client's own
+      // verified sender domains, which the gatekeeper checks (ADR 0616, "Email sending per client").
+      const senders = senderOptions(this.env, meta.vendor);
+      minted = senders
+        ? await (await this.#account()).getGatekeeperClassFor(url, senders)
+        : await (await this.#account()).getGatekeeperClassFor(url);
     } catch (error) {
       const companion = catalogueEntry(meta.vendor)?.companion;
       const other = companion ? await this.ctx.storage.get<Stub>(`companion:${companion}`) : null;
@@ -831,6 +839,10 @@ export class IntegrationHost extends ClientDurableObject(DurableObject<Env>) {
   }
 
   async configure(pattern: string, method: string, args: unknown[]): Promise<unknown> {
+    // On a host of many clients the email-send configurator's domains are the client's own
+    // verified sender domains, from its environment (the gatekeeper's would be the deployment's).
+    const senders = senderOptions(this.env, (await this.#meta()).vendor);
+    if (senders && method === "allowedDomains") return [...senders.senderDomains];
     let ui = this.#configurators.get(pattern);
     if (!ui) {
       const frame = await (await this.#account()).startResourceConfigurator(pattern);
@@ -1247,9 +1259,15 @@ export class IntegrationHost extends ClientDurableObject(DurableObject<Env>) {
   // --- Outbound -------------------------------------------------------------------------------
 
   async applyOutbound(facetKey: string, action: number, stoppable?: Stoppable): Promise<void> {
-    const { facet } = await this.#facetFor(facetKey);
+    const { facet, record } = await this.#facetFor(facetKey);
+    // On a host of many clients an email is applied with the client's verified sender domains as
+    // its environment holds them now (a domain unverified or moved since it was queued is
+    // refused by the gatekeeper), never with the plain apply, which it refuses there.
+    const senders =
+      record.vendor === EMAIL_SEND_VENDOR ? senderOptions(this.env, record.vendor) : null;
     if (!stoppable?.recipients.length) {
-      await facet.applyAction(action, null);
+      if (senders) await facet.applyForClient(action, senders);
+      else await facet.applyAction(action, null);
       return;
     }
     // A stoppable email (ADR 0678): each recipient's stop link is made now, as it goes, and taken
@@ -1257,7 +1275,8 @@ export class IntegrationHost extends ClientDurableObject(DurableObject<Env>) {
     const db = createCrmDb(this.env.DB).query;
     const { links, tokens } = await mintStopLinks(db, stoppable);
     try {
-      await facet.applyStoppable(action, links);
+      if (senders) await facet.applyForClient(action, { ...senders, links });
+      else await facet.applyStoppable(action, links);
     } catch (error) {
       await dropStopTokens(db, tokens);
       throw error;

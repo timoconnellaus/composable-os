@@ -1114,6 +1114,13 @@ The one hostname of a host that serves many clients where every gatekeeper's OAu
 webhooks arrive (`COS_CALLBACK_HOSTNAME`), no client's. What a callback carries is checked by the
 gatekeeper against what that client's connection stored, so it can only reach that connection.
 
+**Sender domain** (stage 66; ADR 0616)
+A domain a client of a host that serves many clients sends its email from, held in the registry
+for that client alone (none under or over another client's), and used only once the operator has
+verified it: onboarded to Email Sending in the deployment's Cloudflare account, and the client's.
+The email-send gatekeeper refuses a sender on any other domain.
+_Avoid_: allowed sender domains (that is a single-client deployment's list)
+
 **Client's environment** (stage 66; ADR 0613)
 What an entry of a host that serves many clients hands everything below it: an object shaped
 like the Worker's `env` for one client, with `DB` that client's database, its settings from the

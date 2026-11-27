@@ -71,7 +71,15 @@ import {
   ROUTINE_KIND,
   unsubscribeHeaders,
 } from "./routine";
-import { assertSenderAllowed, SENDER_URL_PATTERN, senderFromUrl, senderUrl } from "./sender";
+import {
+  assertSenderAllowed,
+  assertSenderOfClient,
+  clientSenderDomains,
+  SENDER_URL_PATTERN,
+  senderFromUrl,
+  senderUrl,
+  sendsPerClient,
+} from "./sender";
 
 /** The one plain refusal when nobody is left to send to (ADR 0678): never why. */
 const RECIPIENT_STOPPED =
@@ -369,8 +377,25 @@ type SessionBackend = {
   /** Scrubs one copy (ADR 0646): see `scrubAgreementCopy`. */
   scrub(copy: string): Promise<{ found: boolean; dropped: number; redacted: number }>;
   internalDomains(): string | undefined;
-  allowedDomains(): string | undefined;
+  /** Throws unless the sender may send now (the deployment's domains, or the client's). */
+  checkSender(queue: RpcStub<ApprovalQueue>): Promise<void>;
 };
+
+/**
+ * The client's verified sender domains, asked of the session's approval queue (a host of many
+ * clients, `SENDER_DOMAINS_PER_CLIENT`): the host answers from the client's own environment,
+ * built from the registry, never from anything the caller sent. A queue without the method, or
+ * one that answers anything but a list of domains, gives none, and the send is refused.
+ */
+async function askSenderDomains(queue: unknown): Promise<string[] | null> {
+  try {
+    const target = queue as { senderDomains?: () => Promise<unknown> };
+    if (typeof target.senderDomains !== "function") return null;
+    return clientSenderDomains(await target.senderDomains());
+  } catch {
+    return null;
+  }
+}
 
 class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
   readonly #backend: SessionBackend;
@@ -395,7 +420,7 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
     }
     const parsed = parseMessage(rest);
     const sender = this.#backend.sender;
-    assertSenderAllowed(sender, this.#backend.allowedDomains());
+    await this.#backend.checkSender(this.#queue);
     // The host's sign-in mail only from the host's own queue, and only the fixed template; its
     // routine mail only from the host's own queue, and only of routine shape (ADR 0590).
     // A signed agreement only from the host's own agreements mail, and only in the copy's shape:
@@ -612,7 +637,12 @@ export class EmailSendGatekeeper
 
   async #deliver(id: number, email: StoredEmail): Promise<void> {
     try {
-      assertSenderAllowed(email.from, this.env.ALLOWED_SENDER_DOMAINS);
+      // On a host of many clients: the domains the host gave with this apply, for the client
+      // whose integration host holds this facet, re-read from the registry now (not when it was
+      // queued), so a domain unverified or moved since is refused.
+      if (sendsPerClient(this.env))
+        assertSenderOfClient(email.from, this.#clientDomains.get(id) ?? null);
+      else assertSenderAllowed(email.from, this.env.ALLOWED_SENDER_DOMAINS);
     } catch (error) {
       // Checked before anything is sent, so the email is known not to have gone out.
       throw new ActionApplyError(error instanceof Error ? error.message : String(error));
@@ -937,7 +967,11 @@ export class EmailSendGatekeeper
       isScrubbed: (copy) => this.#isScrubbed(copy),
       scrub: (copy) => this.#scrub(copy),
       internalDomains: () => this.env.INTERNAL_DOMAINS,
-      allowedDomains: () => this.env.ALLOWED_SENDER_DOMAINS,
+      checkSender: async (queue) => {
+        const sender = this.#sender();
+        if (sendsPerClient(this.env)) assertSenderOfClient(sender, await askSenderDomains(queue));
+        else assertSenderAllowed(sender, this.env.ALLOWED_SENDER_DOMAINS);
+      },
     };
     // The queue is disposed when this call returns, so the session keeps its own copy.
     return new EmailSendSessionImpl(backend, approvalQueue.dup());
@@ -964,6 +998,7 @@ export class EmailSendGatekeeper
 
   /** Sends an approved email, exactly once. */
   async applyAction(action: number): Promise<void> {
+    refuseOnManyClients(this.env);
     await this.#actions().apply(requireActionId(action));
   }
 
@@ -972,18 +1007,53 @@ export class EmailSendGatekeeper
    * now, one per recipient whose copy ends with one. The links are held only while it is sent.
    */
   async applyStoppable(action: number, links: unknown): Promise<void> {
+    refuseOnManyClients(this.env);
+    await this.#applyWith(requireActionId(action), { links }, null);
+  }
+
+  /**
+   * Sends an approved email on a host of many clients (`SENDER_DOMAINS_PER_CLIENT`), with the
+   * client's verified sender domains as the host reads them now from the client's environment,
+   * and a stoppable email's links. The integration host is the only caller, from the client's
+   * own object; the domains are held only while the email is sent. Refused on any other host.
+   */
+  async applyForClient(
+    action: number,
+    input: { senderDomains?: unknown; links?: unknown } | null,
+  ): Promise<void> {
+    if (!sendsPerClient(this.env)) {
+      throw new Error(
+        "applyForClient is for a host of many clients only (SENDER_DOMAINS_PER_CLIENT).",
+      );
+    }
     const id = requireActionId(action);
-    const email = this.#journal.get(id)?.action.payload;
-    this.#stopLinks.set(id, parseStopLinks(links, email?.stopFor ?? []));
+    const stops = input && "links" in input ? { links: input.links } : null;
+    await this.#applyWith(id, stops, clientSenderDomains(input?.senderDomains) ?? []);
+  }
+
+  /** Applies `id` with its stop links (when given) and the client's domains (on many clients). */
+  async #applyWith(
+    id: number,
+    stops: { links: unknown } | null,
+    domains: string[] | null,
+  ): Promise<void> {
+    if (stops) {
+      const email = this.#journal.get(id)?.action.payload;
+      this.#stopLinks.set(id, parseStopLinks(stops.links, email?.stopFor ?? []));
+    }
+    if (domains) this.#clientDomains.set(id, domains);
     try {
       await this.#actions().apply(id);
     } finally {
       this.#stopLinks.delete(id);
+      this.#clientDomains.delete(id);
     }
   }
 
   /** The stop links of a stoppable email being applied, by action (never stored). */
   readonly #stopLinks = new Map<number, Record<string, string>>();
+  /** The client's sender domains for an email being applied, by action (never stored). */
+  readonly #clientDomains = new Map<number, string[]>();
 
   /** Drops a rejected email; it is never sent. */
   async rejectAction(action: number): Promise<void> {
@@ -992,6 +1062,19 @@ export class EmailSendGatekeeper
 
   revertAction(_action: number): Promise<void> {
     throw new Error("A sent email cannot be unsent.");
+  }
+}
+
+/**
+ * On a host of many clients an approved email is applied only with the client's sender domains
+ * (`applyForClient`): the plain apply has none, so it is refused before the journal is touched
+ * and the action stays as it was.
+ */
+function refuseOnManyClients(env: { SENDER_DOMAINS_PER_CLIENT?: string }): void {
+  if (sendsPerClient(env)) {
+    throw new Error(
+      "On a host of many clients an email is applied with its client's sender domains (applyForClient).",
+    );
   }
 }
 
@@ -1010,7 +1093,9 @@ export class SenderConfiguratorRpcImpl extends RpcTarget implements SenderConfig
 
   constructor(env: Cloudflare.Env) {
     super();
-    this.#allowed = parseDomainList(env.ALLOWED_SENDER_DOMAINS);
+    // On a host of many clients the deployment's list is no client's: the host answers with the
+    // client's own domains instead (the runner's integration host).
+    this.#allowed = sendsPerClient(env) ? [] : parseDomainList(env.ALLOWED_SENDER_DOMAINS);
   }
 
   async allowedDomains(): Promise<string[]> {
@@ -1040,13 +1125,24 @@ export class EmailSendAccount extends WorkerEntrypoint<Cloudflare.Env> implement
     return [SENDER_RESOURCE];
   }
 
-  /** Returns the sender facet class for an allowed sender address. */
-  async getGatekeeperClassFor(url: string): Promise<{
+  /**
+   * Returns the sender facet class for an allowed sender address. On a host of many clients the
+   * host passes the client's verified sender domains (`options.senderDomains`, from the client's
+   * environment) and the sender must be on one of them; with none it is refused.
+   */
+  async getGatekeeperClassFor(
+    url: string,
+    options?: { senderDomains?: unknown },
+  ): Promise<{
     class: DurableObjectClass<Gatekeeper<EmailSendSession>>;
     resource: SupportedResource;
   }> {
     const sender = senderFromUrl(url);
-    assertSenderAllowed(sender, this.env.ALLOWED_SENDER_DOMAINS);
+    if (sendsPerClient(this.env)) {
+      assertSenderOfClient(sender, clientSenderDomains(options?.senderDomains));
+    } else {
+      assertSenderAllowed(sender, this.env.ALLOWED_SENDER_DOMAINS);
+    }
     const props: SenderProps = { sender };
     return { class: this.ctx.exports.EmailSendGatekeeper({ props }), resource: SENDER_RESOURCE };
   }

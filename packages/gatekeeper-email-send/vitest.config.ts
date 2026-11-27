@@ -39,6 +39,11 @@ export default defineConfig({
             className: "SeedableEmailSendGatekeeper",
             useSQLite: true,
           },
+          // The facet as a host of many clients runs it (test/per-client.test.ts).
+          PER_CLIENT_EMAIL_SEND_GATEKEEPER: {
+            className: "PerClientEmailSendGatekeeper",
+            useSQLite: true,
+          },
         },
         bindings: {
           ALLOWED_SENDER_DOMAINS: "example.com, Example.org",
