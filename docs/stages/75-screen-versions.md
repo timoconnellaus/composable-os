@@ -42,13 +42,10 @@ app (stage 76) downloads.
 | 1 | No client's host moves off the shared host to gain this (ADR 0960) |
 | 2 | Screens are stored as versions per client; one is published; a draft can be used before it is published |
 | 3 | The desktop app loads the same published version (stage 76) |
-| 4 | Both a client's own web app and the admin's staff screens become published versions (interview, 2026-11-27) |
+| 4 | Both a client's own web app and the admin's staff screens become published versions; the admin's are stage 77 (interview, 2026-11-27) |
 | 5 | A person at the client who holds the publish permission may publish for a hosted client |
 | 6 | Changes come from the client's repository and from inside the product (an editor or the assistant), both from the start |
-| 7 | An organisation can have its own admin screens. A screen is a saved record of which block fills each **region**, not code. A block can fill a region, and a block has regions of its own: something added to an appointment card, or another card in place of the default (the owner, 2026-11-27, reversing the same day's first answer, "a screen is code") |
-| 8 | What fills a region is a standard block or a custom one. A standard block is ours and is named, never copied, so it is updated by a release. A custom block is the organisation's own code |
-| 9 | A custom block written inside the product is built by a build service of ours, in a sandbox. Arranging blocks needs no build |
-| 10 | The admin has an **edit mode** beside the assistant: a person turns it on, selects something on the screen (an appointment card, say) and asks for a change to it or an addition (the owner, 2026-11-27) |
+| 7 | The admin's screens as a version, an organisation's own admin screens made of regions, custom blocks and edit mode were agreed here the same day and are [stage 77](77-admin-screens.md), where those decisions are recorded |
 
 ## The design in one page
 
@@ -81,29 +78,6 @@ app (stage 76) downloads.
   permission. It runs on the client's live data: what is done in a preview is real.
 - **Old versions are kept** so a page open at the moment of publishing still loads its files, and
   so the pointer can move back. How many is in "Decided by this spec".
-- **A screen** of the admin is a record in the organisation's database, as a saved view or a
-  dashboard is: its name, where it sits in the navigation, and which block fills each of its
-  regions, with each block's settings. Saving one is an operation; nothing is built or deployed.
-- **A region** is a named place a block or a screen offers, with a contract: what it hands to
-  whatever fills it (one appointment, the record being shown, nothing). A fill either **adds**
-  to a region (a line under an appointment card) or **replaces** its default (another card). A
-  block's regions are declared with the block, and the contract is what a release may not break.
-- **Standard and custom blocks.** A standard block comes from the release and is named, never
-  copied, so every screen uses the release's current one. A custom block is the organisation's
-  own code, in its version, written for one region's contract. (A block copied into a client's
-  website with `cos add` stays the client's, as today.)
-- **Edit mode.** With it on, the admin outlines what can be selected: each block and each
-  region, which the page already knows by name (the screen, the region's path, what fills it).
-  Selecting one hands that name to the assistant with the request. The assistant answers with
-  the smallest change that does it: a setting of the block, a fill added to a region, or the
-  default replaced by a custom block it writes and the build service builds. The change is made
-  on a draft of the screen, shown at once, and published by someone who may. A part of a
-  standard block that is no region cannot be changed: the assistant says so and offers to replace
-  the block around it, and the request is recorded, since it tells us which region is missing.
-- **The build service** takes a custom block's source, written in the product by the assistant
-  or an editor, or pushed from a repository, and makes a version from it: it bundles in a
-  sandbox with no network and no secrets, against the release's region contracts and typed
-  client, and stores the result as a draft. It never publishes.
 - **Serving on the web** is step 1's finding: `cos-front` loads the published version under
   Worker Loader (id from the client and the version) and serves its files from the store, or
   uploads it to the client's namespace Worker at publish.
@@ -111,6 +85,8 @@ app (stage 76) downloads.
 ## Out of scope
 
 - The desktop app (stage 76).
+- The admin's own screens, an organisation's own admin screens, regions, custom blocks and
+  edit mode: [stage 77](77-admin-screens.md).
 - Versions of extensions, fields or operations: those change through the client's staging
   environment.
 - The mobile app, whose screens go through the stores.
@@ -147,15 +123,6 @@ Block CE: migrations 1490–1509, ADRs 0960–0969 (ADR 0960 written).
 5. **Serving the published version** on the web, by the mechanism step 1 chose.
 6. **Preview:** the preview address, its sign-in and permission.
 7. **Docs, the skill and `cos`:** building and uploading a version from a client's repository.
-8. **The admin's screens as a version:** `apps/app`'s staff screens build as a browser-only app
-   over `/api/v1`, stored and published like any other version. What stage 76 loads.
-9. **The build service:** a spike first (bundling an organisation's screen in a sandbox, its
-   time and its limits; Cloudflare's runtime bundler is marked experimental), then the service.
-10. **An organisation's own admin screens:** the screen record and its operations, regions
-    declared on the first standard blocks, add and replace, the check of saved screens at a
-    release, custom blocks from the build service.
-11. **Edit mode:** selecting a block or a region in the admin and asking the assistant for a
-    change to it, on a draft; the record of requests no region could meet.
 
 ## Decided by this spec, open to override
 
@@ -164,33 +131,13 @@ Block CE: migrations 1490–1509, ADRs 0960–0969 (ADR 0960 written).
 - **The last ten versions are kept,** and any version published in the last 90 days.
 - **Versions are built outside the host** (the client's repository and CI). The host stores and
   checks; it does not build.
-- **A release checks every saved screen** against the blocks' declared regions, on staging first:
-  a data check, with no rebuild. A custom block is rebuilt only when the contract of the region it
-  fills changes. A screen or block that no longer fits stops the update before live, as a
-  client's extension that fails the release's checks does (stage 66, decision 7).
-- **Few regions at first.** Every region is a promise a release must keep. A block starts with the
-  regions a real need asked for, and gains more the same way.
-- **Layout is what the record can say:** which regions a screen has and their order. Anything else is a custom block
-  that fills the whole screen.
-- **Blocks on one screen share a selection** (the class picked in a timetable is what a class
-  list shows). Its shape is designed in step 10.
-- **A screen made only of standard blocks is shown in the desktop app** from the start: it
-  holds none of the organisation's code. A custom block is not, until Electrobun's internal
-  bridge can be closed for a view (ADR 0960).
-- **Edit mode selects blocks and regions, not any pixel,** and needs its own permission, apart
-  from the permission to publish. A change is for everyone who uses the screen, not one person.
-- **A request that is about the data, not the screen** (a new field on the appointment) is an
-  extension change and goes the way those go today: written by the assistant, approved as a
-  diff. Edit mode may start it, and the screen change that shows the field follows it.
-- **The word is "region"** (the owner, 2026-11-27, over "slot", which this vocabulary avoids
-  and Radix uses for something else, and over "part" and "area"). Where a database is placed
-  is its location, never its region, so the two do not meet.
 - **The store does not depend on Cloudflare's loader,** so a second target can serve the same
   versions.
 
 ## Questions for the owner
 
-None open. Decisions 4 to 9 answer them (the interview of 2026-11-27 and its chat).
+None open. Decisions 4 to 6 answer them (the interview of 2026-11-27); what else was asked is
+stage 77's.
 
 ## Status
 
@@ -213,11 +160,3 @@ here (CONTRIBUTING.md, Working in parallel).
 - **Step 6** — not built — needs: step 5 — Preview
 
 - **Step 7** — not built — needs: step 6 — Docs, the skill and `cos`
-
-- **Step 8** — not built — needs: step 4 — The admin's screens as a version
-
-- **Step 9** — not built — needs: step 3 — The build service
-
-- **Step 10** — not built — needs: step 6, step 8, step 9 — An organisation's own admin screens
-
-- **Step 11** — not built — needs: step 10 — Edit mode
