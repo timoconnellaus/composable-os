@@ -3366,6 +3366,19 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
   `live` keeps `<id>-app`), deployed with `cos deploy --env <name>`.
 - **The template** (`templates/client`): `apps/web` (TanStack Start, `src/host.ts` framework-free)
   and `apps/mobile` (Expo, `--with-mobile`; its `src/host.ts` signs in and keeps a device session).
+- **The browser-only build** (stage 75 step 2, [ADR 0960](adr/0960-screens-as-published-versions-and-one-desktop-app.md)):
+  `apps/web`'s screens build twice from the same routes. `pnpm build` is the server build (the
+  Worker, the default deploy); `pnpm build:browser` (`vite.browser.config.ts`) writes static files
+  to `dist/browser/` (an `index.html`, hashed assets, and `build.json`: the entry, each file's
+  SHA-256 and size, the API contract version, the host address) with no server code, which its
+  tests check. Screens reach the host through a **ScreenHost** from the router's context
+  (`src/screen-host/`): `cookieScreenHost` over the web app's routes and cookie, or
+  `tokenScreenHost` over `/api/v1` at `COS_HOST_URL` with a customer device session (emailed
+  code, ADR 0455), every request `credentials: "omit"`, the tokens in memory mirrored to the
+  tab's `sessionStorage` (one device session per tab, so two tabs never spend one refresh
+  token). The browser build routes by hash and shows a notice on `upgrade_required`. Served from
+  another address than the host's, that origin must be in the client's `API_ALLOWED_ORIGINS`.
+  Not yet served or stored anywhere: steps 3 to 5.
 - **App publishing** (stage 63, ADRs [0900](adr/0900-the-apps-identity-brand-and-listing-from-product-ts.md),
   [0901](adr/0901-publishing-from-the-clients-store-accounts-built-in-its-ci.md),
   [0905](adr/0905-the-purchase-scan-over-a-clients-own-app-code.md); runbook

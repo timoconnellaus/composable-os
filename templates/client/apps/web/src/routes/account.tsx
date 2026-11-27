@@ -39,14 +39,14 @@ import {
   sessionWords,
   showsReceiptNote,
 } from "@composable-os/client";
-import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from "react";
-import { browserApi, signedOut } from "../agreements.ts";
-import { getMe } from "../me.ts";
+import { signedOut } from "../agreements.ts";
+import { useScreenHost } from "../screen-host/index.ts";
 
 export const Route = createFileRoute("/account")({
-  loader: async () => {
-    const me = await getMe();
+  loader: async ({ context }) => {
+    const me = await context.screenHost.me();
     if (!me) throw redirect({ to: "/sign-in" });
     return me;
   },
@@ -62,17 +62,14 @@ interface Loaded {
   attention: AttentionItem[];
 }
 
-async function signOut() {
-  await fetch("/auth/sign-out", { method: "POST", body: "{}" });
-  window.location.assign("/");
-}
-
 function Account() {
   const signedInAs = Route.useLoaderData();
+  const host = useScreenHost();
+  const navigate = useNavigate();
   const [data, setData] = useState<Loaded | null>(null);
   const [failed, setFailed] = useState(false);
   const load = useCallback(async () => {
-    const api = browserApi();
+    const api = host.api;
     try {
       const [me, sessions, family, orders, subscriptions, attention] = await Promise.all([
         api.call("me.get", {}),
@@ -91,10 +88,10 @@ function Account() {
         attention: attention.items,
       });
     } catch (error) {
-      if (signedOut(error)) window.location.assign("/sign-in");
+      if (signedOut(error)) await navigate({ to: "/sign-in" });
       else setFailed(true);
     }
-  }, []);
+  }, [host, navigate]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -189,6 +186,7 @@ function Family({ family }: { family: AccountFamily }) {
 }
 
 function Payment() {
+  const host = useScreenHost();
   const [problem, setProblem] = useState<string | null>(null);
   return (
     <>
@@ -197,7 +195,7 @@ function Payment() {
         type="button"
         onClick={async () => {
           try {
-            const opened = await browserApi().call("subscription.portal", {
+            const opened = await host.api.call("subscription.portal", {
               returnUrl: window.location.href,
             });
             window.location.assign(opened.url);
@@ -214,6 +212,7 @@ function Payment() {
 }
 
 function Details({ me, onSaved }: { me: AccountMe; onSaved: () => Promise<void> }) {
+  const host = useScreenHost();
   const [form, setForm] = useState<DetailsForm>(() => detailsForm(me));
   const [said, setSaid] = useState<string | null>(null);
   async function submit(event: FormEvent) {
@@ -223,7 +222,7 @@ function Details({ me, onSaved }: { me: AccountMe; onSaved: () => Promise<void> 
     const input = detailsInput(me, form);
     if (!input) return setSaid("Nothing to save.");
     try {
-      await browserApi().call("me.update", input);
+      await host.api.call("me.update", input);
       setSaid("Saved.");
       await onSaved();
     } catch (error) {
@@ -249,20 +248,13 @@ function Details({ me, onSaved }: { me: AccountMe; onSaved: () => Promise<void> 
   );
 }
 
-async function post(path: string, body: unknown): Promise<boolean> {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  return response.ok;
-}
-
 /**
  * Signing in again in place when the host asks for a recent sign-in (`sign_in_again`, ADR 0712):
- * a code to their own sign-in address through this app's /auth routes, then `onDone`.
+ * a code to their own sign-in address through the ScreenHost, then `onDone`. With tokens, the
+ * new device session replaces this one (`replaces`), so the old one does not live on beside it.
  */
 function SignInAgain({ email, onDone }: { email: string; onDone: () => void }) {
+  const host = useScreenHost();
   const [code, setCode] = useState("");
   const [sent, setSent] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
@@ -270,8 +262,8 @@ function SignInAgain({ email, onDone }: { email: string; onDone: () => void }) {
     <form
       onSubmit={async (event) => {
         event.preventDefault();
-        if (!sent) setSent(await post("/auth/code", { email }));
-        else if (await post("/auth/sign-in", { email, code: code.trim() })) onDone();
+        if (!sent) setSent(await host.requestCode(email));
+        else if (await host.signIn(email, code.trim())) onDone();
         else setSaid("That code did not work. Check it, or ask for a new one.");
       }}
     >
@@ -290,6 +282,7 @@ function SignInAgain({ email, onDone }: { email: string; onDone: () => void }) {
 
 /** Changing the sign-in address: a code to the new address, entered here (ADR 0712). */
 function ChangeAddress({ me, onChanged }: { me: AccountMe; onChanged: () => Promise<void> }) {
+  const { api } = useScreenHost();
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [sent, setSent] = useState<string | null>(null);
@@ -321,7 +314,7 @@ function ChangeAddress({ me, onChanged }: { me: AccountMe; onChanged: () => Prom
         event.preventDefault();
         if (sent) {
           void run(async () => {
-            const done = await browserApi().call("me.email.confirm", { code: code.trim() });
+            const done = await api.call("me.email.confirm", { code: code.trim() });
             setSent(null);
             setSaid(`You now sign in with ${done.signInEmail}.`);
             await onChanged();
@@ -331,7 +324,7 @@ function ChangeAddress({ me, onChanged }: { me: AccountMe; onChanged: () => Prom
         const problem = emailChangeProblem(email, me.signInEmail);
         if (problem) return setSaid(problem);
         void run(async () => {
-          setSent((await browserApi().call("me.email.change", { email: email.trim() })).newEmail);
+          setSent((await api.call("me.email.change", { email: email.trim() })).newEmail);
         });
       }}
       style={{ display: "grid", gap: 8, maxWidth: 360 }}
@@ -358,6 +351,8 @@ function ChangeAddress({ me, onChanged }: { me: AccountMe; onChanged: () => Prom
  * that (ADR 0713). Nothing is deleted without the preview (`deleteConfirmInput`).
  */
 function Delete({ me }: { me: AccountMe }) {
+  const host = useScreenHost();
+  const navigate = useNavigate();
   const [preview, setPreview] = useState<DeletePreview | null>(null);
   const [typed, setTyped] = useState("");
   const [again, setAgain] = useState(false);
@@ -365,7 +360,7 @@ function Delete({ me }: { me: AccountMe }) {
   async function look() {
     setSaid(null);
     try {
-      const answer = await browserApi().call("me.deleteAccount", {});
+      const answer = await host.api.call("me.deleteAccount", {});
       if (isDeletePreview(answer)) setPreview(answer);
     } catch (error) {
       if (isSignInAgain(error)) setAgain(true);
@@ -376,8 +371,10 @@ function Delete({ me }: { me: AccountMe }) {
     const input = deleteConfirmInput(preview, typed);
     if (!input) return setSaid(`Type ${DELETE_WORD} to confirm`);
     try {
-      await browserApi().call("me.deleteAccount", input);
-      window.location.assign("/");
+      await host.api.call("me.deleteAccount", input);
+      // The host has ended every session of the account; nothing of it stays in this page.
+      await host.forget();
+      await navigate({ to: "/" });
     } catch (error) {
       if (isSignInAgain(error)) setAgain(true);
       else {
@@ -440,6 +437,8 @@ function Devices({
   sessions: AccountSession[];
   onChanged: () => Promise<void>;
 }) {
+  const host = useScreenHost();
+  const navigate = useNavigate();
   return (
     <ul>
       {orderedSessions(sessions).map((session) => {
@@ -448,14 +447,20 @@ function Devices({
           <li key={session.id}>
             {`${words.title}. ${words.detail}. `}
             {session.current ? (
-              <button type="button" onClick={signOut}>
+              <button
+                type="button"
+                onClick={async () => {
+                  await host.signOut();
+                  await navigate({ to: "/" });
+                }}
+              >
                 Sign out
               </button>
             ) : (
               <button
                 type="button"
                 onClick={async () => {
-                  await browserApi().call("me.sessions.revoke", { id: session.id });
+                  await host.api.call("me.sessions.revoke", { id: session.id });
                   await onChanged();
                 }}
               >

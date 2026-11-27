@@ -101,18 +101,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AccountRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/before-you-go-on': {
-      id: '/before-you-go-on'
-      path: '/before-you-go-on'
-      fullPath: '/before-you-go-on'
-      preLoaderRoute: typeof BeforeYouGoOnRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/agreements': {
       id: '/agreements'
       path: '/agreements'
       fullPath: '/agreements'
       preLoaderRoute: typeof AgreementsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/before-you-go-on': {
+      id: '/before-you-go-on'
+      path: '/before-you-go-on'
+      fullPath: '/before-you-go-on'
+      preLoaderRoute: typeof BeforeYouGoOnRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sign-in': {

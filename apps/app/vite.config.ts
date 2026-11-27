@@ -28,6 +28,11 @@ function gitCommit(): string {
 }
 
 const PORT = Number(process.env.PORT ?? 5173);
+
+/** Where the e2e suite serves the client template's browser-only build (browser-build.spec.ts). */
+function e2eStaticOrigin(): string {
+  return `http://localhost:${Number(process.env.E2E_STATIC_PORT ?? 5183)}`;
+}
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 /**
@@ -91,6 +96,18 @@ export default defineConfig(({ command }) => ({
             config: (app) => {
               const secrets = devSecrets(app.secrets, dirname(fileURLToPath(import.meta.url)));
               if (secrets) app.secrets = secrets;
+              // The e2e suite's browser-only build of the client template (stage 75 step 2,
+              // e2e/browser-build.spec.ts) is served by a plain static server on a port of its
+              // own and calls this host cross-origin, as a client's screens on their own address
+              // would: that one origin is let in, as API_ALLOWED_ORIGINS lets a client's web
+              // address in. The e2e dev server only; nothing else changes.
+              if (process.env.COS_E2E_DEV_SERVER === "1") {
+                const listed = String(app.vars?.API_ALLOWED_ORIGINS ?? "");
+                app.vars = {
+                  ...app.vars,
+                  API_ALLOWED_ORIGINS: [listed, e2eStaticOrigin()].filter(Boolean).join(","),
+                };
+              }
             },
           }
         : {}),

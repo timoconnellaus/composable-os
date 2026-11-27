@@ -3,28 +3,34 @@
 // due: straight on to the account. A convenience only: the host refuses a booking or a purchase
 // while anything it needs is due. For a styled screen, copy the web-agreements-due block.
 import { type AgreeInput, copyWords, type DuePerson, dueSteps } from "@composable-os/client";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { AgreeForm } from "../agree-form.tsx";
-import { browserApi, signedOut } from "../agreements.ts";
+import { signedOut } from "../agreements.ts";
+import { useScreenHost } from "../screen-host/index.ts";
 
 export const Route = createFileRoute("/before-you-go-on")({ component: BeforeYouGoOn });
 
 function BeforeYouGoOn() {
+  const host = useScreenHost();
+  const navigate = useNavigate();
   const [people, setPeople] = useState<DuePerson[] | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const load = useCallback(async (first: boolean) => {
-    try {
-      const due = await browserApi().call("me.agreements.due", {});
-      const people: DuePerson[] = due.people;
-      if (first && !dueSteps(people).length) window.location.assign("/account");
-      else setPeople(people);
-    } catch (error) {
-      if (signedOut(error)) window.location.assign("/sign-in");
-      else setFailed(true);
-    }
-  }, []);
+  const load = useCallback(
+    async (first: boolean) => {
+      try {
+        const due = await host.api.call("me.agreements.due", {});
+        const people: DuePerson[] = due.people;
+        if (first && !dueSteps(people).length) await navigate({ to: "/account", replace: true });
+        else setPeople(people);
+      } catch (error) {
+        if (signedOut(error)) await navigate({ to: "/sign-in" });
+        else setFailed(true);
+      }
+    },
+    [host, navigate],
+  );
   useEffect(() => {
     void load(true);
   }, [load]);
@@ -50,7 +56,7 @@ function BeforeYouGoOn() {
           version={step.item.version}
           forName={step.person.self ? null : step.person.name}
           onAgree={async (input: AgreeInput) => {
-            const accepted = await browserApi().call("me.agreements.accept", {
+            const accepted = await host.api.call("me.agreements.accept", {
               ...input,
               ...(step.person.self ? {} : { forPersonId: step.person.personId }),
             });

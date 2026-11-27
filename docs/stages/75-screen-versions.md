@@ -146,7 +146,10 @@ here (CONTRIBUTING.md, Working in parallel).
 
 - **Step 1** — not built — needs: stage 66 — The serving spike: the first client's built web app under Worker Loader, measured
 
-- **Step 2** — not built — The browser-only build
+- **Step 2** — in progress — branch `feat/stage-75-browser-build` — The browser-only build: the
+  client template's `pnpm build:browser` (static files, hash routes, `build.json`), its screens
+  behind a ScreenHost (cookie or tokens), the token sign-in, and the e2e from a static server.
+  The first client's repository follows separately
 
 - **Step 3** — not built — The version store
 
