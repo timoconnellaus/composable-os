@@ -655,17 +655,31 @@ export function cosRunner({ cli, productFile, bundleDir, env, secrets, log }) {
     });
 }
 
-/** A request with a time limit; a network error is an answer of status 0. */
+/**
+ * What a fetch that threw says, in a line: its name, its message, its cause's code and message
+ * (a timeout, a reset, a DNS or TLS failure, a header fetch refused), and how long it took. No
+ * header or body is in it, so no cookie or token.
+ */
+export function describeFetchError(error, ms) {
+  const cause = error?.cause;
+  const own = `${error?.name ?? "Error"}: ${error?.message ?? String(error)}`;
+  const why = cause ? ` (cause ${[cause.code, cause.message].filter(Boolean).join(": ")})` : "";
+  return `${own}${why}, after ${(ms / 1000).toFixed(1)} s`;
+}
+
+/** A request with a time limit; a network error is an answer of status 0, with what it threw. */
 export async function request(fetchImpl, url, init = {}, timeoutMs = 20000) {
+  const started = Date.now();
   try {
     const response = await fetchImpl(url, {
       ...init,
       redirect: "manual",
       signal: AbortSignal.timeout(timeoutMs),
     });
-    return { status: response.status, response };
+    return { status: response.status, response, ms: Date.now() - started };
   } catch (error) {
-    return { status: 0, error: error?.cause?.code ?? error?.message ?? String(error) };
+    const ms = Date.now() - started;
+    return { status: 0, error: describeFetchError(error, ms), ms };
   }
 }
 
@@ -695,10 +709,22 @@ async function settledOrFail(ctx, hostname) {
   const got = await settled(ctx, hostname);
   if (!got.ok) {
     fail(
-      `${hostname} did not answer steadily within ${(ctx.waitMs / 1000).toFixed(0)} s (last: ${got.last.status}${got.last.error ? ` ${got.last.error}` : ""}): its DNS or certificate was not ready`,
+      `${hostname} did not answer steadily within ${(ctx.waitMs / 1000).toFixed(0)} s (last: ${said(got.last)}): its DNS or certificate was not ready`,
     );
   }
   return got.seconds;
+}
+
+/** An answer in words for a step's result: its status, or what the fetch threw. */
+export function said(answer) {
+  return answer.status === 0 ? `0 (no answer: ${answer.error})` : String(answer.status);
+}
+
+/** The same, with the time an answer took (a no-answer's time is in its error already). */
+export function saidTimed(answer) {
+  return answer.status === 0
+    ? said(answer)
+    : `${answer.status} in ${(answer.ms / 1000).toFixed(1)} s`;
 }
 
 /** Polls until `ok(answer)` or the time is up; returns the last answer. */
@@ -853,11 +879,9 @@ async function signUp(ctx, hostname, email, password) {
     body: JSON.stringify({ email, password, name: "Staging check" }),
   });
   if (answer.status !== 200) {
-    fail(
-      `staff sign-up at ${hostname} answered ${answer.status}${answer.error ? ` (${answer.error})` : ""}`,
-    );
+    fail(`staff sign-up at ${hostname} answered ${said(answer)}`);
   }
-  return cookiesOf(answer.response);
+  return { cookie: cookiesOf(answer.response), took: saidTimed(answer) };
 }
 
 async function signIn(ctx, hostname, email, password) {
@@ -872,10 +896,8 @@ async function signIn(ctx, hostname, email, password) {
 /** An operation called with a cookie: its status, and its error's code when the body is JSON. */
 async function staffOp(ctx, hostname, cookie, name) {
   const origin = `https://${hostname}`;
-  // A read: no answer at all (status 0, DNS or TLS on one edge) is asked again, twice.
-  let answer;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    answer = await request(ctx.fetch, `${origin}/api/v1/op/${name}`, {
+  const send = () =>
+    request(ctx.fetch, `${origin}/api/v1/op/${name}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -885,9 +907,7 @@ async function staffOp(ctx, hostname, cookie, name) {
       },
       body: "{}",
     });
-    if (answer.status !== 0) break;
-    await ctx.sleep(5000);
-  }
+  const answer = await send();
   const text = answer.response ? await answer.response.text() : "";
   let code = null;
   try {
@@ -896,7 +916,22 @@ async function staffOp(ctx, hostname, cookie, name) {
   } catch {
     code = null;
   }
-  return { status: answer.status, code };
+  // No answer at all (the fetch threw): said with what it threw, and one repeat 5 s later, as
+  // evidence only (a step never passes on it), so a result tells a passing blip from a route that
+  // keeps failing (staging run 45994923824, steps 3 and 8).
+  let repeat = null;
+  if (answer.status === 0) {
+    await ctx.sleep(5000);
+    const again = await send();
+    await again.response?.body?.cancel();
+    repeat = saidTimed(again);
+  }
+  return { status: answer.status, code, said: saidTimed(answer), repeat };
+}
+
+/** A staff operation's failure, in words: what it answered and what a repeat answered. */
+function opFailed(op) {
+  return `${op.said}${op.repeat ? `; a repeat 5 s later answered ${op.repeat}` : ""}`;
 }
 
 async function clientList(ctx) {
@@ -1172,34 +1207,51 @@ export function checkSteps() {
         for (const id of [a, b]) {
           const answer = await page(ctx, id);
           if (!answer.ok)
-            fail(
-              `${id}'s staff sign-in page did not answer 200 (last: ${answer.status}${answer.error ? ` ${answer.error}` : ""})`,
-            );
+            fail(`${id}'s staff sign-in page did not answer 200 (last: ${said(answer)})`);
         }
         notes.push("both staff sign-in pages answer 200");
         for (const id of [a, b]) {
           const email = `staff-${id}-${ctx.run}@staging-check.invalid`;
           const password = randomBytes(18).toString("base64url");
           ctx.addSecret(password);
-          ctx.staff[id] = {
-            email,
-            password,
-            cookie: await signUp(ctx, ctx.hosts.staff[id], email, password),
-          };
+          const signedUp = await signUp(ctx, ctx.hosts.staff[id], email, password);
+          ctx.staff[id] = { email, password, cookie: signedUp.cookie };
           ctx.addSecret(ctx.staff[id].cookie);
+          notes.push(`${id}'s staff sign-up answered ${signedUp.took}`);
         }
+        // Each client's first staff operation, then one more on the same client, timed: whether
+        // a slow or missing answer is the first call's alone (a fresh client's first call
+        // installs its shipped packs before it answers). Both clients are tried before the step
+        // fails, so a result shows whether the second fresh client fails too (review of #557).
+        const firsts = [];
         for (const id of [a, b]) {
           const own = await staffOp(ctx, ctx.hosts.staff[id], ctx.staff[id].cookie, "person.list");
-          if (own.status !== 200) fail(`${id}'s staff session at ${id} answered ${own.status}`);
+          const answered = own.status === 200 || own.repeat?.startsWith("200 ");
+          const next = answered
+            ? await staffOp(ctx, ctx.hosts.staff[id], ctx.staff[id].cookie, "person.list")
+            : null;
+          firsts.push({ id, own, next });
+          notes.push(
+            `${id}'s first person.list answered ${opFailed(own)}${next ? `; the next answered ${opFailed(next)}` : ""}`,
+          );
+        }
+        const failed = firsts.filter((f) => f.own.status !== 200);
+        if (failed.length) {
+          fail(
+            `${failed
+              .map((f) => `${f.id}'s staff session at ${f.id} answered ${opFailed(f.own)}`)
+              .join("; ")} (${notes.filter((n) => /sign-up|person\.list/.test(n)).join("; ")})`,
+          );
         }
         // A's cookie at B is answered as no cookie is: the same refusal (status and code; the
         // bodies may differ in a request id).
         const other = await staffOp(ctx, ctx.hosts.staff[b], ctx.staff[a].cookie, "person.list");
         const none = await staffOp(ctx, ctx.hosts.staff[b], "", "person.list");
-        if (none.status < 400) fail(`${b} answered ${none.status} to an operation with no session`);
+        if (none.status < 400)
+          fail(`${b} answered ${opFailed(none)} to an operation with no session`);
         if (other.status !== none.status || other.code !== none.code) {
           fail(
-            `${a}'s session at ${b}'s address answered ${other.status} ${other.code}, not as no session (${none.status} ${none.code})`,
+            `${a}'s session at ${b}'s address answered ${opFailed(other)} ${other.code}, not as no session (${opFailed(none)} ${none.code})`,
           );
         }
         // B's password at A is a wrong password there: 401, never a rate limit or an error.
@@ -1210,13 +1262,12 @@ export function checkSteps() {
           ctx.staff[b].password,
         );
         if (crossed.status !== 401)
-          fail(`${b}'s password at ${a}'s address answered ${crossed.status}, not 401`);
+          fail(`${b}'s password at ${a}'s address answered ${said(crossed)}, not 401`);
         notes.push(
           `each client's staff session works at its own address; ${a}'s is no session at ${b}'s (${none.status}), and ${b}'s password is a wrong one at ${a}'s (401)`,
         );
         const health = await hostHealth(ctx, VERSIONS.from);
-        if (!health.ok)
-          fail(`the host's health on the callback hostname answered ${health.status}`);
+        if (!health.ok) fail(`the host's health on the callback hostname answered ${said(health)}`);
         notes.push("the host's health answers on the callback hostname");
         // A file of A's own, for the export to carry (step 6).
         const origin = `https://${ctx.hosts.staff[a]}`;
@@ -1231,7 +1282,7 @@ export function checkSteps() {
           body: PROBE_PNG,
         });
         if (upload.status < 200 || upload.status >= 300)
-          fail(`the picture upload at ${a} answered ${upload.status}`);
+          fail(`the picture upload at ${a} answered ${said(upload)}`);
         ctx.uploaded = sha256(PROBE_PNG);
         notes.push(`a picture uploaded at ${a}`);
         return { note: notes.join("; ") };
@@ -1455,7 +1506,7 @@ export function checkSteps() {
         }
         for (const id of [a, b]) {
           const answer = await page(ctx, id);
-          if (!answer.ok) fail(`${id}'s sign-in page answers ${answer.status} after the upgrade`);
+          if (!answer.ok) fail(`${id}'s sign-in page answers ${said(answer)} after the upgrade`);
         }
         const gatekeeper = await emailGatekeeperProblems(ctx.api, ctx.accountId, ctx.prefix);
         if (gatekeeper.length) fail(`after the upgrade: ${gatekeeper.join("; ")}`);
@@ -1515,7 +1566,7 @@ export function checkSteps() {
           };
         }
         const answer = await page(ctx, imported);
-        if (!answer.ok) fail(`${imported}'s sign-in page answered ${answer.status}`);
+        if (!answer.ok) fail(`${imported}'s sign-in page answered ${said(answer)}`);
         notes.push(`${imported}'s sign-in page answers`);
         return { note: notes.join("; ") };
       },
@@ -1579,12 +1630,12 @@ export function checkSteps() {
           (x) => x.status === 404,
           { timeoutMs: 120000, sleep: ctx.sleep },
         );
-        if (!gone.ok) fail(`${a}'s address still answers ${gone.status}`);
+        if (!gone.ok) fail(`${a}'s address still answers ${said(gone)}`);
         const answer = await request(ctx.fetch, `https://${ctx.hosts.staff[b]}/sign-in`);
-        if (answer.status !== 200) fail(`${b}'s sign-in page answers ${answer.status}`);
+        if (answer.status !== 200) fail(`${b}'s sign-in page answers ${said(answer)}`);
         if (!ctx.staff[b]) fail(`${b} has no staff session to check (step 3 did not make one)`);
         const own = await staffOp(ctx, ctx.hosts.staff[b], ctx.staff[b].cookie, "person.list");
-        if (own.status !== 200) fail(`${b}'s staff session answers ${own.status}`);
+        if (own.status !== 200) fail(`${b}'s staff session answers ${opFailed(own)}`);
         return {
           note: `${a}'s address answers the unknown hostname's 404; ${b} answers and its staff stay signed in`,
         };
