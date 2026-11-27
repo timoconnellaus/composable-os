@@ -10,8 +10,8 @@ client, Device session, Pack role), ADRs
 `templates/client/apps/mobile/src/host.ts` (token sessions and the browser sign-in),
 `packages/client/src/client.ts` (`onUpgradeRequired`).
 
-Status: **spec proposed (2026-11-27)**. Not built until its interview settles the questions at its
-end.
+Status: **spec agreed (owner interviewed 2026-11-27)**. It loads the admin's staff screens, which
+stage 75 step 8 makes a published version.
 
 ## Goal
 
@@ -41,6 +41,9 @@ version stays.
 | 2 | The screens are inside the app, not a website shown in a window; the web version stays |
 | 3 | It is built after stage 75 and does not wait for a need for the machine (a printer, a card reader) |
 | 4 | The first version loads only screens we built (ADR 0960) |
+| 5 | It is for staff first: it loads the admin's staff screens (interview, 2026-11-27) |
+| 6 | macOS first, Windows as the next step |
+| 7 | It carries the product's name where a product has one app for all its clients, otherwise Composable OS |
 
 ## The design in one page
 
@@ -94,7 +97,7 @@ version stays.
 - Printers, card readers, a locked kiosk, files: later stages add calls to the bridge.
 - Working on records with no network: the screens open offline; the data is the host's.
 - The Mac App Store.
-- Windows and Linux, unless the interview says otherwise (question 2).
+- Windows (the next step after this stage, decision 6) and Linux.
 
 ## Acceptance criteria
 
@@ -144,23 +147,14 @@ Block CE with stage 75. No migration is expected.
 
 ## Questions for the owner
 
-1. **Who is the desktop app for first?** Staff, or a client's customers. Recommended: staff.
-   This decides more than anything else here: staff work in the admin, whose screens are ours
-   and are not a client's published version today (stage 75, question 1), so a staff desktop app
-   means the admin's screens build browser-only too.
-2. **Is Windows needed at the start?** Recommended: macOS first, Windows as the next step. A
-   front desk often runs Windows, and nothing about Windows has been tested: it uses a different
-   webview, and storage, schemes and signing all have to be proved again.
-3. **What is the app called?** It is one app for every client, so its name in the dock is ours,
-   not the client's. Recommended: the product's name where a product has one app for all its
-   clients, and "Composable OS" otherwise.
+None open. Decisions 5 to 7 answer them.
 
 ## Status
 
-Spec proposed (2026-11-27). No build step is built yet. Each build step changes its own line
+Spec agreed (owner interviewed 2026-11-27). No build step is built yet. Each build step changes its own line
 here (CONTRIBUTING.md, Working in parallel).
 
-- **Step 1** — not built — needs: stage 75 step 2 — The wrapper's skeleton
+- **Step 1** — not built — needs: stage 75 step 8 — The wrapper's skeleton
 
 - **Step 2** — not built — needs: step 1, stage 75 step 4 — Screens from the host
 

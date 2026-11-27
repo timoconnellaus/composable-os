@@ -43,6 +43,9 @@ app (stage 76) downloads.
 | 1 | No client's host moves off the shared host to gain this (ADR 0960) |
 | 2 | Screens are stored as versions per client; one is published; a draft can be used before it is published |
 | 3 | The desktop app loads the same published version (stage 76) |
+| 4 | Both a client's own web app and the admin's staff screens become published versions (interview, 2026-11-27) |
+| 5 | A person at the client who holds the publish permission may publish for a hosted client |
+| 6 | Changes come from the client's repository and from inside the product (an editor or the assistant), both from the start |
 
 ## The design in one page
 
@@ -82,10 +85,8 @@ app (stage 76) downloads.
 ## Out of scope
 
 - The desktop app (stage 76).
-- An editor for screens inside the product, or an assistant that writes them.
 - Versions of extensions, fields or operations: those change through the client's staging
   environment.
-- The admin's own screens (`apps/app`), unless the interview says otherwise (question 1).
 - The mobile app, whose screens go through the stores.
 
 ## Acceptance criteria
@@ -120,6 +121,10 @@ Block CE: migrations 1490–1509, ADRs 0960–0969 (ADR 0960 written).
 5. **Serving the published version** on the web, by the mechanism step 1 chose.
 6. **Preview:** the preview address, its sign-in and permission.
 7. **Docs, the skill and `cos`:** building and uploading a version from a client's repository.
+8. **The admin's screens as a version:** `apps/app`'s staff screens build as a browser-only app
+   over `/api/v1`, stored and published like any other version. What stage 76 loads.
+9. **Changes from inside the product:** the assistant or an editor makes a draft version, by the
+   route question 2 settles.
 
 ## Decided by this spec, open to override
 
@@ -133,16 +138,18 @@ Block CE: migrations 1490–1509, ADRs 0960–0969 (ADR 0960 written).
 
 ## Questions for the owner
 
-1. **Whose screens are these first?** A client's own web app (its website and account area), the
-   staff screens of the admin, or both. Recommended: the client's own web app first. The admin is
-   ours, is the same for every client and is released with the host; making it a published
-   version per client is a much larger change.
-2. **Who may publish for a hosted client?** Recommended: a person at the client who holds the
-   publish permission, since a published version needs no account token. The other answer is
-   that only we publish, as with deploys today.
-3. **Where do changes come from at first?** Recommended: the client's repository, built in CI
-   and uploaded as a version. An editor or an assistant inside the product would be a later
-   stage on top of the same store.
+Asked after the interview of 2026-11-27, whose answers are decisions 4 to 6.
+
+1. **Can an organisation change its own admin screens, or is the admin one version for
+   everyone?** Recommended: one version of the admin, published by us, for every organisation at
+   first. An organisation's own changes to the admin come through extensions (lists, tabs,
+   dashboards), which need no screen code. A version of the admin per organisation means each
+   one can fall behind the host and has to be checked at every release.
+2. **How does a change made inside the product get built?** The host cannot build an app.
+   Recommended: the assistant writes the change to the organisation's repository and CI builds
+   it into a draft version, so there is one build path and every version is reviewed code. The
+   other answers are a build service of ours that bundles in a sandbox, or screens described as
+   data that need no build.
 
 ## Status
 
@@ -162,3 +169,7 @@ here (CONTRIBUTING.md, Working in parallel).
 - **Step 6** — not built — needs: step 5 — Preview
 
 - **Step 7** — not built — needs: step 6 — Docs, the skill and `cos`
+
+- **Step 8** — not built — needs: step 4 — The admin's screens as a version
+
+- **Step 9** — not built — needs: step 6, an owner decision — Changes from inside the product
