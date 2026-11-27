@@ -440,7 +440,8 @@ async function deleteItem(api, accountId, item) {
       // Not the client's 404-tolerant call: a record already gone is the teardown's "gone" (F5).
       return api.request("DELETE", `/zones/${item.zone}/dns_records/${item.id}`);
     case "domain":
-      return api.deleteDomain(accountId, item.id);
+      // The same: the client's call counts a 404 as gone, and the teardown says so itself.
+      return api.request("DELETE", `/accounts/${accountId}/workers/domains/${item.id}`);
     case "worker":
       return api.deleteScript(accountId, item.name);
     case "queue":

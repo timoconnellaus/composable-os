@@ -400,13 +400,35 @@ edges on their own time, and a first answer from one edge says nothing of the ne
 - The staging check passes `--no-wait` and measures each new staff hostname itself (`settled`,
   three answers running), reporting the seconds in step 2. A hostname that never settles fails
   that step, named, instead of a status 0 on a later assertion.
-- Its operation reads (`staffOp`) ask again on no answer at all, twice.
+- Its operation reads (`staffOp`) do not ask again: no answer is said with what the fetch threw, and
+  one repeat 5 s later is reported as evidence only (PR #557).
 
 ### The bare domain, accepted (2026-11-27)
 
 The owner accepts that a bare domain is refused. The first client's site stays in its own account
 for now. Later it is `www` through cos-front, with the apex redirected in the client's own zone.
 Stage 66's criterion 15 and stage 46's decision 15 carry the dated amendment.
+
+### The first real run of `cos client remove` (staging check 46022687687, 2026-11-28)
+
+Detaching a Workers Custom Domain answers 204 with no body (the API reference shows a 200 envelope
+with no `result`). The Cloudflare client took any answer without the envelope for a failure, so
+`cos client remove` stopped after the domain was detached. It had exported the client, erased its
+stores and recorded its `hostnames` step: the client stayed `moving`, served nowhere, its rows kept,
+its Custom Domain gone. A re-run started at that step, found the domain gone and went on, so it
+converged, one hostname a run. Now:
+
+- A 204, or a DELETE's empty 2xx, is a success. So is a DELETE's 2xx whose body has no `success`
+  and no errors: the reference gives a custom hostname's delete as `{id}` alone and a DNS record's
+  as `{result: {id}}`.
+- Every delete `cos client remove` and `cos client hostname remove` make counts a 404 as gone (a
+  Custom Domain's too now), and each lists before it deletes, so a re-run after a failure at any
+  step finishes the job (tested: each delete failed, done with its answer lost, and gone already).
+- Lookups use the documented filters, `hostname.exact` for custom hostnames and `name.exact` for
+  DNS records, every page read and only the exact name kept; the Custom Domain listing is kept
+  once per id, since its `page` parameter is not documented.
+- The fake Cloudflare API answers these calls as documented, or as observed where they differ,
+  and ignores the undocumented plain filters.
 
 ### Follow-ups (not built)
 

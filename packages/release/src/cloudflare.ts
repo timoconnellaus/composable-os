@@ -256,11 +256,32 @@ export class CloudflareClient {
       headers,
       body: payload,
     });
+    const text = await response.text();
+    // A success with no body at all: 204 No Content, as detaching a Workers Custom Domain answers
+    // (the first real run of stage 66 step 8's `cos client remove`, staging check 46022687687),
+    // or a DELETE's empty 2xx. Nothing to read. Any other empty answer still fails: a read that
+    // came back with nothing is an error, not an empty result.
+    if (response.ok && text.trim() === "" && (response.status === 204 || method === "DELETE")) {
+      return { result: undefined as T };
+    }
     let envelope: Envelope<T> | null = null;
     try {
-      envelope = (await response.json()) as Envelope<T>;
+      envelope = JSON.parse(text) as Envelope<T>;
     } catch {
       envelope = null;
+    }
+    // A DELETE's documented 200 body is not always the envelope: a custom hostname's is `{id}`
+    // alone, a DNS record's `{result: {id}}` (their API reference). A 2xx DELETE whose body says
+    // nothing of success or errors is a success; its `result`, or the body itself, is the result.
+    if (
+      response.ok &&
+      method === "DELETE" &&
+      envelope &&
+      typeof envelope === "object" &&
+      envelope.success === undefined &&
+      !envelope.errors?.length
+    ) {
+      return { result: ("result" in envelope ? envelope.result : envelope) as T };
     }
     if (!response.ok || !envelope?.success) {
       const errors = envelope?.errors ?? [];
@@ -746,13 +767,13 @@ export class CloudflareClient {
   }
 
   /**
-   * A custom hostname whole (status, certificate), or null. The `hostname` filter is read every
-   * page, and only an exact match counts.
+   * A custom hostname whole (status, certificate), or null. The documented `hostname.exact`
+   * filter, every page read, and only an exact match counts (a filter not applied lists them all).
    */
   async findCustomHostname(zoneId: string, hostname: string): Promise<CustomHostname | null> {
     const all = await saasCall(() =>
       this.all<CustomHostname>(
-        `/zones/${zoneId}/custom_hostnames?hostname=${encodeURIComponent(hostname)}`,
+        `/zones/${zoneId}/custom_hostnames?hostname.exact=${encodeURIComponent(hostname)}`,
       ),
     );
     return all.find((h) => h.hostname === hostname) ?? null;
@@ -837,10 +858,19 @@ export class CloudflareClient {
     return true;
   }
 
-  listDnsRecords(zoneId: string, name: string) {
-    return this.request<
-      { id: string; type: string; name: string; content: string; proxied?: boolean }[]
-    >("GET", `/zones/${zoneId}/dns_records?name=${encodeURIComponent(name)}`).then((r) => r.result);
+  /**
+   * The DNS records of exactly `name`: the documented `name.exact` filter (case-insensitive),
+   * every page read, and only that name kept (a filter not applied lists the whole zone).
+   */
+  async listDnsRecords(zoneId: string, name: string) {
+    const all = await this.all<{
+      id: string;
+      type: string;
+      name: string;
+      content: string;
+      proxied?: boolean;
+    }>(`/zones/${zoneId}/dns_records?name.exact=${encodeURIComponent(name)}`);
+    return all.filter((r) => r.name.toLowerCase() === name.toLowerCase());
   }
 
   /** Every DNS record of a zone (the staging check's inventory). */
@@ -970,16 +1000,24 @@ export class CloudflareClient {
     });
   }
 
-  /** The account's Workers Custom Domains: each hostname and the Worker it serves. */
-  listDomains(accountId: string) {
-    return this.all<{ id: string; hostname: string; service: string; zone_id: string }>(
+  /**
+   * The account's Workers Custom Domains: each hostname and the Worker it serves. The listing has
+   * `result_info` but documents no `page` parameter: a page repeated by an API that ignores it is
+   * not counted twice.
+   */
+  async listDomains(accountId: string) {
+    const all = await this.all<{ id: string; hostname: string; service: string; zone_id: string }>(
       `/accounts/${accountId}/workers/domains`,
     );
+    return [...new Map(all.map((d) => [d.id, d])).values()];
   }
 
-  /** Detaches a Custom Domain (Cloudflare removes the DNS record and certificate it made). */
+  /**
+   * Detaches a Custom Domain (Cloudflare removes the DNS record and certificate it made). It
+   * answers 204 with no body; one already detached (404) is gone, so a re-run converges.
+   */
   async deleteDomain(accountId: string, id: string) {
-    await this.request("DELETE", `/accounts/${accountId}/workers/domains/${id}`);
+    await unless404(this.request("DELETE", `/accounts/${accountId}/workers/domains/${id}`));
   }
 
   /** The account's Durable Object namespaces, each with the Worker that defines its class. */
