@@ -223,6 +223,7 @@ export function summaryTable(results) {
 export async function inventory(api, accountId, prefix) {
   const items = [];
   const unlisted = [];
+  const unlistedKinds = [];
   const kinds = [
     [
       "domain",
@@ -279,6 +280,7 @@ export async function inventory(api, accountId, prefix) {
       found = await list();
     } catch (error) {
       unlisted.push(`${kind}: ${firstError(error.message)}`);
+      unlistedKinds.push(kind);
       continue;
     }
     for (const entry of found ?? []) {
@@ -286,7 +288,7 @@ export async function inventory(api, accountId, prefix) {
       if (item) items.push({ kind, ...item });
     }
   }
-  return { items, unlisted };
+  return { items, unlisted, unlistedKinds };
 }
 
 /** The order things are deleted in: what routes to a Worker, the Workers, then what they bound. */
@@ -348,10 +350,12 @@ export function isRuns(item, prefix) {
 export async function teardown(api, accountId, prefix, recorded = []) {
   const now = await inventory(api, accountId, prefix);
   const byKey = new Map(now.items.map((i) => [key(i), i]));
-  // A recorded item no longer listed is gone already; one that is not the run's is never touched.
+  // A recorded item of a kind the account listed, and no longer listed, is gone already. One of a
+  // kind it could not list is deleted by the name (and id) recorded. One that is not the run's is
+  // never touched.
   for (const item of recorded) {
-    if (!isRuns(item, prefix)) continue;
-    if (!byKey.has(key(item))) byKey.set(key(item), { ...item, gone: true });
+    if (!isRuns(item, prefix) || byKey.has(key(item))) continue;
+    byKey.set(key(item), { ...item, gone: !now.unlistedKinds.includes(item.kind) });
   }
   const deleted = [];
   let failed = [];

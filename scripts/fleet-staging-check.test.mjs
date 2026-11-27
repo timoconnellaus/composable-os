@@ -27,6 +27,7 @@ import {
   targetPrefix,
   teardown,
   teardownCommand,
+  teardownReport,
 } from "./fleet-staging-check.mjs";
 
 const TOKEN = "fake-token-0123456789";
@@ -226,17 +227,40 @@ test("teardown names what it could not delete and what is left, and the command 
   assert.equal((await inventory(api, ACCOUNT, PREFIX)).items.length, 1);
 });
 
-test("teardown never deletes a recorded name that is not the run's", async () => {
+test("where the account cannot list a kind, teardown deletes the run's recorded names of it, and never another's", async () => {
   const { cf, api } = world();
   await seed(cf, api);
+  // The token cannot list Workers or Custom Domains (but can delete them).
+  cf.failOn = (method, path) =>
+    method === "GET" && (path.endsWith("/workers/scripts") || path.endsWith("/workers/domains"))
+      ? new Response(
+          JSON.stringify({
+            success: false,
+            errors: [{ code: 10000, message: "Authentication error" }],
+            result: null,
+          }),
+          { status: 403 },
+        )
+      : undefined;
+  const runs = cf.domains.find((d) => d.hostname.startsWith("alpha-admin."));
   const recorded = [
-    { kind: "worker", name: "crm-app" },
-    { kind: "domain", name: "crm.fleet.example" },
-    { kind: "worker", name: `${PREFIX}-app-staging` },
+    { kind: "worker", name: "crm-app", id: "crm-app" },
+    {
+      kind: "domain",
+      name: "crm.fleet.example",
+      id: cf.domains.find((d) => d.hostname === "crm.fleet.example").id,
+    },
+    { kind: "worker", name: `${PREFIX}-app-staging`, id: `${PREFIX}-app-staging` },
+    { kind: "domain", name: runs.hostname, id: runs.id },
   ];
-  await teardown(api, ACCOUNT, PREFIX, recorded);
+  const result = await teardown(api, ACCOUNT, PREFIX, recorded);
+  assert.ok(!cf.scripts.has(`${PREFIX}-app-staging`));
+  assert.ok(!cf.domains.some((d) => d.hostname === runs.hostname));
   assert.ok(cf.scripts.has("crm-app"));
   assert.ok(cf.domains.some((d) => d.hostname === "crm.fleet.example"));
+  // What it could not list it says, so nothing is taken as checked that was not.
+  assert.equal(result.unlisted.length, 2);
+  assert.match(teardownReport(result, PREFIX), /Could not list \(so not checked\): domain: /);
 });
 
 test("a run that fails half-way: the later steps are skipped, the summary says why, and teardown leaves nothing", async () => {
