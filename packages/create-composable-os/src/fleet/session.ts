@@ -38,6 +38,10 @@ export function lazyOperator(
   let opening: Promise<Operator & { close(): Promise<void> }> | null = null;
   let held = false;
   let heartbeat: ReturnType<typeof setInterval> | null = null;
+  // A heartbeat's renewal in flight, which `close` waits for; and whether the run has closed, after
+  // which a heartbeat writes nothing (review of #530, R4).
+  let beating: Promise<void> | null = null;
+  let closed = false;
   const stopHeartbeat = () => {
     if (heartbeat) clearInterval(heartbeat);
     heartbeat = null;
@@ -59,7 +63,12 @@ export function lazyOperator(
       // upload between calls): a session lapses only when its run is gone (review of #526, N1).
       heartbeat = setInterval(
         () => {
-          take().catch(() => stopHeartbeat());
+          if (closed || beating) return;
+          beating = take()
+            .catch(() => stopHeartbeat())
+            .finally(() => {
+              beating = null;
+            });
         },
         options.heartbeatMs ?? SESSION_TTL_MS / 3,
       );
@@ -96,7 +105,10 @@ export function lazyOperator(
       await take();
     },
     async close() {
+      closed = true;
       stopHeartbeat();
+      // A renewal already sent finishes first, so it cannot write the row back after the release.
+      if (beating) await beating;
       // The token is replaced only by the run that still holds the session: a run another took
       // over from (or whose session lapsed) leaves the Worker to that one (review of #526, N1).
       const mine = held && (await holdsOperatorSession(registry, holder));

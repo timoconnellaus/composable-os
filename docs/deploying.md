@@ -1247,7 +1247,11 @@ cos client remove gym-a                      # export kept 90 days, then erased;
   videos is issue #525). `cos client import <id> --from <dir>` adds a new client only; an existing
   id is refused, and so is an import while an update is unfinished.
 - **What an export's checks catch:** its hashes catch a damaged or cut-short part or file, not a
-  folder someone edited on purpose (the manifest is not signed): import only a folder you trust.
+  folder someone edited on purpose (the manifest is not signed): **import only an export you
+  trust**. An import filters the SQL it carries (no view, no virtual table, nothing that names a
+  core table), but that filter is no proof an export is harmless (ADR 0618; issue #532). A client
+  on Bookings or Rostering cannot be imported yet: their triggers keep core tables, and the
+  import refuses them.
   `secrets.json` is **unencrypted** JSON (mode 0600) holding the client's session keys and given
   secrets: keep it as a password, and delete it once imported.
 - **A client's web app is on its own domain**, never under the fleet's domain beside the staff

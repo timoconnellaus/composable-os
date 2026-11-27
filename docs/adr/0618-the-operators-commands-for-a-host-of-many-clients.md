@@ -204,19 +204,38 @@ the control plane), as one later step. Recorded in ADR 0616 too.
   cannot let it lapse; it lapses only when the run is gone.
 - **N2, a pause during an update.** `cos client pause` is refused while an update is unfinished: the
   update resumes every client it paused at its end, which would undo the operator's pause.
-- **N3, what an import accepts, now.** An imported trigger is taken only on an extension table,
-  and only when every name its SQL refers to is an extension table: the SQL is tokenised (strings
-  and comments skipped; `"…"`, `` `…` `` and `[…]` identifiers unquoted; case folded) and each name
-  matched against the imported database's objects, and any name with a core or platform prefix
-  (`core_`, `rec_`, `crm_`, `pub_`, `sqlite_`) refuses it outright. A tokeniser rather than a
-  parser: it errs towards finding a name, never towards missing one. An `INSTEAD OF` trigger (a
-  trigger on a view) refuses the import. No view is taken from an export at all
-  (`ImportOptions.skipViews`): once the database is in, every view is made again from the host's
-  own definitions (packages/core `rebuildRecordViews`: the views the host's migrations make, then
-  every record view from the extensions' state; the operator's `rebuild-views`, and `cos install
-  --import`). Consequence: a pack whose triggers keep a core table (`occupies`' claims in
-  `core_thing_time`) cannot be imported this way until the reconciler makes extension triggers
-  again from the imported manifests; the import is refused, failing closed.
+- **N3, what an import accepts, now** (*amended after the review of #530, R1 to R3*). The name
+  check is a **deny-by-default filter over the SQL the export wrote**, and not a proof that an
+  export is harmless. **Import only an export you trust.** What it covers:
+  - Every imported table, index and trigger must sit on an extension table (`x_…`), and every name
+    its SQL refers to must be an extension table. The SQL is tokenised (`namesIn`), not parsed:
+    comments are skipped, and `"…"`, `` `…` `` and `[…]` identifiers are unquoted. The text of
+    single-quoted strings counts as a name too, since SQLite takes `UPDATE 'core_user'`. Case is
+    folded. Each name is matched against the imported database's objects, and any name with a
+    core or platform prefix (`core_`, `rec_`, `crm_`, `pub_`, `sqlite_`) refuses the object. It
+    errs towards finding a name, never towards missing one. This covers a trigger's body, a table's
+    DEFAULT, CHECK and generated columns, and an index's expressions and partial `WHERE`.
+  - A virtual table is refused (an FTS5 table's external content reads whatever table it names).
+    So is an `INSTEAD OF` trigger.
+  - No view is taken from an export (`ImportOptions.skipViews`). Once the database is in, every
+    view is made again from the host's own definitions (packages/core `rebuildRecordViews`: the
+    views of the host's migrations, then every record view). That happens only after the imported
+    extension state is checked (`importedStateProblems`), with these rules:
+    - each object's table must be exactly the `x_<ext>_<object>` its name derives, and an imported
+      extension table;
+    - each field's table must be its own object's (or its side table), and its column a real column
+      of that table;
+    - every relation must name an object that passes.
+
+    Anything else refuses the import and empties the database. `cos client import` (the operator's
+    `rebuild-views`) and `cos install --import` both go through that one function.
+  - Consequence: a client using a pack whose behaviours make triggers naming core tables cannot be
+    exported and imported this way; the import is refused, failing closed. That is `occupies`
+    (`core_thing_time`) and `staffed` (`core_staff_time`), so Bookings and Rostering. An end-to-end
+    export and import of Memberships, Ticketing, Courses, Programs and Content has not been run.
+  - **The sturdier design**, issue #532: an import carries data only, and the host's reconciler
+    makes the extension tables, indexes, triggers and views again from the extensions' checked
+    manifests.
 - **N4, a sender domain renamed.** Registry migration 0798: a change of a row's `domain` must leave
   it unverified (a rename, an `UPDATE OR REPLACE` onto another client's domain, an upsert's `DO
   UPDATE SET domain`).

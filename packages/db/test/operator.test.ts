@@ -76,27 +76,18 @@ const call = async (
       body: JSON.stringify(body),
     }),
     operatorEnv(over),
-    { rebuildRecordViews: coreViewsOnly },
+    { rebuildRecordViews },
   );
   return { status: response.status, body: (await response.json()) as Record<string, unknown> };
 };
 
 /**
- * packages/core's `rebuildRecordViews` stands in here as its first half (the core views the
- * host's migrations make): packages/db cannot import packages/core; the record views themselves
- * are tested there (core `record-views.test.ts`).
+ * packages/core's `rebuildRecordViews`, the real one, as the operator's Worker is given it
+ * (apps/operator): the import's views and its extension-state check run here as on the host
+ * (review of #530, R3). Imported by path: packages/db does not depend on packages/core.
  */
-async function coreViewsOnly(db: D1Database, coreViews: { name: string; sql: string }[]) {
-  const { results } = await db
-    .prepare("SELECT name FROM sqlite_master WHERE type = 'view'")
-    .all<{ name: string }>();
-  const statements = [
-    ...results.map((r) => `DROP VIEW IF EXISTS "${r.name}"`),
-    ...coreViews.map((v) => v.sql),
-  ];
-  if (statements.length) await db.batch(statements.map((sql) => db.prepare(sql)));
-  return { views: coreViews.length, formulaErrors: 0 };
-}
+const rebuildRecordViews = async (db: D1Database, coreViews: { name: string; sql: string }[]) =>
+  (await import("../../core/src/extensions/record-views.ts")).rebuildRecordViews(db, coreViews);
 const raw = (path: string, init: RequestInit = {}) =>
   operatorFetch(
     new Request(`https://operator.example${path}`, {
@@ -318,8 +309,22 @@ describe("what an import accepts beside the core schema (review of #526, S4)", (
       trigger("x_t3", "UPDATE/*c*/[core_user] SET role = 'admin'"),
       trigger("x_t4", "INSERT INTO `CORE_SETTINGS` VALUES ('k', 'v', 'now', NULL)"),
       trigger("x_t5", "DELETE FROM rec_person"),
-      // A string naming a core table is not a reference.
+      // A string is a name to SQLite (`UPDATE 'core_user'`): its text counts too (review of #530, R1).
       trigger("x_t6", "UPDATE x_shop_line SET note = 'core_user'"),
+      trigger("x_t7", "UPDATE 'core_settings' SET value = 'x'"),
+      // A virtual table reads what its content names, and an index's WHERE is SQL too (R2).
+      {
+        type: "table",
+        name: "x_fts",
+        tbl_name: "x_fts",
+        sql: "CREATE VIRTUAL TABLE x_fts USING fts5(value, content='x_shop_item')",
+      },
+      {
+        type: "index",
+        name: "x_shop_item_core",
+        tbl_name: "x_shop_item",
+        sql: "CREATE INDEX x_shop_item_core ON x_shop_item (id) WHERE id <> 'core_user'",
+      },
       row("view", "rec_shop_item", "rec_shop_item"),
       row("view", "x_v", "x_v"),
       row("trigger", "x_hook", "core_settings"),
@@ -332,11 +337,10 @@ describe("what an import accepts beside the core schema (review of #526, S4)", (
       "table x_shop_line",
       "index x_shop_item_name",
       "trigger x_shop_item_ai",
-      "trigger x_t6",
     ]);
     expect([
       ...namesIn('SELECT "A""b", [C d], `e` FROM t -- core_x\n /* core_y */ WHERE s = \'core_z\''),
-    ]).toEqual(["select", 'a"b', "c d", "e", "from", "t", "where", "s"]);
+    ]).toEqual(["select", 'a"b', "c d", "e", "from", "t", "where", "s", "core_z"]);
   });
 
   /** An export of a client whose database also holds `extra`, imported into a new client. */
@@ -392,6 +396,58 @@ describe("what an import accepts beside the core schema (review of #526, S4)", (
     ]);
     expect(two).toMatch(/INSTEAD OF/);
     expect((await call({ action: "level", client: "op-n3-b2" })).body.applied).toBe(0);
+  });
+
+  it("refuses the reviewer's string-named writes and reads of core tables, and an FTS5 table over one (review of #530, R1 and R2)", async () => {
+    const probes: [string, string[]][] = [
+      [
+        "op-r1-a",
+        [
+          "CREATE TABLE x_t (id TEXT PRIMARY KEY, role TEXT)",
+          "CREATE TRIGGER evil AFTER INSERT ON x_t BEGIN UPDATE 'core_settings' SET value = '\"pwned\"'; END",
+        ],
+      ],
+      [
+        "op-r1-b",
+        [
+          "CREATE TABLE x_t (id TEXT PRIMARY KEY, role TEXT)",
+          "CREATE TRIGGER evil AFTER INSERT ON x_t BEGIN INSERT INTO 'core_settings' (key, value, updated_at) VALUES ('k', '1', 'now'); END",
+        ],
+      ],
+      [
+        "op-r1-c",
+        [
+          "CREATE TABLE x_t (id TEXT PRIMARY KEY, role TEXT)",
+          "CREATE TABLE x_copy (v TEXT)",
+          "CREATE TRIGGER evil AFTER INSERT ON x_t BEGIN INSERT INTO x_copy SELECT value FROM 'core_settings'; END",
+        ],
+      ],
+      ["op-r2-a", ["CREATE VIRTUAL TABLE x_fts USING fts5(value, content='core_settings')"]],
+    ];
+    for (const [src, extra] of probes) {
+      const refused = await importWith(src, `${src}-in`, extra);
+      expect(refused, src).toMatch(/refused and the database emptied/);
+      expect((await call({ action: "level", client: `${src}-in` })).body.applied, src).toBe(0);
+    }
+  });
+
+  it("refuses imported extension state that would aim a record view at core_session's tokens (review of #530, R3)", async () => {
+    const at = "2026-11-28T00:00:00Z";
+    const refusedAtLoad = await importWith("op-r3-a", "op-r3-a2", [
+      `INSERT INTO core_extension_objects (name, extension_id, local_name, table_name, status, definition, created_at, updated_at) VALUES ('evil.sess', 'evil', 'sess', 'core_session', 'active', '{"publishable":true}', '${at}', '${at}')`,
+      `INSERT INTO core_extension_fields (extension_id, object, local_name, name, table_name, column_name, type, definition, status, created_at, updated_at) VALUES ('evil', 'evil.sess', 'token', 'token', 'core_session', 'token', 'text', '{"type":"text"}', 'active', '${at}', '${at}')`,
+    ]);
+    // The rows themselves are data the schema check takes; the views are not made from them.
+    expect(refusedAtLoad).toBe("");
+    const made = await call({
+      action: "rebuild-views",
+      client: "op-r3-a2",
+      migrations: real.TEST_MIGRATIONS,
+    });
+    expect(made.status).toBe(500);
+    expect(String(made.body.error)).toMatch(/refused and the database emptied/);
+    expect((await views("op-r3-a2")).map((v) => v.name)).toEqual([]);
+    expect((await call({ action: "level", client: "op-r3-a2" })).body.applied).toBe(0);
   });
 
   it("takes no view from an export: a view over a core table, a new rec_ view and a replaced core one are made again from the host's own (probes 3 to 5)", async () => {

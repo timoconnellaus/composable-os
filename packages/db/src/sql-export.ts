@@ -1084,8 +1084,9 @@ export async function migrationsSchema(
 }
 
 /**
- * The names a piece of SQL refers to, lowercased: every identifier outside a string literal and a
- * comment, bare or quoted (`"…"`, `` `…` ``, `[…]`), with a quoted one unquoted. Keywords come back
+ * The names a piece of SQL refers to, lowercased: every identifier outside a comment, bare or
+ * quoted (`"…"`, `` `…` ``, `[…]`), with a quoted one unquoted, and the text of every
+ * single-quoted string, which SQLite also takes as a name. Keywords come back
  * too; a caller compares the result with the names of objects, so a keyword never matches one.
  * A tokeniser, not a parser (review of #526, N3): it cannot be dodged by quoting, casing or a
  * comment, and it errs towards finding a name (a column named like a table counts as the table).
@@ -1106,12 +1107,21 @@ export function namesIn(sql: string): Set<string> {
       continue;
     }
     if (ch === "'") {
+      // SQLite takes a single-quoted string where a name goes (`UPDATE 'core_user' …`), so a
+      // string's text counts as a name too (review of #530, R1): erring towards refusal.
       let j = i + 1;
+      let text = "";
       while (j < sql.length) {
-        if (sql[j] === "'" && sql[j + 1] === "'") j += 2;
-        else if (sql[j] === "'") break;
-        else j += 1;
+        if (sql[j] === "'" && sql[j + 1] === "'") {
+          text += "'";
+          j += 2;
+        } else if (sql[j] === "'") break;
+        else {
+          text += sql[j];
+          j += 1;
+        }
       }
+      out.add(text.toLowerCase());
       i = j + 1;
       continue;
     }
@@ -1174,23 +1184,30 @@ export function importedExtensionObjects(actual: SchemaRow[], core: SchemaRow[])
       .map((row) => row.name.toLowerCase()),
   );
   const objects = new Set(actual.map((row) => row.name.toLowerCase()));
+  /** Every name `row`'s SQL refers to is an extension table (or the row itself). */
+  const namesOnlyExtension = (row: SchemaRow): boolean => {
+    for (const name of namesIn(row.sql ?? "")) {
+      if (NOT_EXTENSION.test(name)) return false;
+      if (objects.has(name) && name !== row.name.toLowerCase() && !extensionTables.has(name)) {
+        return false;
+      }
+    }
+    return true;
+  };
   return actual.filter((row) => {
     if (coreNames.has(row.name.toLowerCase())) return false;
     switch (row.type) {
       case "table":
-        return extensionTables.has(row.name.toLowerCase());
+        // No virtual table: an FTS5 table's external content reads any table it names (review
+        // of #530, R2). And a table's own SQL (DEFAULT, CHECK, generated columns) names nothing
+        // but extension tables.
+        if (/^\s*CREATE\s+VIRTUAL\b/i.test(row.sql ?? "")) return false;
+        return extensionTables.has(row.name.toLowerCase()) && namesOnlyExtension(row);
       case "index":
-        return extensionTables.has(row.tbl_name.toLowerCase());
-      case "trigger": {
-        if (!extensionTables.has(row.tbl_name.toLowerCase())) return false;
-        for (const name of namesIn(row.sql ?? "")) {
-          if (NOT_EXTENSION.test(name)) return false;
-          if (objects.has(name) && name !== row.name.toLowerCase() && !extensionTables.has(name)) {
-            return false;
-          }
-        }
-        return true;
-      }
+        // Its expressions and a partial index's WHERE, the same.
+        return extensionTables.has(row.tbl_name.toLowerCase()) && namesOnlyExtension(row);
+      case "trigger":
+        return extensionTables.has(row.tbl_name.toLowerCase()) && namesOnlyExtension(row);
       default:
         return false;
     }
