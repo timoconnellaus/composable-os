@@ -455,7 +455,7 @@ export class IntegrationHost extends ClientDurableObject(DurableObject<Env>) {
     if (!origin) {
       throw new Error(
         perClientMissing(this.env, "APP_ORIGIN") ??
-          "The CRM's public origin is unknown (APP_ORIGIN)",
+          "The host's public origin is unknown (APP_ORIGIN)",
       );
     }
     const nonce = token();

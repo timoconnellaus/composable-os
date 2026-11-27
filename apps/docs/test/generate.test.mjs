@@ -362,6 +362,15 @@ describe("this repository", () => {
     assert.deepEqual(left, []);
   });
 
+  it("gives the hosted product no solution page, and the CRM one (review of #553)", async () => {
+    const result = await generate({ root: REPO });
+    const paths = result.pages.map((p) => p.path);
+    assert.ok(paths.includes("solutions/crm.md"));
+    assert.ok(!paths.includes("solutions/composable.md"));
+    const index = result.pages.find((p) => p.path === "solutions/index.md");
+    assert.ok(!index.content.includes("/solutions/composable/"));
+  });
+
   it("is current for the documents lane too (Markdown only, no install)", async () => {
     const result = await generate({ root: REPO, markdownOnly: true });
     assert.deepEqual(apply(result, { root: REPO, check: true, markdownOnly: true }), []);

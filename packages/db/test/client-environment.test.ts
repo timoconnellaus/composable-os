@@ -195,10 +195,11 @@ describe("buildClientEnvironment", () => {
     expect(built.RUNNER).not.toBe(host.RUNNER);
     // Worker Loader is kept apart too (review of #520, M3): the client in every worker id.
     expect(built.LOADER).not.toBe(host.LOADER);
-    // The client's own settings, else the deployment's (`inherit`), else nothing (`empty`).
+    // The client's own settings, else the deployment's (`inherit`), else nothing (`empty`), else
+    // an empty value (`blank`): no COS_PACKS is no pack, never the deployment's "*" (review of #553).
     expect(built.APPROVAL_FLOOR).toBe("high");
     expect(built.COS_ORG_EXTENSIONS).toBe("gym-a-hash");
-    expect(built.COS_PACKS).toBe("*");
+    expect(built.COS_PACKS).toBe("");
     expect("API_ALLOWED_ORIGINS" in built).toBe(false);
     // The account's Stream token and signing key are kept apart, so left out with no wrapper.
     expect("STREAM_API_TOKEN" in built).toBe(false);
@@ -209,6 +210,21 @@ describe("buildClientEnvironment", () => {
     // DB is a client's database, not the D1 binding.
     expect(built.DB).not.toBe(real.DB);
     expect(clientOf(built)).toBe("gym-a");
+  });
+
+  it("gives a client exactly the packs it is given: none without a setting, never the deployment's '*' (review of #553)", () => {
+    const env = manyClientEnv();
+    expect((env as unknown as Record<string, unknown>).COS_PACKS).toBe("*");
+    const packs = (settings: Record<string, string>) =>
+      (
+        buildClientEnvironment(env, { client: gymA, settings }) as unknown as Record<
+          string,
+          unknown
+        >
+      ).COS_PACKS;
+    expect(packs({})).toBe("");
+    expect(packs({ COS_PACKS: "" })).toBe("");
+    expect(packs({ COS_PACKS: "ticketing" })).toBe("ticketing");
   });
 
   it("never carries another client's own setting, even one the deployment has", () => {

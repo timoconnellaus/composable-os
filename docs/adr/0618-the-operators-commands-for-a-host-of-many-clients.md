@@ -311,6 +311,60 @@ installing the gatekeeper.*
   ("a fleet's gatekeepers") and the runner's two-client `email-sending.test.ts` ("a client
   paused, then removed, by the operator").
 
+### The product a fleet is installed as (2026-11-27, the owner's decision)
+*Amends "What a fleet deployment binds" and `cos fleet install` above: they install whichever
+product `cos` is given, and with none given that was the CRM, so a fleet was `crm-*` and labelled
+"CRM".* A fleet is installed as **the hosted product**, `products/composable/product.ts`: a
+neutral product of ours, id `composable`, label "Composable OS", offering every built pack (a
+client takes them or a subset with its `COS_PACKS`), with no apps of its own (the hosted control
+plane, `products/crm/apps/control`, stays the CRM's).
+- **Its names.** `composable-app`, `composable-runner`, `composable-client-db`,
+  `composable-operator`, `composable-gatekeeper-email-send`, the `composable` and
+  `composable-registry` databases (staging adds `-staging`). Not `cos`: packages name their
+  Workers `cos-*`, and a deployment so named could not be told from them. `composable-*` is unlike
+  every name the fleet's account already holds (`cos-docs`, `cos-site`,
+  `crm-client-db-proof…`) and the staging check's throwaway `cosstg-<run id>-*`.
+- **The release.** A tag's release carries a bundle of every product in `products/index.ts`
+  (`build-release.ts --products all`): each product built into a folder of its own exactly as it
+  would be alone (the CRM with no `COS_PRODUCT`, so its bundle is the bytes it always was), then
+  merged with one `SHA256SUMS` listing every file; the workflow attests every bundle and manifest.
+  `cos` already found a product's bundle by its name (`composable-os-<product>-<version>.tar.gz`),
+  so `npm create composable-os` and a single-client `cos install` take the CRM's as before.
+- **The command.** `cos fleet install --product composable`, and the same flag on every later
+  `cos fleet` and `cos client` command: they find the fleet by the product's database name, so a
+  command without it looks for the CRM's fleet, finds none, and changes nothing. The CRM stays the
+  default product for everything. `--product-file` keeps taking a throwaway `cosstg-` product only.
+- **What a client reads.** Every client of the fleet sees the hosted product's label, "Composable
+  OS": the label is one for the whole host (`COS_PRODUCT_LABEL` is shared) until a client's own
+  is held in the registry (PR #552). The app's screens, the host's mail, the messages of its
+  errors and its dashboards' descriptions do not say "CRM" (`scripts/release/test/
+  hosted-product.test.ts` scans them). The model-facing text still does, deliberately, since
+  changing it is a prompt change and part of the staff contract: docs/deploying.md, "What a
+  client sees", lists it; a later change rewords it.
+- **A client has exactly the packs it is given** (review of #553). `cos client add` on a fleet
+  requires `--setting COS_PACKS=<packs>` (empty for base records only) and refuses `*`, the
+  product's catalogue, whose non-optional packs (Deals, Leads, Ticketing) are installed at boot.
+  On the host a client with no `COS_PACKS` row gets an empty value, so nothing is installed
+  (registry `CLIENT_SETTINGS`, `blank`), never the deployment's `*`. Each named pack must be one the
+  installed release carries, and the packs they require must be named too (both from the
+  release's client kit: `packs.json`, `contract/roles.json`), never added silently. An export
+  carries the client's `COS_PACKS` and an import restores it; an export made before needs
+  `--setting COS_PACKS=…` (re-review of #553).
+- **A deployment records its product** (review of #553). `DeploymentState.product` is the
+  manifest's `product`, written by every install and update; the engine (`installRelease`,
+  `runUpdate`, `runRollback`) refuses another product's release for it before anything is made,
+  and `cos` refuses any command whose `--product` is not the recorded one (install, upgrade,
+  rollback, status, uninstall, every `cos fleet` and `cos client` command), so `--database` can no
+  longer point one product's release at another's deployment. A state written before has no
+  product: `cos` reads it as the product whose database it was found in (its `names.database`,
+  or that with `-staging`), else the default product's (re-review of #553), and it gains the
+  field at its next install re-run or upgrade.
+- Tests: `scripts/release/test/hosted-product.test.ts` (the definition, its packs, its manifest
+  with the fleet's Workers, the merged release) and `packages/create-composable-os/test/
+  hosted-product.test.ts` (a fleet installed as it from a release carrying both products, against
+  the fake API; a single-client install from that release creating exactly what it does from the
+  CRM's alone).
+
 ## What is left out, and why
 - **Videos are not copied.** Step 5 (#522, merged) stamps each video with its client's creator
   (`<environment>:<client>`) and refuses one without. An import re-stamps every video the client's
@@ -461,6 +515,32 @@ sign-in codes, invites and every notification name the client's product, never a
   kept by every later upload: `keep_bindings: ["secret_text", "secret_key"]`). All five or none,
   each checked, nothing of the two secrets printed; a re-run with them replaces them. Never a
   client's: `cos client secret` does not take them.
+
+### An import never takes another client's video (review of #552, M-S1; 2026-11-28)
+- **The gap.** `cos client import` re-stamped every video the imported database names
+  (`core_media.stream_uid`) with the importing client, whatever its creator. A video id is no
+  secret (every playback token's `sub` names it), so a crafted export could name another client's
+  videos and take them: play, caption and delete them, and the owner refused.
+- **Decided.** Before any video is re-stamped, each one's creator is read (`streamVideoCreator`,
+  Stream's `GET /stream/<uid>`). Re-stamped: a video with no creator (what a single-client
+  deployment's uploads carry), and one carrying exactly the stamp the operator names with
+  `--videos-from <environment>:<client>` (a genuine move from another environment or fleet of this
+  account; refused when it names a client of this deployment). Left as they are: the client's own.
+  Any other creator stops the import, naming the videos, with none re-stamped. The export's SQL is
+  only readable once it is in a database, so the refusal comes after the database is in and
+  before any video is touched; the client was added paused and is never served, and `cos client
+  remove` drops it. The safe default is no other stamp, ever; the flag is explicit per import.
+- **A checked video's memory.** A client's video host signed without asking Stream for any video
+  it had checked (up to 1,000). It now does so for `CHECKED_VIDEO_TTL_MS` (60 seconds) after the
+  check, then asks again, so a video re-stamped elsewhere stops being signed for within a minute.
+- Tests: `packages/create-composable-os/test/fleet.test.ts` (an import naming gym-a's video is
+  refused and nothing is re-stamped; `--videos-from` naming gym-a is refused; a genuine move with
+  it is taken), the app's two-client `caches.test.ts` (the signing memory).
+
+### The fleet's domain at the write (review of #552, S-R1; 2026-11-28)
+An allowed origin is checked against the fleet's registrable domain where the registry is written
+(`newClientProblems` for `add`'s rows through `addClientRows`, and `setClientSetting`): without the
+domain the check refuses the origin, so the write fails closed rather than skipping the rule.
 
 ### Left open after the review of #552
 - **Cloudflare Access on a fleet client (F1).** With `IDENTITY_PROVIDER=cloudflare-access` the

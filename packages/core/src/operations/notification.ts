@@ -147,7 +147,7 @@ export const notificationSend = defineOperation({
       input.type ?? (ctx.actor === "automation" ? "automation.message" : "system.message");
     if (!SENDABLE_NOTIFICATION_TYPES.includes(type)) {
       throw new ValidationError(
-        `Notifications of type ${type} are sent by the CRM itself; use automation.message or system.message`,
+        `Notifications of type ${type} are sent by the host itself; use automation.message or system.message`,
         { field: "type" },
       );
     }

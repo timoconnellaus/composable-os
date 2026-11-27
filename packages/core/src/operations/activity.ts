@@ -716,7 +716,7 @@ export const activityUpdate = defineOperation({
   async handler(input, ctx) {
     const before = await requireActivity(ctx, input.id, { unlock: true });
     if (before.type === "system") {
-      throw new ValidationError("System activities are written by the CRM and cannot be edited");
+      throw new ValidationError("System activities are written by the host and cannot be edited");
     }
     if (before.conversationId || before.type === "chat") {
       throw new ValidationError(

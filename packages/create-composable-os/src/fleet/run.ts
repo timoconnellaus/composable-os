@@ -43,6 +43,7 @@ import {
   locationChoice,
   parseArgs,
   productOf,
+  refuseOtherProduct,
   type Session,
   session,
   str,
@@ -56,6 +57,7 @@ import {
   FleetError,
   importClient,
   listClientsCommand,
+  packCatalogue,
   pauseClient,
   removeClient,
   removeSecret,
@@ -82,7 +84,6 @@ import {
   firstAdminTokenCommand,
   fleetDomainOf,
   labelSetting,
-  releasePacksOf,
   type SetupTokenSource,
   settingCommand,
   setupTokenSource,
@@ -119,6 +120,8 @@ cos client: the clients of a host of many clients (each takes --env <live|stagin
   cos client secret set <id> <NAME> [--value-file <f>] | secret remove <id> <NAME>
   cos client export <id> [--out <dir>] [--leaving]
   cos client import <id> --from <dir> [--without-secrets] [--staff-hostname h] [--web-hostname h]
+                 [--videos-from <environment>:<client>]   another creator's videos are never taken
+                 [--setting COS_PACKS=…] (needed for an export that does not carry its packs)
   cos client remove <id>
   cos client sender add|verify|unverify|remove <id> <domain>
                  a client's sender domains; verify is your confirmation that the domain is
@@ -134,6 +137,7 @@ cos client: the clients of a host of many clients (each takes --env <live|stagin
                  nothing printed of it or of the address; --print-link makes one and prints the
                  link, at a terminal only (refused in CI); add takes --admin <email>
                  --admin-token-sha256 <sha256> and --label <name> too
+Every command takes --product <id>: a fleet is installed as the hosted product, --product composable.
 Every command that removes or overwrites asks for the client's id (or --yes); --dry-run changes nothing.
 One command at a time uses the operator's Worker; --take-over takes it from one that was killed.`;
 
@@ -181,7 +185,7 @@ function databaseName(s: Session, environment: FleetEnvironment): string {
     : s.product.names.database;
 }
 
-async function locateFleet(s: Session, environment: FleetEnvironment) {
+async function locateFleet(s: Session, environment: FleetEnvironment, deps: Deps) {
   const located = await locateDeployment(s.api, s.accountId, databaseName(s, environment));
   const state = located?.state;
   if (!located || !state?.fleet) {
@@ -194,6 +198,7 @@ async function locateFleet(s: Session, environment: FleetEnvironment) {
       `The ${databaseName(s, environment)} deployment is ${state.fleet.environment}'s`,
     );
   }
+  refuseOtherProduct(state, s.product, deps, databaseName(s, environment));
   return { databaseId: located.databaseId, state };
 }
 
@@ -275,6 +280,7 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
       "That deployment is a single-client one: a fleet is installed apart from it",
     );
   }
+  refuseOtherProduct(existing?.state, s.product, deps, databaseName(s, environment));
   const version =
     str(flags, "version") ?? existing?.state?.version ?? (await latestVersion(s, "stable"));
   refuseReinstall(existing?.state, { version, domain: fleetDomain, callbackHostname });
@@ -383,7 +389,7 @@ async function fleetUpgrade(flags: Flags, deps: Deps): Promise<number> {
   const forced = forcedFailure(deps.env, { environment, product: productOf(flags, deps) });
   const keys = await readKeys(flags, deps, environment);
   const s = await session(flags, deps);
-  const { databaseId, state } = await locateFleet(s, environment);
+  const { databaseId, state } = await locateFleet(s, environment, deps);
   const mismatch = keysMismatch(state.fleet as NonNullable<typeof state.fleet>, keys);
   if (mismatch) {
     throw new CliError(
@@ -406,7 +412,11 @@ async function fleetUpgrade(flags: Flags, deps: Deps): Promise<number> {
   }
   const target = await verified(s, to, deps);
   // The new release's fleet gatekeepers (ADR 0618): a fleet installed before them gains them here.
-  const upgraded = { ...state, gatekeepers: fleetGatekeepers(target.bundle.manifest) };
+  const upgraded = {
+    ...state,
+    product: target.bundle.manifest.product,
+    gatekeepers: fleetGatekeepers(target.bundle.manifest),
+  };
   let previous: ReleaseBundle | null = null;
   const fleet = fleetInput(keys, environment);
   return withContext(`fleet upgrade ${environment}`, flags, deps, s, state, async (context) => {
@@ -476,7 +486,7 @@ async function withContext(
   deps: Deps,
   s: Session,
   state: DeploymentState,
-  body: (ctx: FleetContext & { release: ReleaseBundle }) => Promise<number>,
+  body: (ctx: FleetContext) => Promise<number>,
 ): Promise<number> {
   const fleet = state.fleet;
   if (!fleet) throw new CliError("Not a host of many clients");
@@ -514,10 +524,10 @@ async function withContext(
       operator,
       fleet,
       migrations: bundleMigrations(installed.bundle),
+      packs: packCatalogue(installed.bundle.clientFiles),
       io: deps.io,
       yes: Boolean(flags.yes),
       dryRun: Boolean(flags["dry-run"]),
-      release: installed.bundle,
       videos: {
         setCreator: (uid, creator) => s.api.setStreamCreator(s.accountId, uid, creator),
         creatorOf: (uid) => s.api.streamVideoCreator(s.accountId, uid),
@@ -560,10 +570,10 @@ interface FirstAdminPlan {
  * `cos client add`'s own flags of stage 66 step 9, before anything is written: `--label` as the
  * client's `COS_PRODUCT_LABEL`, `--admin` an address with its token's SHA-256
  * (`--admin-token-sha256`, or `--print-link` at a terminal), and each setting as `cos client
- * setting` checks it (the hostnames it is added with; packs against the installed release).
+ * setting` checks it (the hostnames it is added with; packs against the release's catalogue).
  */
 function prepareAdd(
-  ctx: FleetContext & { release: ReleaseBundle },
+  ctx: FleetContext,
   id: string | undefined,
   flags: Flags,
   deps: Deps,
@@ -580,7 +590,7 @@ function prepareAdd(
     str(flags, "staff-hostname") ?? `${id}-admin.${ctx.fleet.domain}`,
     ...(str(flags, "web-hostname") ? [str(flags, "web-hostname") as string] : []),
   ];
-  const problems = addSettingsProblems(settingsOf(flags), releasePacksOf(ctx.release.clientFiles), {
+  const problems = addSettingsProblems(settingsOf(flags), ctx.packs, {
     ownHostnames,
     fleetDomain: fleetDomainOf(ctx),
   });
@@ -650,7 +660,7 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
     }
     const environment = environmentOf(flags);
     const s = await session(flags, deps);
-    const { state } = await locateFleet(s, environment);
+    const { state } = await locateFleet(s, environment, deps);
     return await withContext(`client ${command}`, flags, deps, s, state, async (ctx) => {
       // `--label` and `--admin` (stage 66 step 9), and every setting checked, before anything.
       const firstAdmin = command === "add" ? prepareAdd(ctx, positional[0], flags, deps) : null;
@@ -700,6 +710,7 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
             ...(str(flags, "videos-from")
               ? { videosFrom: str(flags, "videos-from") as string }
               : {}),
+            settings: settingsOf(flags),
             ...(str(flags, "staff-hostname")
               ? { staffHostname: str(flags, "staff-hostname") as string }
               : {}),
@@ -712,15 +723,9 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
           return removeClient(ctx, positional[0] as string);
         case "setting": {
           const [verb, id, name, value] = positional;
-          return settingCommand(
-            ctx,
-            releasePacksOf(ctx.release.clientFiles),
-            verb,
-            id,
-            name,
-            value,
-            { showEmail: Boolean(flags["show-email"]) },
-          );
+          return settingCommand(ctx, ctx.packs, verb, id, name, value, {
+            showEmail: Boolean(flags["show-email"]),
+          });
         }
         case "first-admin":
           return firstAdminCommand(ctx, positional[0], str(flags, "email") ?? positional[1], {

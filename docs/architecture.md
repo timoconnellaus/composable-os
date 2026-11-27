@@ -165,6 +165,15 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   Worker's secrets, kept by every upgrade); `--label` sets
   the client's `COS_PRODUCT_LABEL`, which `productName` reads from the client scope the code runs
   in, so the client's screens and mail name its product.
+  A fleet is installed as the **hosted product** (`products/composable/product.ts`, the owner's
+  decision of 2026-11-27), not the CRM: `cos fleet install --product composable` takes that
+  product's bundle (`composable-os-composable-<version>.tar.gz`) from a published, attested
+  release, so its Workers are `composable-app`, `composable-runner`, `composable-client-db`,
+  `composable-operator` and `composable-gatekeeper-email-send`; every later `cos fleet` and
+  `cos client` command names the product too. A tag's release carries a bundle of every product
+  in `products/index.ts` (`build-release.ts --products all`), each built as it would be alone, with
+  one `SHA256SUMS`; `npm create composable-os` and a single-client `cos install` still take the
+  CRM's by its name.
 
 - **The registry and the client's environment** (stage 66 step 3,
   [ADR 0613](adr/0613-the-registry-and-the-clients-environment.md)): a host that serves many

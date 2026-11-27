@@ -39,23 +39,17 @@ import {
   setFirstAdmin,
   staffHostnameOf,
 } from "@composable-os/db/registry-writes";
-import { type ClientKit, kitPacks, requiredPacks } from "../client-repo.ts";
 import type { Io } from "../io.ts";
-import { confirmFor, type FleetContext, FleetError, registrableDomain } from "./clients.ts";
+import {
+  confirmFor,
+  type FleetContext,
+  FleetError,
+  type PackCatalogue,
+  packsProblems,
+  registrableDomain,
+} from "./clients.ts";
 
 const REFRESH_NOTE = "A running host serves the change within 10 seconds (its registry refresh).";
-
-/** The packs the installed release carries, and what each requires (its client kit). */
-export interface ReleasePacks {
-  carried: ReadonlySet<string>;
-  /** The packs `packs` require and do not list, followed to the end. */
-  requires(packs: readonly string[]): string[];
-}
-
-/** The installed release's packs, from its verified bundle's client kit. */
-export function releasePacksOf(kit: ClientKit): ReleasePacks {
-  return { carried: kitPacks(kit), requires: (packs) => requiredPacks(kit, packs) };
-}
 
 function idOf(raw: string | undefined): ClientId {
   if (!raw) throw new FleetError("Name the client: cos client <command> <id>");
@@ -79,25 +73,19 @@ export function fleetDomainOf(ctx: Pick<FleetContext, "fleet">): string {
 
 /**
  * What is wrong with `COS_PACKS=<value>` for a client whose own row is `current` (null: it has
- * none and inherits the deployment's packs): every pack carried by the installed release, every
- * pack they require named too, and never narrower than the client's own list. Taking a pack out
- * of the list leaves it installed in the client's database, no longer updated by a release, so it
- * is refused.
+ * none, so no packs): `add`'s own check (`packsProblems`, the release's catalogue: `*` refused,
+ * every pack carried, every pack they require listed), then never narrower than the client's
+ * list. Taking a pack out leaves it installed in the client's database, no longer updated by a
+ * release, so it is refused.
  */
 export function packsProblem(
   value: string,
   current: string | null,
-  release: ReleasePacks,
+  catalogue: PackCatalogue | null | undefined,
 ): string | null {
   const packs = listOf(value);
-  const missing = packs.filter((p) => !release.carried.has(p));
-  if (missing.length) {
-    return `the installed release does not carry ${missing.join(", ")} (it carries ${[...release.carried].sort().join(", ") || "none"})`;
-  }
-  const required = release.requires(packs);
-  if (required.length) {
-    return `${required.join(", ")} must be named too: a pack listed requires ${required.length > 1 ? "them" : "it"}`;
-  }
+  const problems = packsProblems({ settings: { COS_PACKS: value } }, catalogue);
+  if (problems.length) return problems.join("; ");
   if (current !== null) {
     const dropped = listOf(current).filter((p) => !packs.includes(p));
     if (dropped.length) {
@@ -114,7 +102,7 @@ export function packsProblem(
  */
 export function addSettingsProblems(
   settings: Record<string, string>,
-  release: ReleasePacks,
+  catalogue: PackCatalogue | null | undefined,
   context: SettingContext = {},
 ): string[] {
   const problems: string[] = [];
@@ -126,8 +114,8 @@ export function addSettingsProblems(
     const problem = operatorSettingProblem(name, value, context);
     if (problem) problems.push(problem);
     else if (name === "COS_PACKS") {
-      const packs = packsProblem(value, null, release);
-      if (packs) problems.push(`COS_PACKS: ${packs}`);
+      const packs = packsProblem(value, null, catalogue);
+      if (packs) problems.push(packs);
     }
   }
   return problems;
@@ -147,7 +135,7 @@ function shown(name: string, value: string, showEmail: boolean): string {
 /** `cos client setting list|set|unset <id> [NAME] [value]`. */
 export async function settingCommand(
   ctx: FleetContext,
-  release: ReleasePacks,
+  catalogue: PackCatalogue | null | undefined,
   verb: string | undefined,
   raw: string | undefined,
   name: string | undefined,
@@ -188,8 +176,8 @@ export async function settingCommand(
         "COS_PACKS is never unset: a client's packs are always an explicit list (what a client with none gets is the deployment's choice, and a pack taken out stays installed and is no longer updated). Set the list instead.",
       );
     }
-    const packs = packsProblem(next, current, release);
-    if (packs) throw new FleetError(`COS_PACKS: ${packs}`);
+    const packs = packsProblem(next, current, catalogue);
+    if (packs) throw new FleetError(packs);
   }
   if (next !== null && current === next) {
     ctx.io.out(`${id}'s ${name} is already ${next}. Nothing was changed.`);

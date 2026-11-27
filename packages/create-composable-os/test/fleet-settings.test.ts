@@ -20,7 +20,7 @@ import {
   setClientSetting,
 } from "@composable-os/db/registry-writes";
 import { beforeEach, describe, expect, it } from "vitest";
-import { addClient, type FleetContext } from "../src/fleet/clients.ts";
+import { addClient, type FleetContext, type PackCatalogue } from "../src/fleet/clients.ts";
 import { nodeD1 } from "../src/fleet/node-d1.ts";
 import type { Operator } from "../src/fleet/operator-client.ts";
 import { registryMigrations } from "../src/fleet/run.ts";
@@ -29,7 +29,6 @@ import {
   firstAdminCommand,
   firstAdminTokenCommand,
   labelSetting,
-  type ReleasePacks,
   settingCommand,
   setupTokenSource,
 } from "../src/fleet/settings.ts";
@@ -53,10 +52,9 @@ const operator = {
 } as unknown as Operator;
 
 /** A release that carries four packs; Courses requires Programs and Content. */
-const release: ReleasePacks = {
-  carried: new Set(["ticketing", "content", "programs", "courses"]),
-  requires: (packs) =>
-    packs.includes("courses") ? ["programs", "content"].filter((p) => !packs.includes(p)) : [],
+const release: PackCatalogue = {
+  carried: ["ticketing", "content", "programs", "courses"],
+  requires: { courses: ["programs", "content"] },
 };
 
 let registry: D1Database;
@@ -77,6 +75,7 @@ const ctx = (over: Partial<FleetContext> = {}): FleetContext => ({
     secretsPublicKey: "unused",
   },
   migrations: [{ name: "0001_m.sql", queries: ["CREATE TABLE t (v)"] }],
+  packs: release,
   io: io(),
   yes: false,
   dryRun: false,
@@ -136,7 +135,7 @@ describe("cos client setting (G4)", () => {
   });
 
   it("refuses an allowed origin under the fleet's domain that is not the client's own hostname (S4)", async () => {
-    await addClient(ctx(), { id: "gym-b" });
+    await addClient(ctx(), { id: "gym-b", settings: { COS_PACKS: "" } });
     for (const origin of [
       "https://gym-b-admin.fleet.example",
       "https://fleet.example",
@@ -254,17 +253,17 @@ describe("cos client setting (G4)", () => {
 
 describe("COS_PACKS (G4)", () => {
   it("only widens, with packs the installed release carries and what they require", async () => {
-    await expect(set("COS_PACKS", "ticketing,bookings")).rejects.toThrow(/does not carry bookings/);
-    await expect(set("COS_PACKS", "ticketing,courses")).rejects.toThrow(
-      /programs, content must be named too/,
+    await expect(set("COS_PACKS", "ticketing,bookings")).rejects.toThrow(
+      /names bookings, which this release does not carry/,
     );
+    await expect(set("COS_PACKS", "ticketing,courses")).rejects.toThrow(/lacks programs, content/);
     await expect(set("COS_PACKS", "content")).rejects.toThrow(
       /only widen: ticketing would be taken out/,
     );
     await expect(set("COS_PACKS", "ticketing,Content")).rejects.toThrow(/pack ids/);
     // Always an explicit list: never "*", the release product's packs.
-    await expect(set("COS_PACKS", "*")).rejects.toThrow(/never \*/);
-    expect(addSettingsProblems({ COS_PACKS: "*" }, release)[0]).toMatch(/never \*/);
+    await expect(set("COS_PACKS", "*")).rejects.toThrow(/never a client's/);
+    expect(addSettingsProblems({ COS_PACKS: "*" }, release)[0]).toMatch(/never a client's/);
     // Empty is none: narrower than ticketing, so refused here.
     await expect(set("COS_PACKS", "")).rejects.toThrow(/only widen/);
     await expect(
@@ -276,8 +275,8 @@ describe("COS_PACKS (G4)", () => {
     expect(lines.join("\n")).toMatch(/installs each newly listed pack/);
   });
 
-  it("asks first for a client that had the deployment's packs", async () => {
-    await addClient(ctx(), { id: "gym-b" });
+  it("asks first when it replaces a client's list, even an empty one", async () => {
+    await addClient(ctx(), { id: "gym-b", settings: { COS_PACKS: "" } });
     await expect(
       settingCommand(ctx(), release, "set", "gym-b", "COS_PACKS", "ticketing"),
     ).rejects.toThrow(/pass --yes/);
@@ -287,9 +286,9 @@ describe("COS_PACKS (G4)", () => {
   });
 
   it("are checked at add as the setting command checks them, every other name refused (S2)", async () => {
-    expect(addSettingsProblems({ COS_PACKS: "ticketing,courses" }, release)).toEqual([
-      "COS_PACKS: programs, content must be named too: a pack listed requires them",
-    ]);
+    expect(addSettingsProblems({ COS_PACKS: "ticketing,courses" }, release)[0]).toMatch(
+      /lacks programs, content/,
+    );
     expect(addSettingsProblems({ COS_FIRST_ADMIN: "{}" }, release)[0]).toMatch(/--admin/);
     expect(addSettingsProblems({ COS_PRODUCT_LABEL: " Gym" }, release)[0]).toMatch(/space/);
     for (const [name, value, why] of [
@@ -344,7 +343,7 @@ describe("the commands, through cos itself", () => {
       for (const [args, said] of [
         [["add", "gym-a", "--label", " Gym A"], /--label: no space/],
         [["add", "gym-a", "--admin", "not an address"], /--admin/],
-        [["add", "gym-a", "--setting", "COS_PACKS=nope"], /does not carry nope/],
+        [["add", "gym-a", "--setting", "COS_PACKS=*"], /never a client's/],
         [["add", "gym-a", "--setting", "COS_FIRST_ADMIN={}"], /--admin <email>/],
         [["add", "gym-a", "--setting", "AUTH_ALLOW_SIGNUP=true"], /never on a fleet/],
         [["add", "gym-a", "--admin", "owner@gym-a.example"], /--admin-token-sha256 <sha256>/],

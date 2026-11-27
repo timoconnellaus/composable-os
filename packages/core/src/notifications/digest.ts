@@ -276,7 +276,7 @@ export function digestMarkdown(input: DigestInput): { title: string; body: strin
 // --- The AI overview ------------------------------------------------------------------------------
 
 export const DIGEST_OVERVIEW_INSTRUCTIONS =
-  "You write the opening of a CRM user's daily digest: one or two short, plain sentences saying " +
+  "You write the opening of a staff member's daily digest: one or two short, plain sentences saying " +
   "what most needs their attention today, using only the facts given. Address them as 'you'. No " +
   "greeting, no list, no Markdown, nothing that is not in the facts.";
 
