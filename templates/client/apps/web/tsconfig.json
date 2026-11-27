@@ -12,7 +12,13 @@
     "skipLibCheck": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,
-    "types": ["@cloudflare/workers-types", "./worker-configuration.d.ts", "vite/client"]
+    "types": ["@cloudflare/workers-types", "./worker-configuration.d.ts", "vite/client", "node"]
   },
-  "include": ["src", "worker-configuration.d.ts", "vite.config.ts"]
+  "include": [
+    "src",
+    "test",
+    "worker-configuration.d.ts",
+    "vite.config.ts",
+    "vite.browser.config.ts"
+  ]
 }

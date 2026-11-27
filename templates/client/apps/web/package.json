@@ -3,12 +3,14 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "The client template's web app (stage 24): TanStack Start on its own Worker, reaching the host over one service binding. `cos create` copies it into a client repo.",
+  "description": "The client template's web app (stage 24): TanStack Start on its own Worker, reaching the host over one service binding, and the same screens as a browser-only build over /api/v1 (stage 75). `cos create` copies it into a client repo.",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "build:browser": "vite build -c vite.browser.config.ts",
     "types": "wrangler types --include-runtime=false",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@composable-os/client": "workspace:*",
@@ -21,12 +23,14 @@
     "@cloudflare/vite-plugin": "1.67.0",
     "@cloudflare/workers-types": "5.20261104.1",
     "@tailwindcss/vite": "4.3.4",
+    "@types/node": "24.19.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.2.1",
     "tailwindcss": "4.3.4",
     "typescript": "6.0.3",
     "vite": "8.3.5",
+    "vitest": "5.1.0",
     "wrangler": "4.157.0"
   }
 }
