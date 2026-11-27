@@ -100,6 +100,7 @@ interface Client {
   userId: string;
   staffToken: string;
   customerToken: string;
+  customerRefresh: string;
 }
 
 async function seedClient(c: { id: string; hostname: string }, label: string): Promise<Client> {
@@ -158,6 +159,7 @@ async function seedClient(c: { id: string; hostname: string }, label: string): P
     userId,
     staffToken: staff.accessToken,
     customerToken: customer.accessToken,
+    customerRefresh: customer.refreshToken,
   };
 }
 
@@ -300,6 +302,30 @@ describe("a credential issued for one client, at the other's address (criterion 
   it("a customer device token is unknown there", async () => {
     expect((await op(a.hostname, "me.get", {}, A.customerToken)).status).toBe(200);
     expect((await op(b.hostname, "me.get", {}, A.customerToken)).status).toBe(401);
+  });
+
+  it("a refresh answered again within the grace is its own client's only (ADR 0419, amended 2026-11-27)", async () => {
+    const refresh = (hostname: string, refreshToken: string) =>
+      fetchAt(hostname, "/api/v1/auth/refresh", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+    const first = await refresh(a.hostname, A.customerRefresh);
+    expect(first.status).toBe(200);
+    const tokens = ((await first.json()) as { data: { accessToken: string; refreshToken: string } })
+      .data;
+    // The answer was lost: the same token again at its own client gets the same tokens.
+    const again = await refresh(a.hostname, A.customerRefresh);
+    expect(again.status).toBe(200);
+    expect(((await again.json()) as { data: unknown }).data).toEqual(tokens);
+    // At the other client's address it is no session at all, and ends nothing at gym-a.
+    const crossed = await refresh(b.hostname, A.customerRefresh);
+    expect(crossed.status).toBe(401);
+    expect(await crossed.text()).not.toContain(tokens.refreshToken);
+    expect((await op(a.hostname, "me.get", {}, tokens.accessToken)).status).toBe(200);
+    A.customerToken = tokens.accessToken;
+    A.customerRefresh = tokens.refreshToken;
   });
 
   it("an MCP connection made at one client (consent and exchange) is unknown at the other", async () => {

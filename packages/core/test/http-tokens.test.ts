@@ -8,6 +8,7 @@ import {
   type ActingUser,
   invoke,
   issueDeviceSession,
+  REFRESH_GRACE_MS,
   refreshDeviceSession,
   resolveAccessToken,
 } from "../src/index.ts";
@@ -100,14 +101,16 @@ describe("tokens", () => {
       now,
     );
     const t2 = await refreshDeviceSession(db, t1.refreshToken, now);
-    // Someone replays the first refresh token: the session ends, for the thief and the owner.
-    expect(await reason(refreshDeviceSession(db, t1.refreshToken, now))).toBe("refresh_reused");
+    // Someone replays the first refresh token after the grace: the session ends, for the thief
+    // and the owner.
+    const later = new Date(now.getTime() + REFRESH_GRACE_MS + 1);
+    expect(await reason(refreshDeviceSession(db, t1.refreshToken, later))).toBe("refresh_reused");
     expect(await sessionExists(t1.sessionId)).toBe(false);
     expect(await reason(resolveAccessToken(db, t2.accessToken, now))).toBe("token_invalid");
     expect(await reason(refreshDeviceSession(db, t2.refreshToken, now))).toBe("session_ended");
   });
 
-  it("the same refresh token sent twice at once ends the session", async () => {
+  it("the same refresh token sent twice at once gets one rotation: both answers are the same tokens", async () => {
     const now = new Date();
     const t = await issueDeviceSession(
       db,
@@ -115,12 +118,85 @@ describe("tokens", () => {
       "Phone",
       now,
     );
-    const results = await Promise.all([
-      reason(refreshDeviceSession(db, t.refreshToken, now)),
-      reason(refreshDeviceSession(db, t.refreshToken, now)),
+    const [a, b] = await Promise.all([
+      refreshDeviceSession(db, t.refreshToken, now),
+      refreshDeviceSession(db, t.refreshToken, now),
     ]);
-    expect(results).toContain("refresh_reused");
-    expect(await sessionExists(t.sessionId)).toBe(false);
+    expect(a).toEqual(b);
+    expect(await sessionExists(t.sessionId)).toBe(true);
+    expect((await resolveAccessToken(db, a.accessToken, now)).sessionId).toBe(t.sessionId);
+  });
+
+  describe("a refresh whose answer was lost (ADR 0419, amended 2026-11-27)", () => {
+    const start = () =>
+      issueDeviceSession(db, { audience: "customer", subjectId: customerId }, "Phone", new Date());
+
+    it("the token just rotated past, sent again within the grace, gets the same tokens: no second rotation", async () => {
+      const t1 = await start();
+      const at = new Date();
+      const t2 = await refreshDeviceSession(db, t1.refreshToken, at);
+      // The answer never reached the phone; it tries again with t1, 59 seconds on.
+      const again = await refreshDeviceSession(
+        db,
+        t1.refreshToken,
+        new Date(at.getTime() + REFRESH_GRACE_MS - 1_000),
+      );
+      expect(again).toEqual(t2);
+      // Still signed in, on the one session: the tokens it now holds work, and refresh as usual.
+      expect((await resolveAccessToken(db, again.accessToken, at)).sessionId).toBe(t1.sessionId);
+      const t3 = await refreshDeviceSession(db, again.refreshToken, at);
+      expect(t3.refreshToken).not.toBe(t2.refreshToken);
+      expect(await sessionExists(t1.sessionId)).toBe(true);
+    });
+
+    it("the same token after the grace ends the session, as reuse always has", async () => {
+      const t1 = await start();
+      const at = new Date();
+      const t2 = await refreshDeviceSession(db, t1.refreshToken, at);
+      const late = new Date(at.getTime() + REFRESH_GRACE_MS + 1_000);
+      expect(await reason(refreshDeviceSession(db, t1.refreshToken, late))).toBe("refresh_reused");
+      expect(await sessionExists(t1.sessionId)).toBe(false);
+      expect(await reason(refreshDeviceSession(db, t2.refreshToken, late))).toBe("session_ended");
+    });
+
+    it("a token two rotations back ends the session at once, inside any grace", async () => {
+      const t1 = await start();
+      const at = new Date();
+      const t2 = await refreshDeviceSession(db, t1.refreshToken, at);
+      await refreshDeviceSession(db, t2.refreshToken, at);
+      expect(await reason(refreshDeviceSession(db, t1.refreshToken, at))).toBe("refresh_reused");
+      expect(await sessionExists(t1.sessionId)).toBe(false);
+    });
+
+    it("the previous token gets nothing once the session has rotated on: only the current answer is kept", async () => {
+      const t1 = await start();
+      const at = new Date();
+      const t2 = await refreshDeviceSession(db, t1.refreshToken, at);
+      const t3 = await refreshDeviceSession(db, t2.refreshToken, at);
+      // t2 is now the token just rotated past: it gets t3 again, and t1 (older) ends it.
+      expect(await refreshDeviceSession(db, t2.refreshToken, at)).toEqual(t3);
+      expect(await reason(refreshDeviceSession(db, t1.refreshToken, at))).toBe("refresh_reused");
+    });
+
+    it("keeps no token as given: the answer is sealed, and opens only with the previous token", async () => {
+      const t1 = await start();
+      const at = new Date();
+      const t2 = await refreshDeviceSession(db, t1.refreshToken, at);
+      const row = await db.query
+        .selectFrom("core_device_session")
+        .selectAll()
+        .where("id", "=", t1.sessionId)
+        .executeTakeFirstOrThrow();
+      const stored = JSON.stringify(row);
+      for (const secret of [t1.refreshToken, t2.refreshToken, t2.accessToken]) {
+        expect(stored).not.toContain(secret);
+        expect(stored).not.toContain(secret.slice(secret.indexOf(".") + 1));
+      }
+      // A forged token with the session's id cannot open it, and is refused as before.
+      const forged = `${t1.refreshToken.slice(0, t1.refreshToken.indexOf("."))}.forged`;
+      expect(await reason(refreshDeviceSession(db, forged, at))).toBe("token_invalid");
+      expect(await sessionExists(t1.sessionId)).toBe(true);
+    });
   });
 
   it("a forged refresh token is refused and ends nothing", async () => {

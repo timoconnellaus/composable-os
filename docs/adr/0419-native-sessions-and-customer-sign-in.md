@@ -72,3 +72,33 @@ connection an admin chooses, and that no staff user is the sender.
   MCP sessions), so `deviceSession.list` marks none as current over a staff token.
 - The admin UI does not yet have a picker for the customer mail connection; it is set with
   `customer.settings.update`.
+
+## Amended 2026-11-27: a refresh whose answer was lost (issue #540, review of #548)
+A device whose refresh reached the host but whose answer did not (the app killed mid-request, the
+network lost) still holds the token it sent, and its next refresh used to count as reuse and end
+the session: an unexplained sign-out on a phone.
+
+- **The grace:** for `REFRESH_GRACE_MS` (60 seconds) after a rotation, the one refresh token it
+  rotated past is answered with **the same tokens** it was answered with: never a second rotation,
+  never a parallel session. Only that one token, only while those tokens are still the session's
+  (nothing has rotated since). A token two rotations back, or the previous one after the window,
+  ends the session at once, as before. Two refreshes racing with one token now both get the one
+  rotation's answer instead of ending the session.
+- **Nothing is stored as given.** The answer is kept sealed (AES-GCM) under a key derived
+  (HKDF-SHA256, salted with the session id) from the previous refresh token, which is stored only as
+  its hash (migration 1505: `previous_refresh_hash`, `previous_rotated_at`, `successor_sealed`).
+  Only someone presenting that token can open it; a copy of the database cannot, and a forged
+  token cannot.
+- **Why 60 seconds:** the client gives up on a refresh after 15 seconds and the next call tries
+  again at once (`tokenSession`, 2026-11-27), so a lost answer is retried within seconds; 60 leaves
+  room for a slow network and an app reopened straight away. A device killed for longer comes back
+  to a `refresh_reused` as before. Longer would widen what an old token is worth (below) for no
+  case worth covering.
+- **What a stolen old token is worth.** Within the window, the token just rotated past gets exactly
+  what the current one would: the tokens the device holds. That is no more than stealing the
+  current token, which today gets a rotation of its own. After the window, and for any older
+  token, it ends the session for both holders, unchanged. Two holders sharing one session can only
+  outlast reuse detection by each refreshing within 60 seconds of the other's rotation, which a
+  thief cannot time: a device refreshes when its own access token is near its end, minutes apart.
+- **A constant, not a setting.** Identity and policy are not AI-configurable (AGENTS.md); changing
+  the window is a code change and a review.
