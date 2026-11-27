@@ -229,11 +229,12 @@ migration.
 Steps 1 and 2 spec agreed (the owner's decisions of 2026-11-27); steps 3 to 12 proposed. Each
 build step changes its own line here (CONTRIBUTING.md, Working in parallel).
 
-- **Step 1** — in progress — branch `feat/stage-78-general-packs` — The ADR and this spec: ADR 0980,
-  dated notes on ADRs 0448, 0478, 0504, 0505, 0511, 0812 and 0889, `CONTEXT.md`
+- **Step 1** — built — PR #549 — The ADR and this spec: ADR 0980, dated notes on ADRs 0448,
+  0478, 0504, 0505, 0511, 0812 and 0889, `CONTEXT.md`
 
-- **Step 2** — in progress — branch `feat/stage-78-general-packs` — The class type moves to
-  Bookings: no migration; the tier field (step 4) not added
+- **Step 2** — built — PR #549 — The class type moves to Bookings: `bookings.classtype`; Bookings
+  requires nothing, Programs and Memberships require Bookings; no migration; routine mail's tie
+  ignores read-only relations; the tier field (step 4) not added
 
 - **Step 3** — not built — needs: step 2, an owner decision — Identifier renames
 
