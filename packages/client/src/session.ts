@@ -124,6 +124,28 @@ function sessionRefused(error: unknown): boolean {
   return error instanceof ApiError && [400, 401, 403].includes(error.status);
 }
 
+/**
+ * An answer whose body has been read, to pass on: a `Response` again where the platform has one
+ * (a page's code may read `.ok` or `.json()`), else the little the client reads.
+ */
+function replayed(answer: Awaited<ReturnType<FetchLike>>, text: string) {
+  const platform = globalThis as {
+    Response?: new (body: string, init: { status: number; headers: unknown }) => unknown;
+    Headers?: new (...args: never[]) => unknown;
+  };
+  if (platform.Response) {
+    // The platform's own headers as they came; else the one a reader of the body needs.
+    const headers =
+      platform.Headers && answer.headers instanceof platform.Headers
+        ? answer.headers
+        : { "content-type": answer.headers.get("content-type") ?? "application/json" };
+    return new platform.Response(text, { status: answer.status, headers }) as Awaited<
+      ReturnType<FetchLike>
+    >;
+  }
+  return { status: answer.status, headers: answer.headers, text: async () => text };
+}
+
 /** The `details.reason` of a refusal's envelope, or null. */
 function refusalReason(text: string): string | null {
   try {
@@ -143,19 +165,31 @@ export function tokenSession(options: TokenSessionOptions) {
   const now = options.now ?? (() => Date.now());
   // One refresh at a time: two at once would present one refresh token twice and end the session.
   let refreshing: Promise<Tokens | null> | null = null;
+  // Which session the store holds: a sign-out or a sign-in moves it on, and a refresh begun
+  // before that keeps nothing it brings back (review of #542, F1).
+  let generation = 0;
+
+  /** Saves `tokens` as a new session (a sign-in) or none (a sign-out): any refresh is stale. */
+  async function replace(tokens: Tokens | null): Promise<void> {
+    generation += 1;
+    await options.store.save(tokens);
+  }
 
   async function refresh(tokens: Tokens): Promise<Tokens | null> {
+    const began = generation;
     try {
       const next = await post(fetcher, `${base}/api/v1/auth/refresh`, {
         refreshToken: tokens.refreshToken,
       });
+      // Signed out, or signed in afresh, meanwhile: that is the session now, not this one.
+      if (generation !== began) return options.store.load();
       await options.store.save(next);
       return next;
     } catch (error) {
       // The host refused the token (signed out, unused too long, reused, not a token): the session
       // is over, so forget it. A 5xx, a 429, a proxy's page or no answer says nothing about the
       // session: the tokens are kept for the next try.
-      if (sessionRefused(error)) await options.store.save(null);
+      if (sessionRefused(error) && generation === began) await options.store.save(null);
       throw error;
     }
   }
@@ -180,8 +214,16 @@ export function tokenSession(options: TokenSessionOptions) {
     return refreshOnce(now);
   }
 
-  /** The stored tokens, refreshed first when the access token is about to end. */
+  /**
+   * The tokens for a call: a refresh in flight first (whatever this device's clock says: with a
+   * clock behind the host's, the old access token stops working the moment the refresh lands, and
+   * a call sent with it then is refused), else the stored ones, refreshed first when the access
+   * token is about to end.
+   */
   async function current(): Promise<Tokens | null> {
+    // A refresh the host refused has forgotten the session (none); one that failed otherwise has
+    // kept it, and a call with it is refused as expired and tries again.
+    if (refreshing) return refreshing.catch(() => options.store.load());
     const tokens = await options.store.load();
     if (!tokens) return null;
     if (Date.parse(tokens.accessExpiresAt) - early <= now()) return refreshOnce(tokens);
@@ -198,7 +240,7 @@ export function tokenSession(options: TokenSessionOptions) {
      */
     async exchange(deviceName: string, credentials: Record<string, string>): Promise<Tokens> {
       const tokens = await post(fetcher, `${base}/api/v1/auth/token`, { deviceName }, credentials);
-      await options.store.save(tokens);
+      await replace(tokens);
       return tokens;
     },
     /**
@@ -231,7 +273,7 @@ export function tokenSession(options: TokenSessionOptions) {
         ...(previous?.refreshToken ? { replaces: previous.refreshToken } : {}),
       });
       const { account: _account, ...tokens } = signedIn;
-      await options.store.save(tokens);
+      await replace(tokens);
       return signedIn;
     },
     /**
@@ -272,7 +314,7 @@ export function tokenSession(options: TokenSessionOptions) {
         redirectUri: input.redirectUri,
         deviceName: input.deviceName,
       });
-      await options.store.save(tokens);
+      await replace(tokens);
       return tokens;
     },
     /**
@@ -284,9 +326,12 @@ export function tokenSession(options: TokenSessionOptions) {
     },
     /**
      * A fetch that carries the session (pass it as the typed client's `fetch`): each call with a
-     * current access token; when the host refuses it as expired (`token_expired`: this device's
-     * clock behind the host's), one refresh, shared by every call refused at once, and the call
-     * sent once more. Any other answer is passed back as it came.
+     * current access token, sent at most twice:
+     * - refused (401) with a token the session has since replaced (a refresh landed while the
+     *   call was on its way: the host then says `token_invalid`), sent again with the new one;
+     * - refused as expired (`token_expired`: this device's clock behind the host's), one refresh,
+     *   shared by every call refused at once, and sent again.
+     * Any other answer is passed back as it came, a 401 it has read as a `Response` again.
      */
     fetch: (async (url, init) => {
       const used = await current();
@@ -295,7 +340,11 @@ export function tokenSession(options: TokenSessionOptions) {
       const first = await send(used);
       if (!used || first.status !== 401) return first;
       const text = await first.text();
-      const again = { status: first.status, headers: first.headers, text: async () => text };
+      const again = replayed(first, text);
+      // A refresh in flight, or one that landed while this call was out: the session's token now.
+      if (refreshing) await refreshing.catch(() => null);
+      const stored = await options.store.load();
+      if (stored && stored.accessToken !== used.accessToken) return send(stored);
       if (refusalReason(text) !== "token_expired") return again;
       let next: Tokens | null;
       try {
@@ -323,7 +372,7 @@ export function tokenSession(options: TokenSessionOptions) {
       } catch {
         // Forgotten here either way; the host ends an unused session after the idle setting.
       } finally {
-        await options.store.save(null);
+        await replace(null);
       }
     },
   };
