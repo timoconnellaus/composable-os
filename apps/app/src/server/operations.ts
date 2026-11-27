@@ -6,6 +6,7 @@
 
 // The screens this build holds, for screens.mine (stage 47).
 import "./built-screens.ts";
+import { waitUntil } from "cloudflare:workers";
 import type { Principal } from "@composable-os/auth";
 import {
   type AgentJobHost,
@@ -16,6 +17,7 @@ import {
   errorForLog,
   type InvocationContext,
   invokeByName,
+  OperationError,
   type Origin,
   parseFloor,
   queueEventSink,
@@ -201,38 +203,167 @@ export function packsNotInstalled(
     .filter((id) => id && !seen.has(id));
 }
 
-// Once per environment (stage 66 step 5, ADR 0617): on a many-client host each client's
-// environment is its own object, and each client's database needs its own install.
-const shippedInstalls = new WeakMap<object, Promise<void>>();
+/**
+ * How long a call waits for its client's shipped extensions to be checked or installed before it
+ * goes on without them (issue #558). When they are already installed the check is one read in
+ * cos-runner and ends well inside it; a first install (seconds per pack) carries on after.
+ */
+export const SHIPPED_WAIT_MS = 2_000;
 
 /**
- * Installs the shipped extensions bundled with this release once per isolate (and client),
- * through `extension.install` in cos-runner (ADR 0025). A failure is logged and retried on a later
- * call; operations still run meanwhile.
+ * An install still running after this long is not waited on again: the next call starts another.
+ * Longer than the work can live: cos-app's `waitUntil` keeps its request 30 s after the response,
+ * and cos-runner's own is expected (not documented) to keep the install about 30 s after that. So
+ * only an install that was cut off gets here; the next one carries on from the packs
+ * it finished, each committed on its own.
  */
-export function ensureShippedExtensions(env: OperationsEnv): Promise<void> {
-  if (!env.RUNNER) return Promise.resolve();
-  const key = clientKeyOf(env);
-  const held = shippedInstalls.get(key);
-  if (held) return held;
-  const shippedInstall = runner({ RUNNER: env.RUNNER })
+export const SHIPPED_STALE_MS = 65_000;
+
+interface ShippedInstall {
+  done: Promise<void>;
+  settled: boolean;
+  startedAt: number;
+}
+
+// Once per environment (stage 66 step 5, ADR 0617): on a many-client host each client's
+// environment is its own object, and each client's database needs its own install.
+const shippedInstalls = new WeakMap<object, ShippedInstall>();
+
+/** waitUntil inside a request, so the work outlives it; outside one (tests) the promise runs. */
+function outlive(work: Promise<unknown>): void {
+  try {
+    waitUntil(work);
+  } catch {
+    // Outside a request: the promise still runs.
+  }
+}
+
+function startShippedInstall(
+  binding: Fetcher,
+  key: object,
+  packs: string | undefined,
+  keepAlive: (work: Promise<unknown>) => void,
+): ShippedInstall {
+  const held: ShippedInstall = { settled: false, startedAt: Date.now(), done: Promise.resolve() };
+  held.done = runner({ RUNNER: binding })
     .installShipped()
     .then((results) => {
       const failed = results.filter((r) => r.outcome === "failed");
+      // Not tried again in this isolate: cos-runner told the admins, and the next isolate tries.
       if (failed.length) console.error("shipped extensions failed to install", failed);
       // The runner read an older registry than this environment (each refreshes on its own, within
       // 10 seconds): a pack just added to the client's COS_PACKS was not in its list. Not held, so
       // the next request installs it (stage 66 step 9).
-      if (packsNotInstalled(env.COS_PACKS, results).length) {
-        shippedInstalls.delete(key);
+      if (packsNotInstalled(packs, results).length) {
+        if (shippedInstalls.get(key) === held) shippedInstalls.delete(key);
+        return;
       }
+      held.settled = true;
     })
     .catch((error: unknown) => {
       console.error("could not install shipped extensions", error);
-      shippedInstalls.delete(key);
+      // Only its own entry: a later call may have started another after this one went stale.
+      if (shippedInstalls.get(key) === held) shippedInstalls.delete(key);
     });
-  shippedInstalls.set(key, shippedInstall);
-  return shippedInstall;
+  shippedInstalls.set(key, held);
+  keepAlive(held.done);
+  return held;
+}
+
+/**
+ * Checks the shipped extensions bundled with this release once per isolate (and client), and
+ * installs them through `extension.install` in cos-runner when they are not (ADR 0025, issue
+ * #558). Calls wait for that at most `waitMs` after it started, and then go on: core operations
+ * run as usual, and one that needs a pack not installed yet answers `stillInstalling`
+ * (retryable). The install runs under the request that started it (`waitUntil`), so a request
+ * that ends or is cancelled does not stop it; one that fails, or has run longer than `staleMs`
+ * (its request was ended under it), is started again by the next call.
+ */
+export async function ensureShippedExtensions(
+  env: OperationsEnv,
+  {
+    waitMs = SHIPPED_WAIT_MS,
+    staleMs = SHIPPED_STALE_MS,
+    keepAlive = outlive,
+  }: {
+    waitMs?: number;
+    staleMs?: number;
+    /** What keeps the install alive past the request: `waitUntil` (tests watch it). */
+    keepAlive?: (work: Promise<unknown>) => void;
+  } = {},
+): Promise<void> {
+  if (!env.RUNNER) return;
+  const key = clientKeyOf(env);
+  let held = shippedInstalls.get(key);
+  if (held?.settled) return;
+  if (!held || Date.now() - held.startedAt >= staleMs) {
+    held = startShippedInstall(env.RUNNER, key, env.COS_PACKS, keepAlive);
+  }
+  // Waited on only in the bound's first moments after it started: once it has run longer, calls
+  // go on at once, rather than each adding the bound while a first install runs.
+  const remaining = held.startedAt + waitMs - Date.now();
+  if (remaining <= 0) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    held.done,
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, remaining);
+    }),
+  ]);
+  clearTimeout(timer);
+}
+
+/** Tests only: forgets this isolate's check or install for `env`'s client. */
+export function forgetShippedInstall(env: OperationsEnv): void {
+  shippedInstalls.delete(clientKeyOf(env));
+}
+
+/** Whether this client's shipped extensions are still being checked or installed here. */
+export function shippedInstallPending(env: OperationsEnv): boolean {
+  if (!env.RUNNER) return false;
+  const held = shippedInstalls.get(clientKeyOf(env));
+  return Boolean(held && !held.settled);
+}
+
+/** What a call answers while its client's packs are still being installed (issue #558). */
+export function stillInstalling(): OperationError {
+  return new OperationError(
+    "timeout",
+    "This host is still installing its packs: try again in a few seconds",
+    { installing: true, retryAfterSeconds: 5, httpStatus: 503 },
+  );
+}
+
+/**
+ * Whether a call names something a pack owns: an extension tool (`x.<extension>.<tool>`) or an
+ * extension's object (`<extension>.<object>`; core's objects have no dot: person, organisation,
+ * activity, task), as a record operation's `object`.
+ */
+export function namesPack(name: string, input: unknown): boolean {
+  if (name.startsWith("x.")) return true;
+  const object = (input as { object?: unknown } | null | undefined)?.object;
+  return typeof object === "string" && object.includes(".");
+}
+
+/**
+ * While this client's packs are still being installed, a call that names a pack's tool or object
+ * and is refused as not there (`unknown_operation`, `invalid_input`, `not_found`) answers
+ * `stillInstalling` instead: tried again once the install has finished, it gets its real answer.
+ * Every other call's errors, core operations' included, and every error once the install has
+ * finished, are the operation's own.
+ */
+export function duringShippedInstall(
+  env: OperationsEnv,
+  error: unknown,
+  name: string,
+  input?: unknown,
+): unknown {
+  if (!shippedInstallPending(env) || !namesPack(name, input)) return error;
+  const code = (error as { code?: unknown } | null)?.code;
+  if (code === "unknown_operation" || code === "invalid_input" || code === "not_found") {
+    return stillInstalling();
+  }
+  return error;
 }
 
 /** Plain JSON: what operation outputs are once serialised. */
@@ -332,7 +463,7 @@ export async function runOperation(
     }
     return toWire({ ok: true, data });
   } catch (error) {
-    const typed = toOperationError(error);
+    const typed = toOperationError(duringShippedInstall(env, error, call.name, call.input));
     if (typed.code === "internal" || typed.code === "config") {
       // Log-safe: the error can quote record content (ADR 0320).
       console.error(`operation ${call.name} failed`, errorForLog(error));

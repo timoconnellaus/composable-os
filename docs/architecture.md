@@ -406,7 +406,10 @@ How stage 3a built it ([ADR 0040](adr/0040-extension-runtime-build.md)):
     reinstalls an earlier commit.
 - **Shipped extensions** (`packs/<id>/`; Deals is the first) are bundled as source at build time,
   the packs the product lists and only those, and installed through the same `extension.install`
-  path at boot. A pack's `client/` and `blocks/` are client code and are not bundled.
+  path at boot: on an isolate's first request, which waits for it at most 2 s (a call to a pack
+  not installed yet answers a retryable 503 meanwhile), and once installed checked with one read
+  of the client's database ([ADR 0040](adr/0040-extension-runtime-build.md), amended 2026-11-28).
+  A pack's `client/` and `blocks/` are client code and are not bundled.
 - **Leads** ([ADR 0246](adr/0246-leads-as-an-extension-and-assignment-rules-in-core.md)) is built on
   the public contract like Deals. A relation to `deals.deal` refuses the install where Deals is
   missing. Conversion is a tool making several CRM calls, written to be run again. The contract

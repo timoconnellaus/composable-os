@@ -946,7 +946,7 @@ async function signIn(ctx, hostname, email, password) {
 }
 
 /** An operation called with a cookie: its status, and its error's code when the body is JSON. */
-async function staffOp(ctx, hostname, cookie, name) {
+async function staffOp(ctx, hostname, cookie, name, input = {}) {
   const origin = `https://${hostname}`;
   const send = () =>
     request(ctx.fetch, `${origin}/api/v1/op/${name}`, {
@@ -957,14 +957,16 @@ async function staffOp(ctx, hostname, cookie, name) {
         origin,
         ...(cookie ? { cookie } : {}),
       },
-      body: "{}",
+      body: JSON.stringify(input),
     });
   const answer = await send();
   const text = answer.response ? await answer.response.text() : "";
   let code = null;
+  let installing = false;
   try {
     const body = JSON.parse(text);
     code = body?.error?.code ?? body?.code ?? null;
+    installing = body?.error?.details?.installing === true;
   } catch {
     code = null;
   }
@@ -978,7 +980,68 @@ async function staffOp(ctx, hostname, cookie, name) {
     await again.response?.body?.cancel();
     repeat = saidTimed(again);
   }
-  return { status: answer.status, code, said: saidTimed(answer), repeat };
+  return {
+    status: answer.status,
+    code,
+    installing,
+    said: saidTimed(answer),
+    ms: answer.ms,
+    repeat,
+  };
+}
+
+/**
+ * How long a client's packs may take to answer after its first operation (issue #558): a pack's
+ * read is asked every PACKS_POLL_MS while it answers 503 "still installing", up to this bound.
+ */
+export const PACKS_BOUND_MS = 120_000;
+export const PACKS_POLL_MS = 5000;
+
+/** The pack read the check's clients have (`COS_PACKS=deals,leads`): a list of Deals' deals. */
+const PACK_READ = { name: "record.list", input: { object: "deals.deal" } };
+
+/**
+ * Asks `id`'s pack read until it answers 200: "<id>'s packs answered after N s". Fails at once on
+ * any other answer than 200 or 503 "still installing", and when the bound passes.
+ */
+export async function packsAnswer(ctx, id, when = "") {
+  const started = Date.now();
+  for (let tries = 1; ; tries += 1) {
+    const op = await staffOp(
+      ctx,
+      ctx.hosts.staff[id],
+      ctx.staff[id].cookie,
+      PACK_READ.name,
+      PACK_READ.input,
+    );
+    const seconds = ((Date.now() - started) / 1000).toFixed(1);
+    if (op.status === 200) return `${id}'s packs answered${when} after ${seconds} s`;
+    if (!(op.status === 503 && op.installing)) {
+      fail(
+        `${id}'s ${PACK_READ.name} of ${PACK_READ.input.object}${when} answered ${opFailed(op)}`,
+      );
+    }
+    if (tries * PACKS_POLL_MS >= PACKS_BOUND_MS) {
+      fail(
+        `${id}'s packs were still installing${when} after ${PACKS_BOUND_MS / 1000} s (${tries} tries)`,
+      );
+    }
+    await ctx.sleep(PACKS_POLL_MS);
+  }
+}
+
+/**
+ * How long a client's first staff operation may take: a fresh client's (step 3) and the first
+ * after an upgrade (step 5). It no longer waits for the client's packs to install (issue #558):
+ * at most 2 s for the check (cos-app's SHIPPED_WAIT_MS), the rest the call itself.
+ */
+export const FIRST_OP_BOUND_MS = 5000;
+
+/** The first operations that answered 200 but took longer than the bound, in words. */
+export function slowFirsts(firsts) {
+  return firsts
+    .filter((f) => f.own.status === 200 && f.own.ms > FIRST_OP_BOUND_MS)
+    .map((f) => `${f.id}'s first person.list took ${f.own.said}`);
 }
 
 /** A staff operation's failure, in words: what it answered and what a repeat answered. */
@@ -1405,9 +1468,10 @@ export function checkSteps() {
           notes.push(`${id}'s staff sign-up answered ${signedUp.took}`);
         }
         // Each client's first staff operation, then one more on the same client, timed: whether
-        // a slow or missing answer is the first call's alone (a fresh client's first call
-        // installs its shipped packs before it answers). Both clients are tried before the step
-        // fails, so a result shows whether the second fresh client fails too (review of #557).
+        // a slow or missing answer is the first call's alone. A fresh client's first call waits
+        // at most a moment for its packs' install (issue #558), so it must answer within
+        // FIRST_OP_BOUND_MS. Both clients are tried before the step fails, so a result shows
+        // whether the second fresh client fails too (review of #557).
         const firsts = [];
         for (const id of [a, b]) {
           const own = await staffOp(ctx, ctx.hosts.staff[id], ctx.staff[id].cookie, "person.list");
@@ -1428,6 +1492,11 @@ export function checkSteps() {
               .join("; ")} (${notes.filter((n) => /sign-up|person\.list/.test(n)).join("; ")})`,
           );
         }
+        const slow = slowFirsts(firsts);
+        if (slow.length)
+          fail(`${slow.join("; ")}: more than ${FIRST_OP_BOUND_MS / 1000} s for a first operation`);
+        // Each fresh client's packs finish installing within PACKS_BOUND_MS (issue #558).
+        for (const id of [a, b]) notes.push(await packsAnswer(ctx, id));
         // A's cookie at B is answered as no cookie is: the same refusal (status and code; the
         // bodies may differ in a request id).
         const other = await staffOp(ctx, ctx.hosts.staff[b], ctx.staff[a].cookie, "person.list");
@@ -1693,6 +1762,21 @@ export function checkSteps() {
           const answer = await page(ctx, id);
           if (!answer.ok) fail(`${id}'s sign-in page answers ${said(answer)} after the upgrade`);
         }
+        // Each client's first staff operation on the new Workers (new isolates), timed and
+        // bounded as a fresh client's is in step 3 (issue #558).
+        const firsts = [];
+        for (const id of [a, b]) {
+          if (!ctx.staff[id]) continue;
+          const own = await staffOp(ctx, ctx.hosts.staff[id], ctx.staff[id].cookie, "person.list");
+          if (own.status !== 200)
+            fail(`${id}'s first person.list after the upgrade answered ${opFailed(own)}`);
+          firsts.push({ id, own });
+          notes.push(`${id}'s first person.list after the upgrade answered ${own.said}`);
+        }
+        const slow = slowFirsts(firsts);
+        if (slow.length)
+          fail(`after the upgrade ${slow.join("; ")}: more than ${FIRST_OP_BOUND_MS / 1000} s`);
+        for (const f of firsts) notes.push(await packsAnswer(ctx, f.id, " after the upgrade"));
         const gatekeeper = await emailGatekeeperProblems(ctx.api, ctx.accountId, ctx.prefix);
         if (gatekeeper.length) fail(`after the upgrade: ${gatekeeper.join("; ")}`);
         ctx.upgraded = true;

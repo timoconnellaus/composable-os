@@ -13,14 +13,33 @@ import {
 } from "@tanstack/react-query";
 import { callOp, OperationCallError } from "./operations.ts";
 
+/** A read refused while the host still installs its packs is retried this often, this many times. */
+const INSTALLING_RETRY_MS = 5_000;
+const INSTALLING_RETRIES = 6;
+
+/** Whether an operation was refused because the host is still installing its packs. */
+export function installing(error: unknown): boolean {
+  return (
+    error instanceof OperationCallError &&
+    (error.details as { installing?: unknown } | undefined)?.installing === true
+  );
+}
+
 export function createQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
       queries: {
         staleTime: 15_000,
         refetchOnWindowFocus: false,
-        // Typed operation errors (forbidden, not_found, ...) will not fix themselves on retry.
-        retry: (failures, error) => !(error instanceof OperationCallError) && failures < 2,
+        // Typed operation errors (forbidden, not_found, ...) will not fix themselves on retry,
+        // except "still installing its packs" (issue #558): asked again every few seconds for
+        // up to 30 s. Writes are never retried.
+        retry: (failures, error) =>
+          installing(error)
+            ? failures < INSTALLING_RETRIES
+            : !(error instanceof OperationCallError) && failures < 2,
+        retryDelay: (failures, error) =>
+          installing(error) ? INSTALLING_RETRY_MS : Math.min(1000 * 2 ** failures, 30_000),
       },
     },
   });

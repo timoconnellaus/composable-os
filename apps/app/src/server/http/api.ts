@@ -82,6 +82,7 @@ import { sendSignInCode, signInMailProblem } from "../host-mail.ts";
 import { integrationRuntimeFor } from "../integrations.ts";
 import {
   automationWiring,
+  duringShippedInstall,
   ensureShippedExtensions,
   extensionHostFor,
   type OperationsEnv,
@@ -588,12 +589,29 @@ async function authRoutes(route: string, request: Request, env: ApiEnv): Promise
 
 const surfaces = new WeakMap<object, ReturnType<typeof createHttpSurface>>();
 
+/**
+ * `coreInvoker`, with a call refused while this client's packs are still being installed told so
+ * (retryable, issue #558) rather than that what it names does not exist.
+ */
+function installingInvoker(env: ApiEnv): typeof coreInvoker {
+  const told = <T>(name: string, input: unknown, call: () => Promise<T>): Promise<T> =>
+    call().catch((error: unknown) => {
+      throw duringShippedInstall(env, error, name, input);
+    });
+  return {
+    ...coreInvoker,
+    invokeByName: (name, input, ctx) =>
+      told(name, input, () => coreInvoker.invokeByName(name, input, ctx)),
+    resolveFor: (name, ctx) => told(name, undefined, () => coreInvoker.resolveFor(name, ctx)),
+  };
+}
+
 /** Serves `/api/v<n>/*`; null for any other path. */
 export function handleApi(request: Request, env: ApiEnv): Promise<Response | null> {
   let surface = surfaces.get(env);
   if (!surface) {
     surface = createHttpSurface({
-      invoker: coreInvoker,
+      invoker: installingInvoker(env),
       context: (req) => apiContext(req, env),
       allowedOrigins: parseAllowedOrigins(env.API_ALLOWED_ORIGINS),
       routes: (route, req) => authRoutes(route, req, env),

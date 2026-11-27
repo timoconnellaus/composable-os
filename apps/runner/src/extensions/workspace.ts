@@ -236,9 +236,10 @@ export class ExtensionWorkspace extends ClientDurableObject(DurableObject<Env>) 
   }
 
   /**
-   * Every new cos-app isolate calls this (through installShipped) on its first request. When the
-   * bundled source is the one already committed and the repository's HEAD is still that commit,
-   * it returns at once.
+   * Called by installShipped when its record of the last install no longer matches (a new
+   * release, changed packs, an admin's change: shipped-stamp.ts), and by `extension.install` of a
+   * shipped extension. When the bundled source is the one already committed and the repository's
+   * HEAD is still that commit, it returns at once.
    */
   async commitShipped(id: string): Promise<{ commit: string; changed: boolean }> {
     const shipped = (await shippedExtensions(this.env)).find((s) => s.id === id);
@@ -262,6 +263,20 @@ export class ExtensionWorkspace extends ClientDurableObject(DurableObject<Env>) 
       await this.ctx.storage.put(key, { hash, commit: result.commit });
       return result;
     });
+  }
+
+  /**
+   * Whether this workspace committed each shipped extension at the commit given (issue #558): the
+   * record `commitShipped` keeps, read from storage, no git. False for a workspace that never
+   * did (a new host's, after a database was imported), so installShipped commits the source.
+   */
+  async holdsShipped(commits: { id: string; commit: string }[]): Promise<boolean> {
+    for (const { id, commit } of commits) {
+      assertExtensionId(id);
+      const known = await this.ctx.storage.get<{ hash: string; commit: string }>(`shipped:${id}`);
+      if (known?.commit !== commit) return false;
+    }
+    return true;
   }
 
   async #head(id: string): Promise<string | null> {
