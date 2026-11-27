@@ -1734,15 +1734,25 @@ no zone says first which steps are not proved.
    - a real one: both clients at schema 9000 and served, the app Worker and the host's health on
      `0.1.1`.
 6. `cos client export alpha --out`, `cos client import charlie` from it, and an export of charlie.
-   Each export's part and file hashes are recomputed from its bytes on disk; the two exports'
-   row counts and file hashes must be alike, the export must carry alpha's packs and the
-   import charlie the same (`COS_PACKS`), the export must count rows, carry the picture of
-   step 3 and, after a successful upgrade, the migration's row.
+   Each export's part and file hashes are recomputed from its bytes on disk. Every row of the
+   first export must be in the second exactly as it was (each row's statement, table by table;
+   an AUTOINCREMENT table's next id never lower), and no table may have fewer rows. Rows charlie
+   has besides are the host's own since the import, allowed and named in the step's note: a live
+   client is written to by the runner's every-minute cron (its date-relative scan markers in
+   `core_automation_counters`), the app's 10-minute cron (its embeddings backfill, which writes a setting) and
+   audit rows (staging run 46034389470: 2 settings, 2 counters and 3 audit rows; there the app's
+   16:50 tick fell between the import and the re-export). `core_embedding` is the one table an
+   import empties by design (its records are queued again). The file hashes must be alike, the
+   export must carry alpha's packs and the import charlie the same (`COS_PACKS`), the export must
+   count rows, carry the picture of step 3 and, after a successful upgrade, the migration's row.
 7. `cos client add delta`, and `cos client export bravo` started while the add holds the
    operator's Worker: the second is refused ("Another operator's command"), the first finishes. If
    the add finished before the export began, the two did not overlap and the step is partial.
-8. `cos client remove alpha`: alpha's address answers the unknown hostname's 404 within the
-   registry's refresh, bravo answers and its staff stay signed in.
+8. `cos client remove alpha`: alpha's address stops answering for it, within five minutes:
+   the host's 404 for a hostname it no longer serves, or, since the remove detaches the staff
+   hostname's Custom Domain and with it its DNS record (PR #561), the name no longer resolving
+   (`ENOTFOUND`, twice running). A 2xx, its sign-in page or any other answer fails. Bravo answers
+   and its staff stay signed in.
 9. **Teardown, always** (its own step, run after a failure, a timeout or a cancel too):
    - it lists the account under the prefix, every kind, the Durable Object namespaces of the
      run's Workers among them, and deletes what it finds by exact name (an id only as that listing

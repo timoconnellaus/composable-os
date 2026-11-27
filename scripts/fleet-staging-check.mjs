@@ -686,7 +686,32 @@ export async function request(fetchImpl, url, init = {}, timeoutMs = 20000) {
     return { status: response.status, response, ms: Date.now() - started };
   } catch (error) {
     const ms = Date.now() - started;
-    return { status: 0, error: describeFetchError(error, ms), ms };
+    const code = error?.cause?.code;
+    return { status: 0, error: describeFetchError(error, ms), ms, ...(code ? { code } : {}) };
+  }
+}
+
+/**
+ * Waits until an address has stopped answering for its client: the host's 404 for a hostname it
+ * no longer serves, or the name no longer resolving (ENOTFOUND, twice running: since PR #561 a
+ * removed client's staff hostname has its Custom Domain, and with it its DNS record, detached).
+ * Anything else (a 2xx, the client's own sign-in page, an edge error) is waited out, and is the
+ * answer that fails it at the end. Returns `how` ("404" or "ENOTFOUND") when stopped.
+ */
+export async function waitUntilStopped(
+  fetchImpl,
+  url,
+  { timeoutMs = 300000, intervalMs = 5000, sleep } = {},
+) {
+  const until = Date.now() + timeoutMs;
+  let unresolved = 0;
+  for (;;) {
+    const last = await request(fetchImpl, url);
+    if (last.status === 404) return { ...last, ok: true, how: "404" };
+    unresolved = last.status === 0 && last.code === "ENOTFOUND" ? unresolved + 1 : 0;
+    if (unresolved >= 2) return { ...last, ok: true, how: "ENOTFOUND" };
+    if (Date.now() > until) return { ...last, ok: false };
+    await sleep(intervalMs);
   }
 }
 
@@ -1043,8 +1068,25 @@ export function exportFacts(dir) {
     if (!existsSync(path)) problems.push(`file ${file.key} is missing`);
     else if (sha256(readFileSync(path)) !== file.sha256) problems.push(`file ${file.key} differs`);
   }
+  const rows = {};
+  for (const part of manifest.database?.parts ?? []) {
+    const path = join(dir, part.path);
+    if (!existsSync(path)) continue;
+    let statements;
+    try {
+      statements = JSON.parse(readFileSync(path, "utf8")).statements;
+    } catch {
+      problems.push(`part ${part.path} is not an export's part`);
+      continue;
+    }
+    for (const [table, unit] of rowUnits(statements ?? [])) {
+      rows[table] = [...(rows[table] ?? []), unit];
+    }
+  }
   return {
     counts: manifest.database?.counts ?? {},
+    // Every row the export's statements hold, by table (`rowUnits`).
+    rows,
     files: (manifest.files ?? []).map((f) => `${f.key} ${f.sha256}`).sort(),
     // The client's COS_PACKS (re-review of #553), absent from an export made before it was carried.
     packs: manifest.packs,
@@ -1052,12 +1094,96 @@ export function exportFacts(dir) {
   };
 }
 
-/** Rows counted in one export and not the other, or counted differently. */
+const SCRATCH = '"_cos_import_scratch"';
+const TABLE_OF = /^(?:INSERT INTO|UPDATE) ("(?:[^"]|"")+"|[A-Za-z_]\w*)/;
+const unquote = (ident) =>
+  ident.startsWith('"') ? ident.slice(1, -1).replaceAll('""', '"') : ident;
+
+/**
+ * An export's statements as one unit per row, by table: an INSERT (with the scratch statements a
+ * large row is built from before it) or a keyed UPDATE, as the export wrote it (packages/db
+ * sql-export.ts); the schema's statements under "(schema)"; `sqlite_sequence` under its name.
+ */
+export function rowUnits(statements) {
+  const out = [];
+  let pending = [];
+  for (const sql of statements) {
+    if (sql.startsWith(`INSERT INTO ${SCRATCH}`) || sql.startsWith(`UPDATE ${SCRATCH}`)) {
+      pending.push(sql);
+      continue;
+    }
+    if (sql.startsWith(`DELETE FROM ${SCRATCH}`)) continue;
+    const m = TABLE_OF.exec(sql);
+    if (!m) {
+      out.push(["(schema)", sql]);
+      continue;
+    }
+    out.push([unquote(m[1]), [...pending, sql].join("\n")]);
+    pending = [];
+  }
+  return out;
+}
+
+/**
+ * Tables an import moves rows out of by design: `core_embedding`, whose records are queued again
+ * (`requeue-embeddings`) for the host's embeddings tick to rebuild in the client's own index.
+ */
+export const MOVED_BY_IMPORT = Object.freeze(["core_embedding"]);
+
+/**
+ * What an import must preserve: every row of the first export in the second, as it was (the same
+ * statement), and nothing fewer. Rows the second has besides are the host's own since the import
+ * (a cron tick, a first request: staging run 46034389470), allowed and named in `added`; a row
+ * lost or changed is a problem. An AUTOINCREMENT table's next id may only grow. Files and packs
+ * are compared as before.
+ */
 export function compareExports(a, b) {
   const problems = [];
+  const added = [];
+  const rowsKnown = a.rows && b.rows;
   for (const table of new Set([...Object.keys(a.counts), ...Object.keys(b.counts)])) {
-    if ((a.counts[table] ?? 0) !== (b.counts[table] ?? 0)) {
-      problems.push(`${table}: ${a.counts[table] ?? 0} rows, then ${b.counts[table] ?? 0}`);
+    const before = a.counts[table] ?? 0;
+    const after = b.counts[table] ?? 0;
+    // Rows the export's statements show are compared one by one below; a table they do not show
+    // (no statement read for it) is held to its count.
+    const shown = rowsKnown && ((a.rows[table] ?? []).length || (b.rows[table] ?? []).length);
+    if (MOVED_BY_IMPORT.includes(table)) continue;
+    if (after < before || (after > before && !shown)) {
+      problems.push(`${table}: ${before} rows, then ${after}`);
+    }
+  }
+  if (rowsKnown) {
+    for (const table of new Set([...Object.keys(a.rows), ...Object.keys(b.rows)])) {
+      if (table === "sqlite_sequence") continue;
+      const left = new Map();
+      for (const unit of b.rows[table] ?? []) left.set(unit, (left.get(unit) ?? 0) + 1);
+      let missing = 0;
+      for (const unit of a.rows[table] ?? []) {
+        const n = left.get(unit) ?? 0;
+        if (n > 0) left.set(unit, n - 1);
+        else missing += 1;
+      }
+      const extra = [...left.values()].reduce((x, y) => x + y, 0);
+      if (missing && !MOVED_BY_IMPORT.includes(table)) {
+        problems.push(
+          table === "(schema)"
+            ? `${missing} of the export's schema statements are not in the import as they were`
+            : `${table}: ${missing} of the export's ${(a.rows[table] ?? []).length} rows not in the import as they were`,
+        );
+      }
+      if (extra) added.push(`${table} +${extra}`);
+    }
+    const seq = (rows) =>
+      new Map(
+        (rows.sqlite_sequence ?? []).flatMap((u) => {
+          const m = /VALUES \('((?:[^']|'')*)', (\d+)\)$/.exec(u);
+          return m ? [[m[1], Number(m[2])]] : [];
+        }),
+      );
+    const seqB = seq(b.rows);
+    for (const [name, n] of seq(a.rows)) {
+      if ((seqB.get(name) ?? 0) < n)
+        problems.push(`${name}'s next id went back: ${n}, then ${seqB.get(name) ?? 0}`);
     }
   }
   const fa = new Set(a.files);
@@ -1071,6 +1197,8 @@ export function compareExports(a, b) {
       `packs: COS_PACKS=${a.packs ?? "(none carried)"}, then ${b.packs ?? "(none carried)"}`,
     );
   }
+  // The tables the host added rows to, beside the problems (not one of them).
+  Object.defineProperty(problems, "added", { value: added });
   return problems;
 }
 
@@ -1597,10 +1725,11 @@ export function checkSteps() {
         await must(ctx, ["client", "export", imported, "--out", ctx.reexportDir, "--yes"]);
         const first = exportFacts(ctx.exportDir);
         const again = exportFacts(ctx.reexportDir);
+        const compared = compareExports(first, again);
         const problems = [
           ...first.problems.map((p) => `${a}'s export: ${p}`),
           ...again.problems.map((p) => `${imported}'s export: ${p}`),
-          ...compareExports(first, again),
+          ...compared,
         ];
         const rows = Object.values(first.counts).reduce((x, y) => x + y, 0);
         if (!Object.keys(first.counts).length || rows === 0)
@@ -1617,7 +1746,7 @@ export function checkSteps() {
             `the export or the import is not as it should be: ${problems.slice(0, 5).join("; ")}`,
           );
         const notes = [
-          `${a} exported (${Object.keys(first.counts).length} tables, ${rows} rows, ${first.files.length} files, every hash recomputed from the bytes), imported as ${imported}, exported again: the same row counts, file hashes and packs (COS_PACKS=${first.packs})`,
+          `${a} exported (${Object.keys(first.counts).length} tables, ${rows} rows, ${first.files.length} files, every hash recomputed from the bytes), imported as ${imported}, exported again: every row of the export in it as it was, the same file hashes and packs (COS_PACKS=${first.packs})${compared.added.length ? `; rows the host wrote to ${imported} since: ${compared.added.join(", ")}` : ""}`,
         ];
         if (!ctx.zoneId) {
           return {
@@ -1683,13 +1812,13 @@ export function checkSteps() {
         if (list[a]) fail(`${a} is still listed after the remove`);
         if (list[b]?.status !== "active") fail(`${b} is ${list[b]?.status} after ${a} was removed`);
         if (!ctx.zoneId) return { status: "partial", note: `${a} removed, ${b} active; ${noZone}` };
-        // The host serves the change within its registry refresh (10 s).
-        const gone = await waitFor(
-          ctx.fetch,
-          `https://${ctx.hosts.staff[a]}/sign-in`,
-          (x) => x.status === 404,
-          { timeoutMs: 120000, sleep: ctx.sleep },
-        );
+        // The host serves the change within its registry refresh (10 s); the staff hostname's
+        // Custom Domain is detached by the remove (PR #561), so its name may stop resolving
+        // instead, once DNS caches let go.
+        const gone = await waitUntilStopped(ctx.fetch, `https://${ctx.hosts.staff[a]}/sign-in`, {
+          sleep: ctx.sleep,
+          ...(ctx.stoppedWaitMs !== undefined ? { timeoutMs: ctx.stoppedWaitMs } : {}),
+        });
         if (!gone.ok) fail(`${a}'s address still answers ${said(gone)}`);
         const answer = await request(ctx.fetch, `https://${ctx.hosts.staff[b]}/sign-in`);
         if (answer.status !== 200) fail(`${b}'s sign-in page answers ${said(answer)}`);
@@ -1697,7 +1826,7 @@ export function checkSteps() {
         const own = await staffOp(ctx, ctx.hosts.staff[b], ctx.staff[b].cookie, "person.list");
         if (own.status !== 200) fail(`${b}'s staff session answers ${opFailed(own)}`);
         return {
-          note: `${a}'s address answers the unknown hostname's 404; ${b} answers and its staff stay signed in`,
+          note: `${a}'s address ${gone.how === "404" ? "answers the unknown hostname's 404" : "no longer resolves (ENOTFOUND, twice running: its Custom Domain detached)"}; ${b} answers and its staff stay signed in`,
         };
       },
     },

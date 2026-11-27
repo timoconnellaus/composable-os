@@ -27,6 +27,7 @@ import {
   parseClientList,
   prefixOf,
   productDefinition,
+  rowUnits,
   runSteps,
   STAGING_MIGRATION,
   sanitize,
@@ -38,6 +39,7 @@ import {
   teardownReport,
   VERSIONS,
   verdict,
+  waitUntilStopped,
   workflowProblems,
 } from "./fleet-staging-check.mjs";
 
@@ -1542,4 +1544,203 @@ test("each client's first admin is named at add with only its token's hash: no l
     },
   });
   assert.deepEqual(signedUp, ctx.setupTokens);
+});
+
+// --- staging run 46034389470: steps 6 and 8 ----------------------------------------------------
+
+/** An export folder whose one part holds these statements (counts by table, as cos writes them). */
+function exportWithRows(statements, packs = "deals,leads") {
+  const dir = mkdtempSync(join(tmpdir(), "s66-rows-"));
+  mkdirSync(join(dir, "database"));
+  const part = JSON.stringify({ statements });
+  writeFileSync(join(dir, "database", "000000.json"), part);
+  const counts = {};
+  for (const [table] of rowUnits(statements)) {
+    if (table !== "(schema)" && table !== "sqlite_sequence")
+      counts[table] = (counts[table] ?? 0) + 1;
+  }
+  const sha = (b) => createHash("sha256").update(b).digest("hex");
+  writeFileSync(
+    join(dir, "manifest.json"),
+    JSON.stringify({
+      database: { parts: [{ path: "database/000000.json", sha256: sha(part) }], counts },
+      files: [],
+      packs,
+    }),
+  );
+  return dir;
+}
+
+const setting = (key, value) =>
+  `INSERT INTO "core_settings" (key, value) VALUES ('${key}', '${value}')`;
+const audit = (id) => `INSERT INTO "core_audit" (id, action) VALUES ('${id}', 'x')`;
+const ALPHA = [
+  'CREATE TABLE "core_settings" (key TEXT PRIMARY KEY, value TEXT)',
+  setting("a", "1"),
+  setting("b", "2"),
+  audit("1"),
+  "INSERT INTO sqlite_sequence (name, seq) VALUES ('core_audit', 3)",
+];
+
+test("an import keeps every row of its export as it was; rows the host writes after are named, not failed (staging run 46034389470, step 6)", async () => {
+  // A large row: its scratch statements are one unit with its INSERT.
+  assert.deepEqual(
+    rowUnits([
+      `INSERT INTO "_cos_import_scratch" (k, v) VALUES (1, 'ab')`,
+      `UPDATE "_cos_import_scratch" SET v = v || 'cd' WHERE k = 1`,
+      `INSERT INTO "core_note" (id, body) VALUES ('n', (SELECT v FROM "_cos_import_scratch" WHERE k = 1))`,
+      `DELETE FROM "_cos_import_scratch"`,
+      `UPDATE "core_person" SET merged_into = 'p1' WHERE id = 'p2'`,
+    ]).map(([t]) => t),
+    ["core_note", "core_person"],
+  );
+  const first = exportFacts(exportWithRows(ALPHA));
+  // What the host writes to a live client between the import and the re-export: the runner's
+  // scan markers, a setting, audit rows. Allowed, and named.
+  const later = exportFacts(
+    exportWithRows([
+      ...ALPHA.slice(0, 4),
+      setting("embedding_backfill", "{}"),
+      audit("2"),
+      `INSERT INTO "core_automation_counters" (automation_id, hour) VALUES ('~dateRelative', '2026-11-27')`,
+      "INSERT INTO sqlite_sequence (name, seq) VALUES ('core_audit', 5)",
+    ]),
+  );
+  const compared = compareExports(first, later);
+  assert.deepEqual([...compared], []);
+  assert.deepEqual(compared.added, [
+    "core_settings +1",
+    "core_audit +1",
+    "core_automation_counters +1",
+  ]);
+  // A row changed by the import, or lost, still fails; so does a next id lowered.
+  const changed = exportFacts(
+    exportWithRows([...ALPHA.slice(0, 2), setting("b", "3"), ...ALPHA.slice(3)]),
+  );
+  assert.deepEqual(
+    [...compareExports(first, changed)],
+    ["core_settings: 1 of the export's 2 rows not in the import as they were"],
+  );
+  const lost = exportFacts(exportWithRows([...ALPHA.slice(0, 2), ...ALPHA.slice(3)]));
+  assert.deepEqual(
+    [...compareExports(first, lost)],
+    [
+      "core_settings: 2 rows, then 1",
+      "core_settings: 1 of the export's 2 rows not in the import as they were",
+    ],
+  );
+  const lowered = exportFacts(
+    exportWithRows([
+      ...ALPHA.slice(0, 4),
+      "INSERT INTO sqlite_sequence (name, seq) VALUES ('core_audit', 2)",
+    ]),
+  );
+  assert.deepEqual(
+    [...compareExports(first, lowered)],
+    ["core_audit's next id went back: 3, then 2"],
+  );
+  const schema = exportFacts(exportWithRows(ALPHA.slice(1)));
+  assert.deepEqual(
+    [...compareExports(first, schema)],
+    ["1 of the export's schema statements are not in the import as they were"],
+  );
+  // The search index's rows are moved to its queue by the import, by design.
+  const embedded = [
+    ...ALPHA,
+    `INSERT INTO "core_embedding" (object_type, record_id) VALUES ('person', 'p')`,
+  ];
+  const requeued = [
+    ...ALPHA,
+    `INSERT INTO "core_embedding_queue" (object_type, record_id) VALUES ('person', 'p')`,
+  ];
+  const moved = compareExports(
+    exportFacts(exportWithRows(embedded)),
+    exportFacts(exportWithRows(requeued)),
+  );
+  assert.deepEqual([...moved], []);
+  assert.deepEqual(moved.added, ["core_embedding_queue +1"]);
+
+  // The step: passes with the host's rows named in its note; fails on a changed row.
+  const ctx = (one, two) => ({
+    ...stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }), zone: false }),
+    exportDir: one,
+    reexportDir: two,
+  });
+  const passed = await step("export").run(
+    ctx(
+      exportWithRows(ALPHA),
+      exportWithRows([...ALPHA, setting("embedding_backfill", "{}"), audit("2")]),
+    ),
+  );
+  assert.match(passed.note, /every row of the export in it as it was/);
+  assert.match(
+    passed.note,
+    /rows the host wrote to charlie since: core_settings \+1, core_audit \+1/,
+  );
+  await assert.rejects(
+    step("export").run(
+      ctx(
+        exportWithRows(ALPHA),
+        exportWithRows([...ALPHA.slice(0, 2), setting("b", "3"), ...ALPHA.slice(3)]),
+      ),
+    ),
+    /core_settings: 1 of the export's 2 rows not in the import as they were/,
+  );
+});
+
+const unresolved = () => {
+  throw new TypeError("fetch failed", {
+    cause: Object.assign(new Error("getaddrinfo ENOTFOUND x"), { code: "ENOTFOUND" }),
+  });
+};
+
+test("a removed client's address has stopped answering when it answers 404 or no longer resolves (staging run 46034389470, step 8)", async () => {
+  const sleep = async () => {};
+  const seq = (answers) => {
+    let n = 0;
+    return async () => {
+      const next = answers[Math.min(n++, answers.length - 1)];
+      return typeof next === "function" ? next() : new Response("", { status: next });
+    };
+  };
+  const notFound = await waitUntilStopped(seq([200, 404]), "https://x/", { sleep, intervalMs: 0 });
+  assert.equal(notFound.how, "404");
+  const gone = await waitUntilStopped(seq([200, unresolved, unresolved]), "https://x/", {
+    sleep,
+    intervalMs: 0,
+  });
+  assert.equal(gone.how, "ENOTFOUND");
+  // One ENOTFOUND between answers is not enough; a page that keeps answering fails.
+  const flaky = await waitUntilStopped(seq([unresolved, 200, unresolved, 200]), "https://x/", {
+    sleep,
+    intervalMs: 0,
+    timeoutMs: 0,
+  });
+  assert.equal(flaky.ok, false);
+  for (const status of [200, 204, 302, 530]) {
+    const still = await waitUntilStopped(seq([status]), "https://x/", { sleep, timeoutMs: 0 });
+    assert.equal(still.ok, false, String(status));
+  }
+
+  // The step, as run 46034389470 saw it: alpha's name no longer resolves.
+  const { a, b } = CLIENTS;
+  const run = (alphaAnswers, stoppedWaitMs) => {
+    const alpha = seq(alphaAnswers);
+    const ctx = stepCtx({
+      answer: (args) =>
+        args[1] === "list"
+          ? { code: 0, out: listing({ [b]: ["active", "9000"] }), ms: 1 }
+          : { code: 0, out: "Removed alpha.", ms: 1 },
+      fetch: async (url, init) =>
+        url.includes(`${a}-admin.`) ? alpha(url, init) : new Response("{}", { status: 200 }),
+    });
+    ctx.staff[b] = { cookie: "__Host-cos.session_token=b" };
+    if (stoppedWaitMs !== undefined) ctx.stoppedWaitMs = stoppedWaitMs;
+    return step("remove").run(ctx);
+  };
+  assert.match((await run([unresolved])).note, /alpha's address no longer resolves \(ENOTFOUND/);
+  assert.match((await run([200, 404])).note, /alpha's address answers the unknown hostname's 404/);
+  // Its sign-in page still served, or a name that comes and goes: fails.
+  await assert.rejects(run([200], 0), /alpha's address still answers 200/);
+  await assert.rejects(run([unresolved, 200], 0), /alpha's address still answers 200/);
 });
