@@ -1290,18 +1290,32 @@ cos client remove gym-a                      # export kept 90 days, then erased;
   removed.
 - **A client's first admin** (stage 66 step 9). A client's staff hostname is public from the
   moment it is added, so on a host of many clients nobody can make its first account by finding
-  it first: only the address the operator names, with a setup link printed once.
+  it first: only the address the operator names, with a setup token the operator makes. `cos`
+  keeps only the token's SHA-256 and an expiry 72 hours on, and **prints nothing of the token or
+  the link**, so the commands can run in a public repository's workflow, whose logs anyone reads.
+  The owner, once per client, on his own machine (no Cloudflare token needed):
   ```sh
-  cos client add gym-a --env staging --location oc --admin owner@gym-a.example --label "Gym A"
-  # prints https://gym-a-admin.<fleet domain>/sign-in#first-admin=<token>: send it to them
-  cos client first-admin gym-a owner@gym-a.example --env staging   # a new link replaces the last
+  openssl rand -hex 32 > token                                     # 32 random bytes, hex
+  gh secret set CLIENT_GYM_A_FIRST_ADMIN_TOKEN --env fleet-staging < token
+  echo "https://gym-a-admin.<fleet domain>/sign-in#first-admin=$(cat token)"   # the link
+  rm token
   ```
-  The link works for 72 hours, for that address only, by password sign-up (a new client cannot
-  send mail until its admin sets mail up, so the link is how the first account is made); it does
-  nothing once the client has an account. The registry keeps the address and the token's SHA-256,
-  never the token. With no admin named, nobody can make the client's first account. **Run this
-  yourself, not in a shared CI log:** the link is a credential until it is used or expires. A
-  single-client install is as before: its installer signs up at `/setup` right after the deploy.
+  He sends the link to the client's admin himself. The workflow writes the secret to a 0600 file
+  and runs:
+  ```sh
+  cos client add gym-a --env staging --location oc --label "Gym A" \
+    --admin owner@gym-a.example --admin-token-file "$RUNNER_TEMP/first-admin-token" --yes
+  cos client first-admin gym-a owner@gym-a.example --env staging \
+    --token-file "$RUNNER_TEMP/first-admin-token"        # a new token replaces the last
+  ```
+  A token is refused unless it is 32 random bytes or more as hex (64 to 128 of `0-9 a-f`) or
+  base64url (43 to 128 of `A-Z a-z 0-9 - _`), with no space or line break inside (one trailing
+  line break is dropped). A person at a terminal may let `cos` make one and print the link once
+  instead (`--print-link`), which is refused when `CI` or `GITHUB_ACTIONS` is set. The link works
+  for that address only, by password sign-up (a new client cannot send mail until its admin sets
+  mail up, so the link is how the first account is made), and does nothing once the client has
+  an account. With no admin named, nobody can make the client's first account. A single-client
+  install is as before: its installer signs up at `/setup` right after the deploy.
 - **A running client's settings** (`cos client setting list|set|unset <id> [NAME] [value]`): only
   `COS_PACKS`, `API_ALLOWED_ORIGINS`, `NATIVE_REDIRECT_URIS`, `APPROVAL_EXPIRY_DAYS` and
   `COS_PRODUCT_LABEL`, each value checked before it is written; replacing or removing one asks for
@@ -1325,14 +1339,24 @@ cos client remove gym-a                      # export kept 90 days, then erased;
   routine email (a booking's confirmation, a reminder) carries it as its Reply-To and still goes on
   its own. A Reply-To from anywhere else makes an email an ordinary send that waits for a person;
   sign-in codes never carry one.
-- **Videos (Stream) on a fleet are not set up by any command yet.** They use the operator's own
-  Stream account, shared by every client (each client's videos stamped with its creator, ADR
-  0617), so they are not a client's secret and `cos client secret` does not take them. The
-  [Stream runbook](stream-runbook.md) sets two secrets (`STREAM_API_TOKEN`, `STREAM_SIGNING_JWK`)
-  and three vars (`STREAM_ACCOUNT_ID`, `STREAM_CUSTOMER_CODE`, `STREAM_SIGNING_KEY_ID`) on the app
-  Worker. An upgrade's upload keeps secrets set by hand (`keep_bindings`) but not vars, so on a
-  fleet the vars need `cos fleet install` and `upgrade` to carry them in the deployment's state.
-  That is not built.
+- **Videos (Stream) on a fleet** use the operator's one Stream account for every client. The
+  host keeps each client's part apart (ADR 0617): every upload and copy is stamped with the client
+  as its creator; every call for a video (its details, securing it, captions, deleting it) and
+  every playback token is refused unless Stream says this client made it; every video needs a
+  signed URL, and a token names one video; nothing lists the account's videos. `cos fleet install`
+  takes the account's settings (the [Stream runbook](stream-runbook.md), steps 1 and 2, says how
+  to make the token and the signing key):
+  ```sh
+  cos fleet install --env staging --keys-file ~/fleet-keys/staging.json … \
+    --stream-account-id <account id> --stream-customer-code <code> \
+    --stream-signing-key-id <key id> \
+    --stream-token-file "$RUNNER_TEMP/stream-token" --stream-jwk-file "$RUNNER_TEMP/stream-jwk"
+  ```
+  The three ids are kept in the deployment's state, so every later upload (`cos fleet upgrade`
+  too) sets them again; the token and the key become the app Worker's secrets, which every later
+  upload keeps (`keep_bindings`). The five go together, are checked (ids as 32 hex characters, the
+  key a private RSA JWK), and nothing of the token or the key is printed. A re-run with them
+  replaces them. They are the operator's, never a client's: `cos client secret` does not take them.
 - **Payments, text, inbound webhooks and email receiving** are off for every client of a host of
   many clients until their gatekeepers are made per client (ADR 0616). A client's Stripe keys can
   already be stored (`cos client secret set <id> STRIPE_SECRET_KEY`), unused until then.

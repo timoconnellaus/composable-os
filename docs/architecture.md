@@ -157,8 +157,11 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   setting` changes a fixed list of a running client's settings over the registry alone (each value
   checked; `COS_PACKS` only wider, the host installing a new pack at the next request); `cos
   client add --admin` and `cos client first-admin` name the client's first admin, whose setup link
-  (`/sign-in#first-admin=<token>`, the token's hash in `COS_FIRST_ADMIN`) is the only way its
-  first account is made on a host of many clients (Better Auth's user-create hook); `--label` sets
+  (`/sign-in#first-admin=<token>`, a token the operator supplies as a file, only its hash in
+  `COS_FIRST_ADMIN`, nothing of it printed) is the only way its first account is made on a host
+  of many clients (Better Auth's user-create hook); `cos fleet install --stream-…` keeps the
+  operator's Stream account with the deployment (ids in its state, token and key the app
+  Worker's secrets, kept by every upgrade); `--label` sets
   the client's `COS_PRODUCT_LABEL`, which `productName` reads from the client scope the code runs
   in, so the client's screens and mail name its product.
 

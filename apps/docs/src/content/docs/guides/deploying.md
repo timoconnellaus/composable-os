@@ -66,11 +66,19 @@ the steps are in [docs/deploying.md](https://github.com/timoconnellaus/composabl
   an unverify or a removal takes effect within 10 seconds; nothing is sent while a client is
   paused, and nothing after it is removed
   ([ADR 0616](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0616-secrets-and-addresses-per-client.md), "Email sending per client").
-- **The first admin.** `cos client add <id> --admin <email>` (or later `cos client first-admin
-  <id> <email>`) names who may make the client's first account, and prints a setup link once:
-  only that address, with that link, by password, within 72 hours, makes the first account, which
-  is the admin. With no admin named, nobody can. The link is a credential: send it yourself. A
-  single-client install is as before (its installer signs up at `/setup`).
+- **The first admin.** `cos client add <id> --admin <email> --admin-token-file <f>` (or later
+  `cos client first-admin <id> <email> --token-file <f>`) names who may make the client's first
+  account, with a setup token the operator made (`openssl rand -hex 32`). `cos` keeps only its
+  hash and prints nothing of it; the operator builds the link,
+  `https://<staff hostname>/sign-in#first-admin=<token>`, and sends it. Only that address, with
+  that link, by password, within 72 hours, makes the first account, which is the admin. With no
+  admin named, nobody can. (`--print-link` lets `cos` make the token and print the link, at a
+  terminal only: it is refused in CI.) A single-client install is as before (its installer signs
+  up at `/setup`).
+- **Videos.** Every client's videos are in the operator's one Stream account, kept apart by the
+  host: each stamped with its client, every call and playback token for another client's video
+  refused, signed URLs only, nothing that lists them. `cos fleet install` takes the account's ids
+  and, from files, its token and signing key, and every upgrade keeps them.
 - **A client's settings after `add`.** `cos client setting list|set|unset <id> [NAME] [value]`
   changes `COS_PACKS`, `API_ALLOWED_ORIGINS`, `NATIVE_REDIRECT_URIS`, `APPROVAL_EXPIRY_DAYS` and
   `COS_PRODUCT_LABEL`, each checked; a running host serves the change within 10 seconds.

@@ -6,10 +6,13 @@
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import {
   applyPlan,
+  createFakeStream,
+  creatorCheckedVideoHost,
   getObject,
   issueDeviceSession,
   newId,
   planReconcile,
+  tokenClaims,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { clientStampOf, environmentFor } from "@composable-os/db/client-environment";
@@ -159,6 +162,48 @@ describe("each client's video host", () => {
       expect(made.details?.creator).toBe(`live:${client}`);
       expect(made.details?.creator).toBe(clientStampOf(clientsEnv));
     }
+  });
+});
+
+// Stage 66 step 9 (G10): on a fleet every client's videos are in the operator's one Stream account.
+// One account here (a single fake every client's host wraps, as `clientVideoHost` wraps the
+// account's), two clients: neither can read, secure, caption, delete or get a playback token for
+// the other's video, a token names one video only, every video needs a signed URL, and the host
+// has no call that lists videos at all.
+describe("one Stream account shared by every client's video host", () => {
+  it("never lets one client reach, list or play another's video", async () => {
+    const account = createFakeStream({ baseUrl: "https://gym-a.test/api/v1/media/fake-stream" });
+    const aEnv = await clientEnv(a.id);
+    const bEnv = await clientEnv(b.id);
+    const aHost = creatorCheckedVideoHost(account, clientStampOf(aEnv) as string);
+    const bHost = creatorCheckedVideoHost(account, clientStampOf(bEnv) as string);
+    const upload = (videos: typeof aHost) =>
+      videos.provider.createUpload({
+        name: "class.mp4",
+        bytes: 100,
+        maxDurationSeconds: 60,
+        allowedOrigins: [],
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+    const aVideo = (await upload(aHost)).uid;
+    const bVideo = (await upload(bHost)).uid;
+    const expiresAt = new Date(Date.now() + 60_000);
+    // Each its own: details, and a playback token that names that one video.
+    expect((await aHost.provider.details(aVideo))?.requireSignedURLs).toBe(true);
+    const token = await aHost.signer.sign({ uid: aVideo, expiresAt });
+    expect(tokenClaims(token)?.sub).toBe(aVideo);
+    // B: every call for A's video refused as no such video, a token never signed.
+    const refused = /No such video/;
+    await expect(bHost.provider.details(aVideo)).rejects.toThrow(refused);
+    await expect(bHost.signer.sign({ uid: aVideo, expiresAt })).rejects.toThrow(refused);
+    await expect(bHost.provider.secure(aVideo, [])).rejects.toThrow(refused);
+    await expect(bHost.provider.listCaptions(aVideo)).rejects.toThrow(refused);
+    await expect(bHost.provider.delete(aVideo)).rejects.toThrow(refused);
+    expect(await aHost.provider.details(aVideo)).toBeTruthy();
+    // And the other way round.
+    await expect(aHost.signer.sign({ uid: bVideo, expiresAt })).rejects.toThrow(refused);
+    // No way to list the account's videos.
+    expect(Object.keys(aHost.provider).filter((k) => /list(?!Captions)/i.test(k))).toEqual([]);
   });
 });
 

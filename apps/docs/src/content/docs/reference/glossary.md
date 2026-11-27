@@ -1354,9 +1354,9 @@ _Avoid_: allowed sender domains (that is a single-client deployment's list)
 
 The person who makes a deployment's first account, and so is its admin. On a single-client
 deployment, whoever signs up first. On a host of many clients only the address the operator named
-(`cos client add --admin`, `cos client first-admin`), with the **setup link** printed once to the
-operator (its token in the link's fragment, its hash alone in the registry's `COS_FIRST_ADMIN`),
-by password, before it expires; with none named, nobody.
+(`cos client add --admin`, `cos client first-admin`), with the **setup link**: a token the
+operator made, in the link's fragment, its hash alone in the registry's `COS_FIRST_ADMIN` and
+nothing of it printed by `cos`; by password, before it expires; with none named, nobody.
 _Avoid_: owner (a person on a record), first user (an installed pack's principal is a user too)
 
 ### Client setting

@@ -363,10 +363,21 @@ hits on its first day, found by the step 9 scoping pass.*
   sent a sign-in code; a link given to the operator is the only channel that exists on day one.
 - **Decided.** On a host of many clients the operator names the first admin
   (`cos client add <id> --admin <email>`, or `cos client first-admin <id> <email>` later, which
-  replaces the last link). `cos` makes a 32-byte random token, prints
-  `https://<staff hostname>/sign-in#first-admin=<token>` once, and writes the registry setting
-  `COS_FIRST_ADMIN` = the address, the token's SHA-256 and an expiry 72 hours on. The token is
-  stored nowhere; it rides in the link's fragment, which no server or log sees; the sign-in page
+  replaces the last token) and **supplies the setup token** (`--admin-token-file`,
+  `--token-file`): one the owner made himself (`openssl rand -hex 32`), kept as a GitHub
+  environment secret (`CLIENT_<ID>_FIRST_ADMIN_TOKEN`) and handed to `cos` as a 0600 file. `cos`
+  refuses a token that is not at least 32 random bytes as hex (64 to 128 of `0-9 a-f`, at least
+  10 different) or base64url (43 to 128 of `A-Z a-z 0-9 - _`, at least 16 different), or that
+  holds a space or a line break; it writes the registry setting `COS_FIRST_ADMIN` = the address,
+  the token's SHA-256 and an expiry 72 hours on, and **prints neither the token nor the link**
+  (only `open https://<staff hostname>/sign-in#first-admin=<your token>`, with the placeholder),
+  in every path: a dry run, a refusal, an error (the token is added to the command's redactor as
+  soon as it is read). Why: the fleet's commands run in a GitHub Actions workflow of a public
+  repository, whose logs anyone can read, and the owner holds no Cloudflare token on a machine.
+  The owner builds the link from his token and sends it. `--print-link` (cos makes the token and
+  prints the link once) stays for a person at a terminal, and is refused when `CI` or
+  `GITHUB_ACTIONS` is set. The token is stored nowhere; it rides in the link's fragment, which no
+  server or log sees; the sign-in page
   sends it with the sign-up in the `cos-first-admin-token` header. The host (Better Auth's
   user-create hook, `firstAdminMaySignUp`) makes the first account only for that address, by
   password sign-up, with a token whose SHA-256 matches (compared in constant time), before the
@@ -428,8 +439,18 @@ sign-in codes, invites and every notification name the client's product, never a
   the address is the business's to choose, as its site is, and it works on a single-client
   deployment too.
 
-### Not here
-- **Videos on a fleet (G10)** are not a client's secret: they use the operator's Stream token and
-  signing key. The two secrets set by hand survive an upgrade (`keep_bindings`); the three vars
-  (`STREAM_ACCOUNT_ID`, `STREAM_CUSTOMER_CODE`, `STREAM_SIGNING_KEY_ID`) do not, so `cos fleet
-  install` and `upgrade` must carry them in the deployment's state. Not built.
+### Videos on a fleet (G10)
+- **One Stream account, the operator's, for every client.** Its isolation is ADR 0617's,
+  checked again here: `creatorCheckedVideoHost` stamps every upload and copy with the client
+  (`<environment>:<client>`) as its creator; every call that names a video (details, securing it,
+  captions, deleting it) and every playback token is refused unless Stream says this client made
+  it; every video is made with `requireSignedURLs`, and a token names one video (`sub`), signed by
+  the host only; the host has no call that lists the account's videos. Sound: a two-client test
+  over one account (apps/app's `caches.test.ts`) shows neither client reaches or plays the other's.
+- **Its settings are the deployment's.** `cos fleet install` takes `--stream-account-id`,
+  `--stream-customer-code`, `--stream-signing-key-id` (kept as vars of the app Worker in the
+  deployment's state, so every later upload, an upgrade's included, sets them again) and
+  `--stream-token-file`, `--stream-jwk-file` (the app Worker's secrets, set on that install and
+  kept by every later upload: `keep_bindings: ["secret_text", "secret_key"]`). All five or none,
+  each checked, nothing of the two secrets printed; a re-run with them replaces them. Never a
+  client's: `cos client secret` does not take them.

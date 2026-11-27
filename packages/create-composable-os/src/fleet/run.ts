@@ -86,6 +86,7 @@ import {
   settingCommand,
   setupTokenSource,
 } from "./settings.ts";
+import { streamSettingsOf } from "./stream.ts";
 import { fleetUpdate } from "./update.ts";
 
 export const CLIENT_COMMANDS = [
@@ -106,6 +107,8 @@ export const FLEET_USAGE = `cos fleet: a host of many clients (stage 66, docs/de
   cos fleet keys --env <live|staging> --out <file>     the deployment's keys, into <file> (0600, outside any repository)
   cos fleet install --env <e> --keys-file <file> --callback-hostname <h> --domain <d> [--version x.y.z]
                     [--location <hint>] [--ai on|off]   (both at the first install only)
+                    [--stream-account-id <id> --stream-customer-code <c> --stream-signing-key-id <id>
+                     --stream-token-file <f> --stream-jwk-file <f>]   the operator's Stream account
   cos fleet upgrade --env <e> --keys-file <file> [--version x.y.z] [--dry-run] [--yes] [--skip-staging]
 cos client: the clients of a host of many clients (each takes --env <live|staging>, default live)
   cos client add <id> [--tier standard|bespoke] [--repository o/r] [--location oc] [--staff-hostname h]
@@ -277,6 +280,10 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
   };
   // A fleet's gatekeepers are the platform's fixed list (ADR 0618), on a re-run too.
   state.gatekeepers = fleetGatekeepers(manifest);
+  // The operator's Stream account (stage 66 step 9): its ids kept in the state, so every upload
+  // sets them again; its token and signing key the app Worker's secrets, kept by every upload.
+  const stream = streamSettingsOf(flags, (v) => deps.redactor.add(v));
+  if (stream) state.vars[app.name] = { ...state.vars[app.name], ...stream.vars };
   // The keys file must be the one this deployment was installed with (S2): never re-keyed here.
   if (state.fleet) {
     const mismatch = keysMismatch(state.fleet, keys);
@@ -318,6 +325,10 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
       crypto.getRandomValues(new Uint8Array(32)),
     ).toString("hex");
     deps.redactor.add(appSecrets.BETTER_AUTH_SECRET);
+  }
+  if (stream) {
+    Object.assign(appSecrets, stream.secrets);
+    deps.io.out("  Stream: the account's ids kept with the deployment, its token and key set");
   }
   const result = await installRelease({
     api: s.api,
