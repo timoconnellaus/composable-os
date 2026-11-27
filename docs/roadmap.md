@@ -204,6 +204,17 @@ gets its interview and spec when a client needs it, and not before.
 
 Shop, knowledge base and jobs need almost nothing new.
 
+## Stages 75 and 76: screens as versions, and a desktop app
+
+A client's screens built as versions, one of them published, and one desktop app that loads the
+published version ([ADR 0960](adr/0960-screens-as-published-versions-and-one-desktop-app.md)). The
+specs are proposals: each stage is built only after its own interview.
+
+| # | Stage | Scope | Status |
+| --- | --- | --- | --- |
+| 75 | Screen versions | A client's screens built as a browser-only app and stored as versions; `screens.publish` moves the published pointer and moves it back; a draft used at a preview address on live data; the web serves the published version, by Worker Loader if its spike passes ([spec](stages/75-screen-versions.md)) | spec proposed (2026-11-27) |
+| 76 | The desktop app | One signed app on Electrobun for every client: it downloads a client's published screens, checks them, keeps them on disk and shows them offline; tokens and a fixed bridge in its main process; storage per client; macOS first ([spec](stages/76-desktop-app.md)) | spec proposed (2026-11-27) |
+
 ## Later, for the platform
 
 Named so they are not forgotten, not staged:
