@@ -1,6 +1,11 @@
 // Server functions anonymous callers may use (see PUBLIC_SERVER_FN_FILE in identity.ts).
 
-import { awaitingFirstUser, createIdentityProvider, signInMethods } from "@composable-os/auth";
+import {
+  awaitingFirstUser,
+  createIdentityProvider,
+  firstAdminByLink,
+  signInMethods,
+} from "@composable-os/auth";
 import {
   holdsPermission,
   loadStaffRights,
@@ -82,5 +87,11 @@ async function setupOpen(): Promise<boolean> {
 /** Which sign-in methods the sign-in page should offer, and whether to create the first account. */
 export const getSignInMethods = createServerFn({ method: "GET" }).handler(async () => {
   const methods = signInMethods(requestEnv());
-  return { ...methods, firstAccount: methods.email && (await awaitingFirstUser(requestEnv().DB)) };
+  return {
+    ...methods,
+    firstAccount: methods.email && (await awaitingFirstUser(requestEnv().DB)),
+    // On a host of many clients the first account is made only by the operator's setup link
+    // (stage 66 step 9): the page asks for it rather than offering the form to anyone.
+    firstAdminByLink: firstAdminByLink(requestEnv()),
+  };
 });

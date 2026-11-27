@@ -54,7 +54,71 @@ export interface BetterAuthOptions {
   addressSecret?: string | undefined;
   /** A many-client host: every cookie `__Host-` prefixed (`cookieOptions`). */
   hostOnlyCookies?: boolean | undefined;
+  /**
+   * Who may make the first account (stage 66 step 9). Absent (a single-client deployment): the
+   * first person to sign up, as before. On a host of many clients the client's named first admin
+   * (`COS_FIRST_ADMIN`, the operator's), or null when none is named or it does not read: then
+   * nobody, until the operator names one.
+   */
+  firstAdmin?: FirstAdmin | null | undefined;
   clock?: () => Date;
+}
+
+/**
+ * On a host of many clients, who may make a client's first account (stage 66 step 9, ADR 0618
+ * "The first client's day one"): the address the operator named, by password sign-up, carrying the
+ * setup link's token, before the link expires. The registry holds the token's SHA-256 only; the
+ * token was printed once to the operator, and the page reads it from the link's fragment, which
+ * no server sees.
+ */
+export interface FirstAdmin {
+  email: string;
+  sha256: string;
+  expires: string;
+}
+
+/** The header the setup page sends the link's token in (`FIRST_ADMIN_TOKEN_HEADER` in the registry). */
+export const FIRST_ADMIN_HEADER = "cos-first-admin-token";
+
+const SIGN_UP_PATH = "/sign-up/email";
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Equal strings, compared in time that does not depend on where they differ. */
+function sameText(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
+ * Whether this sign-up may make the first account of a client whose first admin is `rule`: by
+ * password only, the named address only, with the link's token, before it expires. Null: nobody.
+ */
+export async function firstAdminMaySignUp(
+  rule: FirstAdmin | null,
+  attempt: { path: string | undefined; email: string; token: string | null | undefined },
+  now: Date,
+): Promise<boolean> {
+  if (!rule) return false;
+  if (attempt.path !== SIGN_UP_PATH) return false;
+  if (attempt.email.trim().toLowerCase() !== rule.email) return false;
+  if (!(now.getTime() < Date.parse(rule.expires))) return false;
+  const token = attempt.token?.trim();
+  if (!token || token.length < 32 || token.length > 128) return false;
+  return sameText(await sha256Hex(token), rule.sha256);
+}
+
+/** How many people (not extension principals) have accounts: none, and the first may be made. */
+export async function humanCount(db: D1Database): Promise<number> {
+  const row = await db
+    .prepare("SELECT COUNT(*) AS n FROM core_user WHERE kind = 'human'")
+    .first<{ n: number }>();
+  return row?.n ?? 0;
 }
 
 /**
@@ -455,11 +519,25 @@ export function createBetterAuth(options: BetterAuthOptions) {
           // accepted by the code sign-in only, unless AUTH_ALLOW_SIGNUP=true opens password and
           // Google sign-up.
           before: async (user, ctx) => {
-            const row = await db
-              .prepare("SELECT COUNT(*) AS n FROM core_user")
-              .first<{ n: number }>();
-            // The first user always gets in.
-            if ((row?.n ?? 0) === 0) return { data: user };
+            // The first person (an installed pack's principal is not one, migration 0020) always
+            // gets in on a single-client deployment. On a host of many clients only the client's
+            // named first admin, by the operator's setup link (stage 66 step 9): its staff
+            // hostname is public from the moment the client is added.
+            if ((await humanCount(db)) === 0) {
+              if (options.firstAdmin === undefined) return { data: user };
+              const allowed = await firstAdminMaySignUp(
+                options.firstAdmin,
+                {
+                  path: ctx?.path,
+                  email: user.email,
+                  token:
+                    ctx?.headers?.get(FIRST_ADMIN_HEADER) ??
+                    ctx?.request?.headers.get(FIRST_ADMIN_HEADER),
+                },
+                clock(),
+              );
+              return allowed ? { data: user } : false;
+            }
             const byCode = ctx?.path === CODE_SIGN_IN_PATH;
             if (!byCode && !allowSignUp) return false;
             // A hosted plan's user limit (ADR 0211). No entitlements row: no limit.

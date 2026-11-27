@@ -49,6 +49,8 @@ export interface OperationsEnv extends AiAppEnv, DeskEnv {
   APPROVAL_FLOOR?: string;
   /** Days before a pending action expires (ADR 0022). Default 7. */
   APPROVAL_EXPIRY_DAYS?: string;
+  /** The packs the deployment (or the client) has: the runner installs them (ADR 0420). */
+  COS_PACKS?: string;
   /** The OAuth provider's store, so revoking a connected app also deletes its tokens. */
   OAUTH_KV?: KVNamespace;
   /** cos-runner: the extension host (ADR 0025). */
@@ -185,6 +187,23 @@ function rpcHost(stub: ExtensionHost): ExtensionHost {
 }
 
 /**
+ * The packs an explicit `COS_PACKS` list names that an install's results do not mention: the
+ * runner installed from another list. None for "*" or no list (the release's own packs).
+ */
+export function packsNotInstalled(
+  packs: string | undefined,
+  results: readonly { id: string }[],
+): string[] {
+  const value = packs?.trim();
+  if (!value || value === "*") return [];
+  const seen = new Set(results.map((r) => r.id));
+  return value
+    .split(",")
+    .map((id) => id.trim())
+    .filter((id) => id && !seen.has(id));
+}
+
+/**
  * How long a call waits for its client's shipped extensions to be checked or installed before it
  * goes on without them (issue #558). When they are already installed the check is one read in
  * cos-runner and ends well inside it; a first install (seconds per pack) carries on after.
@@ -217,7 +236,11 @@ function outlive(work: Promise<unknown>): void {
   }
 }
 
-function startShippedInstall(binding: Fetcher, key: object): ShippedInstall {
+function startShippedInstall(
+  binding: Fetcher,
+  key: object,
+  packs: string | undefined,
+): ShippedInstall {
   const held: ShippedInstall = { settled: false, startedAt: Date.now(), done: Promise.resolve() };
   held.done = runner({ RUNNER: binding })
     .installShipped()
@@ -225,6 +248,13 @@ function startShippedInstall(binding: Fetcher, key: object): ShippedInstall {
       const failed = results.filter((r) => r.outcome === "failed");
       // Not tried again in this isolate: cos-runner told the admins, and the next isolate tries.
       if (failed.length) console.error("shipped extensions failed to install", failed);
+      // The runner read an older registry than this environment (each refreshes on its own, within
+      // 10 seconds): a pack just added to the client's COS_PACKS was not in its list. Not held, so
+      // the next request installs it (stage 66 step 9).
+      if (packsNotInstalled(packs, results).length) {
+        if (shippedInstalls.get(key) === held) shippedInstalls.delete(key);
+        return;
+      }
       held.settled = true;
     })
     .catch((error: unknown) => {
@@ -258,7 +288,7 @@ export async function ensureShippedExtensions(
   let held = shippedInstalls.get(key);
   if (held?.settled) return;
   if (!held || Date.now() - held.startedAt >= staleMs) {
-    held = startShippedInstall(env.RUNNER, key);
+    held = startShippedInstall(env.RUNNER, key, env.COS_PACKS);
   }
   // Waited on only in the bound's first moments after it started: once it has run longer, calls
   // go on at once, rather than each adding the bound while a first install runs.

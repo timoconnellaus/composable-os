@@ -12,6 +12,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
 import { useProductName } from "../components/product-name.ts";
 import { authClient } from "../lib/auth-client.ts";
+import { FIRST_ADMIN_HEADER, firstAdminTokenOf } from "../lib/first-admin.ts";
 import { authPost, OFFLINE_WORDS } from "../lib/staff-auth.ts";
 import { getSession, getSignInMethods } from "../server/session.public.ts";
 
@@ -151,6 +152,22 @@ function SignInPage() {
   // One email field on the page at a time: the password form, or the code form (ADR 0455).
   const [withCode, setWithCode] = useState(false);
   const codeOffered = methods.code && !methods.firstAccount;
+  // On a host of many clients the first account is made only with the operator's setup link
+  // (stage 66 step 9): its token is in the fragment, read once the page runs.
+  const [setupToken, setSetupToken] = useState<string | null>(null);
+  useEffect(() => {
+    const token = firstAdminTokenOf(window.location.hash);
+    setSetupToken(token);
+    // Out of the address bar and the history once read: it stays in this page's memory only.
+    if (token) {
+      window.history.replaceState(
+        window.history.state,
+        "",
+        window.location.pathname + window.location.search,
+      );
+    }
+  }, []);
+  const waitingForLink = methods.firstAccount && methods.firstAdminByLink && !setupToken;
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -160,7 +177,10 @@ function SignInPage() {
     const email = String(form.get("email"));
     const password = String(form.get("password"));
     const { error } = methods.firstAccount
-      ? await authClient.signUp.email({ name: String(form.get("name")), email, password })
+      ? await authClient.signUp.email(
+          { name: String(form.get("name")), email, password },
+          setupToken ? { headers: { [FIRST_ADMIN_HEADER]: setupToken } } : undefined,
+        )
       : await authClient.signIn.email({ email, password });
     setPending(false);
     if (error) {
@@ -179,15 +199,19 @@ function SignInPage() {
             {methods.firstAccount ? "Create the first account" : `Sign in to ${productName}`}
           </CardTitle>
           <CardDescription>
-            {methods.firstAccount
-              ? "This deployment has no users yet. The first account is its admin."
-              : methods.kind === "better-auth"
-                ? "Use your email and password."
-                : "This deployment signs you in with Cloudflare Access."}
+            {waitingForLink
+              ? "The first account is made with the setup link you were sent. Open that link to create it."
+              : methods.firstAccount
+                ? methods.firstAdminByLink
+                  ? "Create the first account with the address the setup link was made for. It is the admin."
+                  : "This deployment has no users yet. The first account is its admin."
+                : methods.kind === "better-auth"
+                  ? "Use your email and password."
+                  : "This deployment signs you in with Cloudflare Access."}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
-          {methods.email && !withCode && (
+          {methods.email && !withCode && !waitingForLink && (
             <form className="grid gap-3" method="post" onSubmit={onSubmit}>
               {methods.firstAccount && (
                 <div className="grid gap-1.5">
@@ -244,7 +268,7 @@ function SignInPage() {
                 Invited, or no password? Use a code from email
               </Button>
             ))}
-          {methods.google && (
+          {methods.google && !(methods.firstAccount && methods.firstAdminByLink) && (
             <Button
               variant="outline"
               disabled={!hydrated}

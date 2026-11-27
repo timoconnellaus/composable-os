@@ -13,10 +13,16 @@
 
 import { env as workerEnv } from "cloudflare:workers";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { type ClientScope, provideClientScope, runInClientScope } from "@composable-os/core";
+import {
+  type ClientScope,
+  currentClientLabel,
+  provideClientScope,
+  runInClientScope,
+} from "@composable-os/core";
 import { servesManyClients } from "@composable-os/db/client-entries";
 import { clientStampOf } from "@composable-os/db/client-environment";
 import { provideObjectScope } from "@composable-os/db/client-objects";
+import { setClientLabelSource } from "@composable-os/product";
 
 const current = new AsyncLocalStorage<Env>();
 
@@ -27,6 +33,14 @@ if (servesManyClients(workerEnv)) {
   provideClientScope(new AsyncLocalStorage<ClientScope>(), { unscoped: "refuse" });
   // Every call that enters one of the app's client objects, in that client's scope.
   provideObjectScope((env, run) => runInClientEnv(env as Env, run));
+  // The product's name each client's people read (stage 66 step 9): its own, from its scope.
+  setClientLabelSource(currentClientLabel);
+}
+
+/** An environment's product label (`COS_PRODUCT_LABEL`), or null. */
+function labelOf(env: object): string | null {
+  const label = (env as { COS_PRODUCT_LABEL?: unknown }).COS_PRODUCT_LABEL;
+  return typeof label === "string" && label.trim() ? label.trim() : null;
 }
 
 /**
@@ -42,7 +56,7 @@ export const deploymentEnv: Env = workerEnv;
  * for it is its own: the scope is its database, one object per client environment.
  */
 export function runInClientEnv<T>(env: Env, run: () => T): T {
-  const scope = { database: env.DB as object, client: clientStampOf(env) };
+  const scope = { database: env.DB as object, client: clientStampOf(env), label: labelOf(env) };
   return current.run(env, () => runInClientScope(scope, run));
 }
 

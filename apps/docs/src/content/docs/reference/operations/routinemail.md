@@ -54,6 +54,7 @@ No fields.
 | `retentionMonths` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Months the log is kept |
 | `receiptDailyCap` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Receipts the organisation sends in a day, apart from the routine email limit |
 | `siteOrigin` | string or null | yes |   | The business's own site: the only place a routine email links to |
+| `replyTo` | string or null | yes |   | The business's own reply address: routine email's Reply-To; none, no Reply-To |
 | `textOnlyWithoutApp` | boolean | yes |   | A member reached by a push on the business's app is not also texted |
 | `quietHours` | object | yes |   | When texts and pushes wait, in quietZone; emails always go at once |
 | `quietHours.start` | string | yes | pattern `^([01]\d\|2[0-3]):[0-5]\d$` |   |
@@ -114,7 +115,7 @@ The routine email log (ADR 0590), newest first: each email a shipped pack's auto
 
 ## routineMail.settings.update
 
-Turn a pack's routine email on (packs: { bookings: true }: its kinds then send without approval; off, each is an ordinary send the policy decides), turn one kind on or off (kinds: { 'bookings.reminder': false }: off sends nothing and queues nothing), or set the business's own site, the only place routine email links to (siteOrigin, an https origin; null removes the links), the organisation's daily limit (orgDailyCap), the receipts' own daily limit (receiptDailyCap) or how long the log is kept (retentionMonths). Switch a kind's text or push on (channels: { 'bookings.reminder': { push: true } }, only channels the kind declares), whether a member reached by push is also texted (textOnlyWithoutApp), or quiet hours, when texts and pushes wait (quietHours: { start: '21:00', end: '07:00' }; the same start and end: none) and the time zone they are read in (quietZone, e.g. 'Europe/London'), or the name every text begins with (senderName, at most 30 characters). A text or push cannot be switched on until quietZone is set, nor a text until senderName is. Texts: the month's limit (textLimitMinor, in minor units of the business's currency; 0 sends none), what one segment costs (textSegmentPriceMinor, from the provider's price list), and the countries texts may go to (textCountries, ISO codes, the business's own first). Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.
+Turn a pack's routine email on (packs: { bookings: true }: its kinds then send without approval; off, each is an ordinary send the policy decides), turn one kind on or off (kinds: { 'bookings.reminder': false }: off sends nothing and queues nothing), or set the business's own site, the only place routine email links to (siteOrigin, an https origin; null removes the links), the business's own reply address routine email carries as its Reply-To (replyTo; null: none), the organisation's daily limit (orgDailyCap), the receipts' own daily limit (receiptDailyCap) or how long the log is kept (retentionMonths). Switch a kind's text or push on (channels: { 'bookings.reminder': { push: true } }, only channels the kind declares), whether a member reached by push is also texted (textOnlyWithoutApp), or quiet hours, when texts and pushes wait (quietHours: { start: '21:00', end: '07:00' }; the same start and end: none) and the time zone they are read in (quietZone, e.g. 'Europe/London'), or the name every text begins with (senderName, at most 30 characters). A text or push cannot be switched on until quietZone is set, nor a text until senderName is. Texts: the month's limit (textLimitMinor, in minor units of the business's currency; 0 sends none), what one segment costs (textSegmentPriceMinor, from the provider's price list), and the countries texts may go to (textCountries, ISO codes, the business's own first). Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.
 
 |  |  |
 | --- | --- |
@@ -131,6 +132,7 @@ Turn a pack's routine email on (packs: { bookings: true }: its kinds then send w
 | `packs` | map of boolean |   |   |   |
 | `kinds` | map of boolean |   |   |   |
 | `siteOrigin` | string or null |   |   |   |
+| `replyTo` | string or null |   |   |   |
 | `orgDailyCap` | integer |   | ≥ 1, ≤ 100000 |   |
 | `receiptDailyCap` | integer |   | ≥ 1, ≤ 100000 |   |
 | `retentionMonths` | integer |   | ≥ 1, ≤ 84 |   |
@@ -152,6 +154,7 @@ Turn a pack's routine email on (packs: { bookings: true }: its kinds then send w
 | `packs` | map of boolean | yes |   |   |
 | `kinds` | map of boolean | yes |   |   |
 | `siteOrigin` | string or null | yes |   |   |
+| `replyTo` | string or null | yes |   |   |
 | `orgDailyCap` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
 | `receiptDailyCap` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
 | `retentionMonths` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |

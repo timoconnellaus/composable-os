@@ -215,6 +215,11 @@ operator's command so a re-run carries on. The deployment table stays the host D
 (ADR 0618, "What is left out"). A subset of packs is a `COS_PACKS` setting, not checked against the
 product's packs at write.
 
+*Amended 2026-11-27 (stage 66 step 9, ADR 0618 "The first client's day one"):* `COS_PRODUCT_LABEL`
+is a client setting (inherited), no longer shared, and `COS_FIRST_ADMIN` is one (empty); `cos
+client setting` changes a fixed list of settings on a running client, and `COS_PACKS` is checked
+against the installed release's packs when it is written.
+
 ## Consequences
 - **A single-client deployment is unchanged:** no Worker binds `REGISTRY` or `CLIENT_DB`, no entry
   calls the new code, and every existing test runs on D1 as before.

@@ -307,14 +307,16 @@ describe('INTERNAL_DOMAINS on a fleet (ADR 0618, "A fleet\'s gatekeepers")', () 
 });
 
 describe("an imported client's videos", () => {
-  it("are stamped with their creator; one the account does not hold answers false", async () => {
+  it("have their creator read: its stamp, null for none, undefined when the account has no such video", async () => {
     const { cf, api } = await setup();
     const held = "c".repeat(32);
+    const stamped = "e".repeat(32);
     cf.streamCreators.set(held, null);
-    expect(await api.setStreamCreator(ACCOUNT, held, "live:gym-b")).toBe(true);
-    expect(cf.streamCreators.get(held)).toBe("live:gym-b");
-    expect(await api.setStreamCreator(ACCOUNT, "d".repeat(32), "live:gym-b")).toBe(false);
-    await expect(api.setStreamCreator(ACCOUNT, "../x", "live:gym-b")).rejects.toThrow(/Stream/);
+    cf.streamCreators.set(stamped, "live:gym-a");
+    expect(await api.streamVideoCreator(ACCOUNT, held)).toBeNull();
+    expect(await api.streamVideoCreator(ACCOUNT, stamped)).toBe("live:gym-a");
+    expect(await api.streamVideoCreator(ACCOUNT, "d".repeat(32))).toBeUndefined();
+    await expect(api.streamVideoCreator(ACCOUNT, "../x")).rejects.toThrow(/Stream/);
   });
 });
 

@@ -135,7 +135,8 @@ Live takes a release only once staging runs it (`--skip-staging` deliberately). 
   the schema against this code's migrations for core objects), its files, its derivable secrets
   stored with `writeImportedSecret` and its given ones with `writeClientSecret`, migrated to this
   release, every embedded record queued again (the index is new), its videos in this account
-  re-stamped with its creator, then served. **An import over an
+  re-stamped with its creator (*corrected 2026-11-28, review of #552: none is re-stamped, see "An
+  import never takes another client's video"*), then served. **An import over an
   existing id is refused**, not overwritten: a client's id is never given new data under it.
 - **`cos install --import <dir>`**: the same export installed as a single-client deployment in
   another account (criterion 13): into the new install's empty D1 before any migration, files into
@@ -372,10 +373,11 @@ plane, `products/crm/apps/control`, stays the CRM's).
 
 ## What is left out, and why
 - **Videos are not copied.** Step 5 (#522, merged) stamps each video with its client's creator
-  (`<environment>:<client>`) and refuses one without. An import re-stamps every video the client's
-  records name (`core_media.stream_uid`) that this account's Stream holds, with `clientStamp`, the
-  one place the creator's shape is decided (`clientStampOf` uses it), and names the ones the account
-  does not hold; an export lists none and does not download them (issue #525).
+  (`<environment>:<client>`) and refuses one without. An import re-stamps no video (corrected
+  2026-11-28, review of #552): each the client's records name (`core_media.stream_uid`) must
+  already carry its `clientStamp`, the one place the creator's shape is decided (`clientStampOf`
+  uses it), or not be in this account (named); any other refuses the import. An export lists none
+  and does not download them (issue #525).
 - **Extension objects in an import** (`x_*`, `rec_*`) are taken as the export declares them; core
   objects are checked against this code's migrations. Checking extension objects against what the
   reconciler derives from the imported manifests is not built.
@@ -407,3 +409,166 @@ plane, `products/crm/apps/control`, stays the CRM's).
 - Nothing here was run on Cloudflare: D1's REST API with a batch of many statements, Durable Object
   point-in-time restore through the operator's Worker, R2 lifecycle rules
   and a fleet's uploads are proved locally and against the fake API only.
+
+## The first client's day one (amendment, 2026-11-27; stage 66 step 9, `feat/stage-66-first-client-gaps`)
+*Recorded here because stage 66's ADR numbers (0610 to 0619) are all taken. Four gaps a real client
+hits on its first day, found by the step 9 scoping pass.*
+
+### The first admin (G5)
+- **The danger.** The first person to sign up at a deployment becomes its admin (migration 0020's
+  `core_user_first_admin`). A fleet client's staff hostname (`<id>-admin.<domain>`) is predictable
+  and appears in certificate transparency logs as soon as `cos client add` attaches it, so whoever
+  found it first could take the client.
+- **The bootstrap order is the difficulty.** A new client cannot send mail: its sender domain and
+  its "host's mail" connection are set up in the app by its admin. So the first admin cannot be
+  sent a sign-in code; a link given to the operator is the only channel that exists on day one.
+- **Decided** (the setup token's part decided by the coordinator after the review of #552). On a
+  host of many clients the operator names the first admin, and **gives only the setup token's
+  SHA-256**: `cos client add <id> --admin <email> --admin-token-sha256 <hex>`, or `cos client
+  first-admin <id> --email <email> --token-sha256 <hex>` later, which replaces the last. A value
+  that is not 64 lowercase hex characters is refused. The token is made by the owner on his own
+  machine with `cos client first-admin-token --staff-hostname <host>` (no registry, no Cloudflare
+  token; refused when `CI` or `GITHUB_ACTIONS` is set), which prints the link and the hash; the
+  owner keeps the link and sends it himself. So no secret ever reaches GitHub: the fleet's
+  commands run in a workflow of a public repository whose logs anyone reads, and with only a hash
+  in it nothing there can make the client's first account. With the hash the command prints
+  neither a token, a link nor the admin's address (a client's personal data, in a public log):
+  only that the setting is stored and its expiry; `cos client setting list` shows it as set, with
+  its expiry, and the address only with `--show-email`. `--print-link` (cos makes the token and
+  prints the link once) stays for a self-hosted operator at a terminal, and is refused in CI. The
+  registry setting `COS_FIRST_ADMIN` holds the address, the hash and an expiry 72 hours on, written
+  only by `setFirstAdmin`. The token is stored nowhere; it rides in the link's fragment, which no
+  server or log sees, and the sign-in page drops it from the address bar and the history once read
+  (`history.replaceState`); the sign-in page sends it with the sign-up in the `cos-first-admin-token` header. The host (Better Auth's
+  user-create hook, `firstAdminMaySignUp`) makes the first account only for that address, by
+  password sign-up, with a token whose SHA-256 matches (compared in constant time), before the
+  expiry; every other first account is refused, and with no admin named, or a value that does not
+  read, nobody's (fails closed). Once a person has an account the link does nothing.
+- **Not by code, not by Google.** A sign-in code needs the mail the admin has not set up; Google
+  sign-up cannot carry the token. Under Cloudflare Access (a client setting), Access's own policy
+  decides who reaches the app, as before.
+- **Identity stays out of the AI's reach.** `COS_FIRST_ADMIN` is a registry setting, written only by
+  the operator's command; `cos client setting` refuses it.
+- **A single-client deployment is unchanged**: its installer signs up at `/setup` right after the
+  deploy, on a hostname they chose, with no window worth a guard. Fixed for both: the first-account
+  check counted every `core_user` row, so an installed pack's principal (kind `extension`) closed
+  sign-up before the first person signed up; it now counts people only, as the trigger does.
+
+### A running client's settings (G4)
+`cos client setting list|set|unset <id> [NAME] [value]`, over the registry only (never the
+operator's Worker). The names it changes, each with its check (`OPERATOR_SETTINGS`,
+`@composable-os/db/registry`): `COS_PACKS`, `API_ALLOWED_ORIGINS` (https origins only),
+`NATIVE_REDIRECT_URIS` (see below),
+`APPROVAL_EXPIRY_DAYS` (1 to 90) and `COS_PRODUCT_LABEL`. Every other client setting says why not
+(`NOT_OPERATOR_SETTINGS`): `APPROVAL_FLOOR` and `IDENTITY_PROVIDER` are the deployment's (a
+client's own policy or identity is a reviewed change of its own, and a floor that does not parse
+stops the client); `AUTH_ALLOW_SIGNUP` is never right on a fleet's public hostname;
+`COS_ORG_EXTENSIONS` is the client repository's deploy's; `AI_MODEL_ROLES` and `AI_PROVIDERS` wait
+for per-client AI; `COS_FIRST_ADMIN` is `first-admin`'s. `add`'s `--setting` values get the same
+checks. *Corrected after the review of #552 (S2, S3):* `add`'s `--setting` takes exactly the same
+names, every other one refused (as first built it let the refused names through at `add`), and the
+list and the checks are also where the write is: `setClientSetting` refuses any other name and any
+value its check refuses, `newClientProblems` does the same for `add`'s rows, and `COS_FIRST_ADMIN`
+is written only by `setFirstAdmin`. Two checks need the fleet: no allowed origin is under the
+fleet's registrable domain, the client's own staff hostname included (S4; the same rule the host
+holds since step 8, `withoutFleetOrigins`, which drops every such origin from a client's
+environment), and a native redirect is the client's app's `<scheme>://staff-sign-in`, cos's
+`http://127.0.0.1/cos-sign-in`, or https on one of the client's own verified hostnames (S5). Replacing or removing a value asks for the client's id. A
+change is served within `REGISTRY_REFRESH_MS` (10 seconds).
+
+**Widening `COS_PACKS` is a plain setting change, with three checks.** The host installs every
+pack its environment lists at the client's next staff or API request (`ensureShippedExtensions`,
+once per client environment, and a changed registry is a new environment), through
+`extension.install`: its objects, its migrations, its principal; a pack that needs another is
+tried again after the rest. So the command checks: each pack is carried by the installed release
+(its client kit's `packs.json`); the packs they require (`roles.json`) are named too; and the
+client's own list never narrows (a pack taken out stays installed and is no longer updated by a
+release, so it is refused; `unset` too). A client that had the deployment's packs asks first. The
+app and the runner each refresh the registry on their own: an install whose results lack a pack
+the app's list names is not held, so the next request installs it.
+
+### The product label per client (G8)
+`COS_PRODUCT_LABEL` is a client setting (inherited from the deployment's label when absent), set by
+`cos client add --label` or the setting command. `productName` (packages/product) reads the label
+of the client scope the code runs in (core's `ClientScope.label`, set from the client's
+environment by every entry of the app and the runner, the same scope ADR 0617 keeps per client);
+outside every client's scope, the deployment's label. So the sign-in page, the staff screens, the
+sign-in codes, invites and every notification name the client's product, never another client's
+(the app's and the runner's two-client suites).
+
+### Reply-To on host mail (G9)
+- **Sign-in codes carry no Reply-To**, as before: the sign-in kind still refuses one.
+- **Routine mail may carry the business's own reply address** and keep its routine kind. The
+  address is the client's human admin's (`routineMail.settings.update` `replyTo`, Settings →
+  Routine email, "Replies"), stored in its database beside the site the links may point to. The
+  host puts it on the message, and its routine queue names it to the email-send gatekeeper
+  (`hostRoutineMail` answers `replyTo`); the gatekeeper gives the routine kind only to a message
+  whose Reply-To is that address or absent. A Reply-To from anywhere else, or one the queue does
+  not name, makes the email an ordinary send held for a person. Chosen over an operator setting:
+  the address is the business's to choose, as its site is, and it works on a single-client
+  deployment too.
+
+### Videos on a fleet (G10)
+- **One Stream account, the operator's, for every client.** Its isolation is ADR 0617's,
+  checked again here: `creatorCheckedVideoHost` stamps every upload and copy with the client
+  (`<environment>:<client>`) as its creator; every call that names a video (details, securing it,
+  captions, deleting it) and every playback token is refused unless Stream says this client made
+  it; every video is made with `requireSignedURLs`, and a token names one video (`sub`), signed by
+  the host only; the host has no call that lists the account's videos. Sound: a two-client test
+  over one account (apps/app's `caches.test.ts`) shows neither client reaches or plays the other's.
+- **Its settings are the deployment's.** `cos fleet install` takes `--stream-account-id`,
+  `--stream-customer-code`, `--stream-signing-key-id` (kept as vars of the app Worker in the
+  deployment's state, so every later upload, an upgrade's included, sets them again) and
+  `--stream-token-file`, `--stream-jwk-file` (the app Worker's secrets, set on that install and
+  kept by every later upload: `keep_bindings: ["secret_text", "secret_key"]`). All five or none,
+  each checked, nothing of the two secrets printed; a re-run with them replaces them. Never a
+  client's: `cos client secret` does not take them.
+
+### An import never takes another client's video (review of #552, M-S1 and its third check; 2026-11-28)
+- **The gap.** `cos client import` re-stamped every video the imported database names
+  (`core_media.stream_uid`) with the importing client, whatever its creator. A video id is no
+  secret (every playback token's `sub` names it), so a crafted export could name another client's
+  videos and take them: play, caption and delete them, and the owner refused.
+- **Decided (the coordinator's, after the third check): an import re-stamps nothing.** Before the
+  client is served, each video's creator is read (`streamVideoCreator`, Stream's `GET
+  /stream/<uid>`). Accepted: a video already the importing client's (`<environment>:<client>`),
+  and one this account does not hold (named, as before). Anything else refuses the import, naming
+  each video and its stamp: no creator (an unstamped video is anyone's to name, so claiming it on
+  no evidence would let an import take it), any other creator, or a read that failed. The export's
+  SQL is only readable once it is in a database, so the refusal comes after the database is in;
+  the client was added paused and is never served, and `cos client remove` drops it.
+- **First built with a `--videos-from <stamp>` flag, removed:** live and staging are separate
+  deployments with separate registries on one Stream account, so a staging import naming
+  `live:<client>` could not be checked against live's registry and would take live's videos. With
+  nothing re-stamped, `setStreamCreator` had no caller and is gone.
+- **Not built: a safe move of a client's videos between deployments.** It needs the named
+  client checked in its own environment's registry, `live:*` refused on staging, and an explicit
+  opt-in for unstamped videos (stage 66 Status).
+- **A checked video's memory.** A client's video host signed without asking Stream for any video
+  it had checked (up to 1,000). It now does so for `CHECKED_VIDEO_TTL_MS` (60 seconds) after the
+  check, then asks again, so a video whose creator changed stops being signed for within a minute.
+- Tests: `packages/create-composable-os/test/fleet.test.ts` (an import naming gym-a's video is
+  refused, so is one naming an unstamped video and one whose read fails; an import whose videos
+  are its own is taken; nothing is re-stamped), `packages/release/test/fleet.test.ts` (the creator
+  read), the app's two-client `caches.test.ts` (the signing memory).
+
+### The fleet's domain at the write (review of #552, S-R1; 2026-11-28)
+An allowed origin is checked against the fleet's registrable domain where the registry is written
+(`newClientProblems` for `add`'s rows through `addClientRows`, and `setClientSetting`): without the
+domain the check refuses the origin, so the write fails closed rather than skipping the rule.
+
+### Left open after the review of #552
+- **Cloudflare Access on a fleet client (F1).** With `IDENTITY_PROVIDER=cloudflare-access` the
+  first person Access lets in becomes admin (`resolveActingUser` and the trigger);
+  `COS_FIRST_ADMIN` is not consulted. `IDENTITY_PROVIDER` is not an operator setting now, so a
+  fleet client cannot be given Access by `cos`; if it ever is, the first-admin rule must apply
+  there too, or the operator must write a per-client Access policy first.
+- **A client that already has people (F6).** `first-admin` writes a token that then does nothing.
+  Whether the client has people is in its database, which the registry commands do not open
+  (only the operator's Worker does, and opening it takes the operator's session), so it is not
+  refused; the command says the token works only before the first account.
+- **Widening `COS_PACKS` (F7).** A shipped pack's tools open to `customer` or `public` callers
+  (`loadOpenTool`, a shipped source with `audiences`) are reachable at the client's API from the
+  install on, with no switch of the client's admin; what they show is the pack's records under its
+  own visibility rules, of which a newly installed pack has none until staff make them. Its
+  routine email stays off until the admin turns it on.

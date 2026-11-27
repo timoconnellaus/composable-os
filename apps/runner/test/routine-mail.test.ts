@@ -106,6 +106,24 @@ describe("a member's routine email under Balanced", { timeout: 60_000 }, () => {
     );
   });
 
+  it("carries the business's own reply address an admin set, and still goes on its own (stage 66 step 9)", async () => {
+    await run("routineMail.settings.update", { replyTo: "Hello@Gym.Example" }, staff());
+    try {
+      const { who, row } = await booked("reply");
+      expect(row).toMatchObject({ status: "sent", routine: 1, pending_action_id: null });
+      const [mail] = (await mailTo(who.email)) as (Awaited<ReturnType<typeof mailTo>>[number] & {
+        replyTo?: string;
+      })[];
+      expect(mail?.replyTo).toBe("hello@gym.example");
+      // Not an address: refused, the setting as it was.
+      await expect(
+        run("routineMail.settings.update", { replyTo: "not an address" }, staff()),
+      ).rejects.toThrow(/one email address/);
+    } finally {
+      await run("routineMail.settings.update", { replyTo: null }, staff());
+    }
+  });
+
   it("a retried step sends nothing twice: the host finds the row it made", async () => {
     const { bookingId, row } = await booked("retry");
     const again = await prepareRoutineMail(db.query, {

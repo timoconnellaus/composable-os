@@ -17,6 +17,7 @@ import {
   checkOptions,
   checkSteps,
   compareExports,
+  cosRunner,
   describeFetchError,
   explainFailure,
   exportFacts,
@@ -1522,4 +1523,96 @@ test("what a failure needed, said plainly; secrets cut out; cos's list and expor
   assert.deepEqual(compareExports(given, { ...a, packs: "" }), [
     "packs: COS_PACKS=deals,leads, then ",
   ]);
+});
+
+test("each client's first admin is named at add with only its token's hash: no line the run logs holds the token (stage 66 step 9, S1)", async () => {
+  // cos run as the check runs it (`cosRunner`: a child process, every line it prints logged), by a
+  // stand-in that prints every argument and every variable it was given: a token handed to cos in
+  // any way would be in the log.
+  const dir = mkdtempSync(join(tmpdir(), "s66-staging-cli-"));
+  const cli = join(dir, "cos.mjs");
+  writeFileSync(
+    cli,
+    [
+      "const args = process.argv.slice(2);",
+      "console.log(args.join(' '));",
+      "console.log(JSON.stringify(process.env));",
+      "if (args[0] === 'client' && args[1] === 'list') console.log('  alpha  active  live  schema 3\\n  bravo  active  live  schema 3');",
+    ].join("\n"),
+  );
+  const logged = [];
+  const secrets = new Set();
+  const base = stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }) });
+  const ctx = {
+    ...base,
+    api: {
+      ...base.api,
+      putDomain: async () => {},
+      // cos attached both staff hostnames to the app Worker (stage 66 step 8).
+      listDomains: async () =>
+        [CLIENTS.a, CLIENTS.b].map((id) => ({
+          id: `d-${id}`,
+          hostname: base.hosts.staff[id],
+          service: `${PREFIX}-app-staging`,
+        })),
+    },
+    cos: cosRunner({
+      cli,
+      productFile: "/p.json",
+      bundleDir: "/b",
+      env: {},
+      secrets: () => [],
+      log: (line) => logged.push(line),
+    }),
+    addSecret: (value) => secrets.add(value),
+  };
+  const result = await step("add").run(ctx);
+  const tokens = Object.values(ctx.setupTokens);
+  assert.equal(tokens.length, 2);
+  const text = logged.join("\n");
+  for (const token of tokens) {
+    // Made by the check, masked before cos ran, and nowhere in what was logged.
+    assert.match(token, /^[A-Za-z0-9_-]{43}$/);
+    assert.ok(secrets.has(token));
+    assert.equal(text.includes(token), false);
+    assert.equal(JSON.stringify(result).includes(token), false);
+    // What cos was given is its hash.
+    assert.ok(text.includes(createHash("sha256").update(token).digest("hex")));
+  }
+  for (const id of ["alpha", "bravo"]) {
+    assert.match(
+      text,
+      new RegExp(
+        `--admin staff-${id}-123@staging-check\\.invalid --admin-token-sha256 [0-9a-f]{64}`,
+      ),
+    );
+  }
+  // Step 3 signs up with the token itself.
+  const signedUp = {};
+  const host = (url) => new URL(url).hostname.split("-admin.")[0];
+  await step("requests").run({
+    ...ctx,
+    cos: async () => ({ code: 0, out: "", ms: 1 }),
+    subdomain: "x",
+    fetch: async (url, init = {}) => {
+      if (url.endsWith("/api/auth/sign-up/email")) {
+        signedUp[host(url)] = init.headers?.["cos-first-admin-token"];
+        return new Response("{}", {
+          status: 200,
+          headers: { "set-cookie": `__Host-cos.session_token=${host(url)}; Path=/` },
+        });
+      }
+      if (url.endsWith("/api/auth/sign-in/email")) return new Response("{}", { status: 401 });
+      if (url.includes("/api/v1/op/")) {
+        return init.headers?.cookie === `__Host-cos.session_token=${host(url)}`
+          ? new Response("{}", { status: 200 })
+          : new Response(JSON.stringify({ error: { code: "unauthenticated" } }), { status: 401 });
+      }
+      if (url.endsWith("/api/health"))
+        return new Response(JSON.stringify({ host: true, version: VERSIONS.from }));
+      if (url.includes("/api/media")) return new Response("{}", { status: 201 });
+      return new Response("ok", { status: url.includes("workers.dev") ? 404 : 200 });
+    },
+  });
+  assert.deepEqual(signedUp, ctx.setupTokens);
 });

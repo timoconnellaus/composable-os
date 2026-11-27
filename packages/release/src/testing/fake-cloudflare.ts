@@ -583,9 +583,8 @@ export class FakeCloudflare {
       return ok(null);
     }
     m = new RegExp(`^${a}/stream/([0-9a-f]{32})$`).exec(path);
-    if (m && method === "POST") {
+    if (m && method === "GET") {
       if (!this.streamCreators.has(m[1] as string)) return fail(404, 10003, "video not found");
-      if (typeof b.creator === "string") this.streamCreators.set(m[1] as string, b.creator);
       return ok({ uid: m[1], creator: this.streamCreators.get(m[1] as string) });
     }
     // A bucket's keys, a page at a time (`per_page`, `cursor`: the next key's index here).

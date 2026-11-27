@@ -47,6 +47,24 @@ export const SENDER_DOMAINS = [
   { domain: "news.gym-b.test", client: TWO_CLIENTS.b.id, verified: false },
 ] as const;
 
+/** Each served client's own product label (`COS_PRODUCT_LABEL`, stage 66 step 9). */
+export const TWO_CLIENT_LABELS = { a: "Gym A Studio", b: "Gym B Club" } as const;
+
+/**
+ * gym-a's named first admin and its setup link's token (`COS_FIRST_ADMIN`, stage 66 step 9), as
+ * `cos client add --admin` writes it, expiring well after the suites run. gym-b names none.
+ */
+export const TWO_CLIENT_FIRST_ADMIN = {
+  client: TWO_CLIENTS.a.id,
+  email: "owner@gym-a.test",
+  token: "gym-a-first-admin-setup-token-0123456789abcdef",
+} as const;
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 interface TwoClientBindings {
   REGISTRY: D1Database;
   /** The operator's raw namespace (testing/vitest.ts, `addClientDbService`): step 7's stand-in. */
@@ -121,6 +139,31 @@ async function setUp(env: TwoClientBindings): Promise<void> {
         )
         .bind(id),
     ),
+    // Each served client's own label, and gym-a's named first admin (stage 66 step 9).
+    ...(
+      [
+        [a.id, TWO_CLIENT_LABELS.a],
+        [b.id, TWO_CLIENT_LABELS.b],
+      ] as const
+    ).map(([id, label]) =>
+      registry
+        .prepare(
+          "INSERT INTO registry_settings (client, name, value) VALUES (?, 'COS_PRODUCT_LABEL', ?)",
+        )
+        .bind(id, label),
+    ),
+    registry
+      .prepare(
+        "INSERT INTO registry_settings (client, name, value) VALUES (?, 'COS_FIRST_ADMIN', ?)",
+      )
+      .bind(
+        TWO_CLIENT_FIRST_ADMIN.client,
+        JSON.stringify({
+          email: TWO_CLIENT_FIRST_ADMIN.email,
+          sha256: await sha256Hex(TWO_CLIENT_FIRST_ADMIN.token),
+          expires: "2100-01-01T00:00:00.000Z",
+        }),
+      ),
   ]);
   for (const id of [a.id, b.id, paused.id, moving.id]) {
     // As the operator's `cos client add` will (step 7): the raw namespace, which the host's

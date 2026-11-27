@@ -927,6 +927,8 @@ export class FakeGatekeeper extends FakeObject<
       idempotencyKey?: string;
       agreement?: unknown;
       listUnsubscribe?: unknown;
+      /** Decides the kind as email-send does (stage 66 step 9); the fake keeps no header. */
+      replyTo?: unknown;
       purpose?: unknown;
     },
   ): Promise<{ id: number; status: "pending" | "sent"; dropped?: number }> {
@@ -1007,7 +1009,16 @@ export class FakeGatekeeper extends FakeObject<
     const routine =
       routineMail !== null &&
       message.internal === undefined &&
-      isRoutineShaped({ to, subject, text }, routineMail.siteOrigin);
+      isRoutineShaped(
+        {
+          to,
+          subject,
+          text,
+          ...(typeof message.replyTo === "string" ? { replyTo: message.replyTo } : {}),
+        },
+        routineMail.siteOrigin,
+        routineMail.replyTo,
+      );
     // The one-tap stop (ADR 0675), as email-send takes it: the host's routine mail only, on the
     // business's site.
     let headers: Record<string, string> | undefined;

@@ -607,8 +607,27 @@ export function setProductLabel(value: string | null | undefined): void {
   deployedLabel = typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-/** The product's name as people read it: the deployment's label when one is set, else the build's. */
+/**
+ * On a host of many clients (stage 66 step 9): the label of the client the code now runs for, from
+ * its environment's `COS_PRODUCT_LABEL` (its own setting, else the deployment's), or null outside
+ * any client's scope. Given once at load by a host Worker that serves many clients.
+ */
+let clientLabel: (() => string | null | undefined) | null = null;
+
+/** Gives `productName` the current client's label (a many-client host's Workers, at load). */
+export function setClientLabelSource(source: (() => string | null | undefined) | null): void {
+  clientLabel = source;
+}
+
+/**
+ * The product's name as people read it: on a host of many clients the current client's label;
+ * else the deployment's label when one is set; else the build's. Never another client's: the
+ * client's label is read from the scope the code runs in, and outside every client's scope it is
+ * the deployment's.
+ */
 export function productName(product: Pick<ProductDefinition, "strings">): string {
+  const own = clientLabel?.();
+  if (typeof own === "string" && own.trim()) return own.trim();
   return deployedLabel ?? product.strings.name;
 }
 

@@ -21,6 +21,7 @@ import { defineOperation } from "../operation.ts";
 import {
   loadRoutineMailSettings,
   ROUTINE_MAIL_SETTING,
+  replyToOf,
   routineKinds,
   siteOriginOf,
 } from "../routine-mail/index.ts";
@@ -98,6 +99,10 @@ const settingsOutput = z.object({
     .string()
     .nullable()
     .describe("The business's own site: the only place a routine email links to"),
+  replyTo: z
+    .string()
+    .nullable()
+    .describe("The business's own reply address: routine email's Reply-To; none, no Reply-To"),
   textOnlyWithoutApp: z
     .boolean()
     .describe("A member reached by a push on the business's app is not also texted"),
@@ -207,6 +212,7 @@ export const routineMailGet = defineOperation({
         };
       }),
       siteOrigin: settings.siteOrigin,
+      replyTo: settings.replyTo,
       textOnlyWithoutApp: settings.textOnlyWithoutApp,
       quietHours: settings.quietHours,
       quietZone: settings.quietZone,
@@ -359,7 +365,8 @@ export const routineMailSettingsUpdate = defineOperation({
     "approval; off, each is an ordinary send the policy decides), turn one kind on or off " +
     "(kinds: { 'bookings.reminder': false }: off sends " +
     "nothing and queues nothing), or set the business's own site, the only place routine email " +
-    "links to (siteOrigin, an https origin; null removes the links), the organisation's daily " +
+    "links to (siteOrigin, an https origin; null removes the links), the business's own reply " +
+    "address routine email carries as its Reply-To (replyTo; null: none), the organisation's daily " +
     "limit (orgDailyCap), the receipts' own daily limit (receiptDailyCap) or how long the log is kept (retentionMonths). Switch a kind's text or push " +
     "on (channels: { 'bookings.reminder': { push: true } }, only channels the kind declares), " +
     "whether a member reached by push is also texted (textOnlyWithoutApp), or quiet hours, when " +
@@ -376,6 +383,7 @@ export const routineMailSettingsUpdate = defineOperation({
     packs: z.record(z.string().max(40), z.boolean()).optional(),
     kinds: z.record(z.string().max(80), z.boolean()).optional(),
     siteOrigin: z.string().max(200).nullable().optional(),
+    replyTo: z.string().max(254).nullable().optional(),
     orgDailyCap: z.number().int().min(1).max(100_000).optional(),
     receiptDailyCap: z.number().int().min(1).max(100_000).optional(),
     retentionMonths: z.number().int().min(1).max(84).optional(),
@@ -397,6 +405,7 @@ export const routineMailSettingsUpdate = defineOperation({
     packs: z.record(z.string(), z.boolean()),
     kinds: z.record(z.string(), z.boolean()),
     siteOrigin: z.string().nullable(),
+    replyTo: z.string().nullable(),
     orgDailyCap: z.number().int(),
     receiptDailyCap: z.number().int(),
     retentionMonths: z.number().int(),
@@ -455,11 +464,21 @@ export const routineMailSettingsUpdate = defineOperation({
         );
       }
     }
+    let replyTo: string | null | undefined;
+    if (input.replyTo !== undefined) {
+      replyTo = input.replyTo === null || !input.replyTo.trim() ? null : replyToOf(input.replyTo);
+      if (replyTo === null && input.replyTo !== null && input.replyTo.trim()) {
+        throw new ValidationError("The reply address must be one email address", {
+          field: "replyTo",
+        });
+      }
+    }
     const previous = await loadRoutineMailSettings(ctx.db);
     const next = {
       packs: { ...previous.packs, ...(input.packs ?? {}) },
       kinds: { ...previous.kinds, ...(input.kinds ?? {}) },
       siteOrigin: siteOrigin === undefined ? previous.siteOrigin : siteOrigin,
+      replyTo: replyTo === undefined ? previous.replyTo : replyTo,
       orgDailyCap: input.orgDailyCap ?? previous.orgDailyCap,
       receiptDailyCap: input.receiptDailyCap ?? previous.receiptDailyCap,
       retentionMonths: input.retentionMonths ?? previous.retentionMonths,

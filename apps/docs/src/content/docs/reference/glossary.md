@@ -1406,6 +1406,27 @@ verified it: onboarded to Email Sending in the deployment's Cloudflare account, 
 The email-send gatekeeper refuses a sender on any other domain.
 _Avoid_: allowed sender domains (that is a single-client deployment's list)
 
+### First admin
+
+(stage 66 step 9; ADR 0618, "The first client's day one")
+
+The person who makes a deployment's first account, and so is its admin. On a single-client
+deployment, whoever signs up first. On a host of many clients only the address the operator named
+(`cos client add --admin`, `cos client first-admin`), with the **setup link**: a token the owner
+makes on his own machine (`cos client first-admin-token`), in the link's fragment, only its SHA-256
+given to the operator's command and kept in the registry's `COS_FIRST_ADMIN`; by password, before
+it expires; with none named, nobody.
+_Avoid_: owner (a person on a record), first user (an installed pack's principal is a user too)
+
+### Client setting
+
+(stage 66; ADRs 0613, 0618)
+
+A deploy-time setting held in the registry for one client by its env name (`CLIENT_SETTINGS`): set
+at `cos client add`, and on a running client only the few `cos client setting` changes, each
+checked (packs only ever wider). The client's **label** (`COS_PRODUCT_LABEL`) is one: the name its
+screens and mail give the product.
+
 ### Client's environment
 
 (stage 66; ADR 0613)
@@ -1887,7 +1908,8 @@ the recipient from the record, fills the declaration's words from it, and holds 
 anything that is not routine, anything an AI wrote or changed about what its words show included.
 One row per recipient and channel. Off for each pack until a human admin turns it on (until then
 each email waits for approval as before); each kind an admin can turn off, and its text and push
-are off until an admin switches them on (ADRs 0590, 0670). Not a newsletter. Its former name,
+are off until an admin switches them on (ADRs 0590, 0670). Its one reply address, if any, is the
+business's own, which a human admin sets beside its site (stage 66 step 9). Not a newsletter. Its former name,
 **Routine mail**, stays in the code (`routineMail`, `core_routine_mail`).
 _Avoid_: transactional email, notification, automated email
 

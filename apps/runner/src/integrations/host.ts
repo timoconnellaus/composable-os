@@ -39,6 +39,7 @@ import {
   type Role,
   recordIntegrationEvents,
   recordPaymentEvent,
+  replyToOf,
   revokeBindings,
   SIGN_IN_MAIL_ORIGINS,
   type Stoppable,
@@ -1078,6 +1079,7 @@ export class IntegrationHost extends ClientDurableObject(DurableObject<Env>) {
         runId: row.runId,
         extensionId: row.extensionId,
         siteOrigin: siteOriginOf(settings.siteOrigin),
+        replyTo: replyToOf(settings.replyTo),
       },
     };
     let queue: HostQueue;

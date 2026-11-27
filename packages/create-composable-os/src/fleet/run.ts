@@ -16,7 +16,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applyMigrations, type Migration } from "@composable-os/db";
 import { clientDbCallerProps, runnerCallerProps } from "@composable-os/db/client-proofs";
-import { REGISTRY_MIGRATIONS_TABLE } from "@composable-os/db/registry";
+import { firstAdminEmail, REGISTRY_MIGRATIONS_TABLE } from "@composable-os/db/registry";
 import { migrationOf } from "@composable-os/db/sql-split";
 import {
   compareVersions,
@@ -82,6 +82,17 @@ import {
 } from "./keys.ts";
 import { openOperator, STALE_NOTE } from "./operator-client.ts";
 import { lazyOperator } from "./session.ts";
+import {
+  addSettingsProblems,
+  firstAdminCommand,
+  firstAdminTokenCommand,
+  fleetDomainOf,
+  labelSetting,
+  type SetupTokenSource,
+  settingCommand,
+  setupTokenSource,
+} from "./settings.ts";
+import { streamSettingsOf } from "./stream.ts";
 import { fleetUpdate } from "./update.ts";
 
 export const CLIENT_COMMANDS = [
@@ -94,6 +105,9 @@ export const CLIENT_COMMANDS = [
   "import",
   "remove",
   "sender",
+  "setting",
+  "first-admin",
+  "first-admin-token",
   "hostname",
 ] as const;
 
@@ -105,6 +119,8 @@ export const FLEET_USAGE = `cos fleet: a host of many clients (stage 66, docs/de
                  the zone is the account's zone that holds --domain (learnt when not named);
                  wildcard: one route for the whole domain, only when it is the zone's apex and
                  the zone is the fleet's alone
+                 [--stream-account-id <id> --stream-customer-code <c> --stream-signing-key-id <id>
+                  --stream-token-file <f> --stream-jwk-file <f>]   the operator's Stream account
   cos fleet upgrade --env <e> --keys-file <file> [--version x.y.z] [--dry-run] [--yes] [--skip-staging]
 cos client: the clients of a host of many clients (each takes --env <live|staging>, default live)
   cos client add <id> [--tier standard|bespoke] [--repository o/r] [--location oc] [--staff-hostname h]
@@ -116,11 +132,23 @@ cos client: the clients of a host of many clients (each takes --env <live|stagin
   cos client secret set <id> <NAME> [--value-file <f>] | secret remove <id> <NAME>
   cos client export <id> [--out <dir>] [--leaving]
   cos client import <id> --from <dir> [--without-secrets] [--staff-hostname h] [--web-hostname h]
+                 (no video is re-stamped: one that is not already the client's refuses it)
                  [--setting COS_PACKS=…] (needed for an export that does not carry its packs)
   cos client remove <id>
   cos client sender add|verify|unverify|remove <id> <domain>
                  a client's sender domains; verify is your confirmation that the domain is
                  onboarded to Email Sending in this account with valid records
+  cos client setting list <id> | setting set <id> <NAME> <value> | setting unset <id> <NAME>
+                 a running client's settings: COS_PACKS (only wider), API_ALLOWED_ORIGINS,
+                 NATIVE_REDIRECT_URIS, APPROVAL_EXPIRY_DAYS, COS_PRODUCT_LABEL
+  cos client first-admin-token --staff-hostname <host>
+                 ON YOUR OWN MACHINE, NEVER IN CI (refused there): makes a first admin's setup
+                 token, prints the link to send them and the SHA-256 for the next command
+  cos client first-admin <id> --email <address> --token-sha256 <sha256> | --print-link
+                 who may make the client's first account: only the token's hash is given and kept,
+                 nothing printed of it or of the address; --print-link makes one and prints the
+                 link, at a terminal only (refused in CI); add takes --admin <email>
+                 --admin-token-sha256 <sha256> and --label <name> too
 Every command takes --product <id>: a fleet is installed as the hosted product, --product composable.
 Every command that removes or overwrites asks for the client's id (or --yes); --dry-run changes nothing.
 One command at a time uses the operator's Worker; --take-over takes it from one that was killed.`;
@@ -302,6 +330,10 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
   };
   // A fleet's gatekeepers are the platform's fixed list (ADR 0618), on a re-run too.
   state.gatekeepers = fleetGatekeepers(manifest);
+  // The operator's Stream account (stage 66 step 9): its ids kept in the state, so every upload
+  // sets them again; its token and signing key the app Worker's secrets, kept by every upload.
+  const stream = streamSettingsOf(flags, (v) => deps.redactor.add(v));
+  if (stream) state.vars[app.name] = { ...state.vars[app.name], ...stream.vars };
   // The keys file must be the one this deployment was installed with (S2): never re-keyed here.
   if (state.fleet) {
     const mismatch = keysMismatch(state.fleet, keys);
@@ -369,6 +401,10 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
       crypto.getRandomValues(new Uint8Array(32)),
     ).toString("hex");
     deps.redactor.add(appSecrets.BETTER_AUTH_SECRET);
+  }
+  if (stream) {
+    Object.assign(appSecrets, stream.secrets);
+    deps.io.out("  Stream: the account's ids kept with the deployment, its token and key set");
   }
   const result = await installRelease({
     api: s.api,
@@ -583,7 +619,7 @@ async function withContext(
       yes: Boolean(flags.yes),
       dryRun: Boolean(flags["dry-run"]),
       videos: {
-        setCreator: (uid, creator) => s.api.setStreamCreator(s.accountId, uid, creator),
+        creatorOf: (uid) => s.api.streamVideoCreator(s.accountId, uid),
       },
     });
   } finally {
@@ -613,6 +649,74 @@ async function secretValue(flags: Flags, deps: Deps, name: string): Promise<stri
   return value;
 }
 
+/** The first admin `cos client add --admin` names, and where its setup token comes from. */
+interface FirstAdminPlan {
+  email: string;
+  source: SetupTokenSource;
+}
+
+/**
+ * `cos client add`'s own flags of stage 66 step 9, before anything is written: `--label` as the
+ * client's `COS_PRODUCT_LABEL`, `--admin` an address with its token's SHA-256
+ * (`--admin-token-sha256`, or `--print-link` at a terminal), and each setting as `cos client
+ * setting` checks it (the hostnames it is added with; packs against the release's catalogue).
+ */
+function prepareAdd(
+  ctx: FleetContext,
+  id: string | undefined,
+  flags: Flags,
+  deps: Deps,
+): FirstAdminPlan | null {
+  const label = str(flags, "label");
+  if (label !== undefined) {
+    const setting = labelSetting(label);
+    flags.setting = [
+      ...((flags.setting as string[] | undefined) ?? []),
+      `COS_PRODUCT_LABEL=${setting.COS_PRODUCT_LABEL}`,
+    ];
+  }
+  const ownHostnames = [
+    str(flags, "staff-hostname") ?? `${id}-admin.${ctx.fleet.domain}`,
+    ...(str(flags, "web-hostname") ? [str(flags, "web-hostname") as string] : []),
+  ];
+  const problems = addSettingsProblems(settingsOf(flags), ctx.packs, {
+    ownHostnames,
+    fleetDomain: fleetDomainOf(ctx),
+  });
+  if (problems.length) throw new CliError(problems.join("; "));
+  const admin = str(flags, "admin");
+  if (admin === undefined) return null;
+  if (!firstAdminEmail(admin)) throw new CliError("--admin: the first admin's email address");
+  return {
+    email: admin,
+    source: setupTokenSource(
+      str(flags, "admin-token-sha256"),
+      Boolean(flags["print-link"]),
+      deps.env,
+      "--admin-token-sha256",
+    ),
+  };
+}
+
+/** After `cos client add`: with `--admin`, the first admin named. */
+function afterAdd(ctx: FleetContext, id: string | undefined, plan: FirstAdminPlan | null) {
+  return async (code: number): Promise<number> => {
+    if (code === 0 && plan && ctx.dryRun) {
+      ctx.io.out("  Would name its first admin.");
+      return code;
+    }
+    if (code !== 0 || !plan) {
+      if (code === 0 && !ctx.dryRun) {
+        ctx.io.out(
+          "  No first admin was named: nobody can make the client's first account until you run cos client first-admin <id> --email <address> --token-sha256 <sha256>.",
+        );
+      }
+      return code;
+    }
+    return firstAdminCommand(ctx, id, plan.email, { source: plan.source });
+  };
+}
+
 /** `cos client <command>`. */
 export async function runClientCommand(argv: string[], deps: Deps): Promise<number> {
   const [command, ...rest] = argv;
@@ -639,10 +743,16 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
     return 0;
   }
   try {
+    // Offline, on the owner's machine (stage 66 step 9): no registry, no Cloudflare token.
+    if (command === "first-admin-token") {
+      return firstAdminTokenCommand(deps.io, deps.env, str(flags, "staff-hostname"));
+    }
     const environment = environmentOf(flags);
     const s = await session(flags, deps);
     const { state } = await locateFleet(s, environment, deps);
     return await withContext(`client ${command}`, flags, deps, s, state, async (ctx) => {
+      // `--label` and `--admin` (stage 66 step 9), and every setting checked, before anything.
+      const firstAdmin = command === "add" ? prepareAdd(ctx, positional[0], flags, deps) : null;
       switch (command) {
         case "add":
           return addClient(ctx, {
@@ -661,7 +771,7 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
               ? { deskHostname: str(flags, "desk-hostname") as string }
               : {}),
             settings: settingsOf(flags),
-          });
+          }).then(afterAdd(ctx, positional[0], firstAdmin));
         case "hostname": {
           const [verb, id, name] = positional;
           if (!verb || !id) {
@@ -708,6 +818,21 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
         }
         case "remove":
           return removeClient(ctx, positional[0] as string);
+        case "setting": {
+          const [verb, id, name, value] = positional;
+          return settingCommand(ctx, ctx.packs, verb, id, name, value, {
+            showEmail: Boolean(flags["show-email"]),
+          });
+        }
+        case "first-admin":
+          return firstAdminCommand(ctx, positional[0], str(flags, "email") ?? positional[1], {
+            source: setupTokenSource(
+              str(flags, "token-sha256"),
+              Boolean(flags["print-link"]),
+              deps.env,
+              "--token-sha256",
+            ),
+          });
         case "sender": {
           const [verb, id, domain] = positional;
           if (!verb || !id || !domain) {

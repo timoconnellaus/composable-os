@@ -92,7 +92,8 @@ the host's operations and add no rules of their own.
   excuses either, giving it back. 30 minutes after it ends the host marks one nobody marked as
   attended.
 - Messages are automations that email members through the `email-send` gatekeeper on what the
-  host did, as [routine mail](/packs/bookings/messages/) an admin can turn off.
+  host did, as [routine mail](/packs/bookings/messages/) an admin can turn off. A member's reply
+  goes to the reply address an admin sets on Settings → Routine email, if one is set.
 - **Feedback after a class** is routine mail too (`feedback`, a follow-up a member can stop with
   one tap): a few hours after a member is ticked as come (`feedbackMinutes`, 3 hours by default),
   when a Forms form answered by personal link is chosen (`feedbackForm`, its address), the host

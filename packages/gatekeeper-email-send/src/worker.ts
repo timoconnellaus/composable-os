@@ -437,7 +437,7 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
       ? "sendAgreement"
       : isSignInCodeMessage(parsed) && (await isHostSignInMail(this.#queue))
         ? "sendSignIn"
-        : routine && isRoutineShaped(parsed, routine.siteOrigin)
+        : routine && isRoutineShaped(parsed, routine.siteOrigin, routine.replyTo)
           ? "sendRoutine"
           : isInternal(parsed, this.#backend.internalDomains())
             ? "sendInternal"

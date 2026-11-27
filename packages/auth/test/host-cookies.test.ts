@@ -61,6 +61,11 @@ function expectHostOnly(cookie: { name: string; attrs: string[] }) {
 
 describe("session cookies on a many-client host", () => {
   it("are __Host- prefixed with no Domain, and an unprefixed copy is not signed in", async () => {
+    // The client has its first admin already: on a many-client host the first account is made only
+    // with the operator's setup link (first-admin.test.ts); this is an open sign-up after it.
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO core_user (id, name, email, email_verified, created_at, updated_at, role) VALUES ('usr_s66e_admin', 'Admin', 's66e-admin@example.com', 1, '2026-11-27T00:00:00Z', '2026-11-27T00:00:00Z', 'admin')",
+    ).run();
     const provider = createIdentityProvider(staffEnv({ COS_CLIENT_ID: "gym-a" }));
     const response = await signUp(provider, `s66e-host-${Date.now()}@example.com`);
     expect(response?.status).toBe(200);
