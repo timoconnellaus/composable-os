@@ -568,6 +568,13 @@ export async function addClient(ctx: FleetContext, input: AddInput): Promise<num
 export const REACHABLE_WAIT_MS = 15 * 60 * 1000;
 
 /**
+ * The line, one per hostname, a command prints when a hostname it waited for still does not
+ * answer: for a program reading cos's output (the operator's workflow, scripts/fleet-operate.mjs),
+ * which then says so first, never "succeeded" alone. Its shape is fixed: `<marker> <hostname>`.
+ */
+export const NOT_ANSWERING_MARKER = "cos-status: hostname-not-answering";
+
+/**
  * Says that a hostname just attached may take minutes to answer (a new Custom Domain's DNS and
  * certificate reach Cloudflare's edges one by one: the staging check's callback hostname took
  * about 155 s, and a second client's staff hostname answered once and then failed again on its
@@ -593,6 +600,7 @@ export async function awaitReachable(ctx: FleetContext, hostnames: string[]): Pr
         ? `  https://${hostname} answers (after ${reached.seconds.toFixed(0)} s)`
         : `  https://${hostname} does not answer yet after ${reached.seconds.toFixed(0)} s: its DNS or certificate is still on its way. Nothing else is needed; try it again in a few minutes (last: ${reached.last}).`,
     );
+    if (!reached.ok) ctx.io.out(`${NOT_ANSWERING_MARKER} ${hostname}`);
   }
 }
 

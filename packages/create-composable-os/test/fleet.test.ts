@@ -22,6 +22,7 @@ import {
   hostnameProblem,
   importClient,
   listClientsCommand,
+  NOT_ANSWERING_MARKER,
   pauseClient,
   registrableDomain,
   removeClient,
@@ -1178,6 +1179,9 @@ describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
     expect(text).toContain(
       "https://gym-a-desk.fleet.example does not answer yet after 900 s: its DNS or certificate is still on its way",
     );
+    // And a fixed line a program can read (the operator's workflow), for that hostname only.
+    const marked = out.lines.filter((l) => l.startsWith(NOT_ANSWERING_MARKER));
+    expect(marked).toEqual([`${NOT_ANSWERING_MARKER} gym-a-desk.fleet.example`]);
     expect(await readClient(registry, id("gym-a"))).toMatchObject({ status: "active" });
     // Without a way to ask (--no-wait), it only says a new hostname can take minutes.
     await addClient(edged(), { id: "gym-b" });
