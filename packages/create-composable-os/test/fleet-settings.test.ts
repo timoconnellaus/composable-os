@@ -230,9 +230,9 @@ describe("the commands, through cos itself", () => {
         await buildFixtureRelease({ version: "1.0.0", fleet: true, clientGatekeepers: true }),
       );
       const keysPath = join(mkdtempSync(join(tmpdir(), "s66s9-")), "staging.json");
-      expect((await runIn(world, "fleet", "keys", "--env", "staging", "--out", keysPath)).code).toBe(
-        0,
-      );
+      expect(
+        (await runIn(world, "fleet", "keys", "--env", "staging", "--out", keysPath)).code,
+      ).toBe(0);
       const install = await runIn(
         world,
         "fleet",
