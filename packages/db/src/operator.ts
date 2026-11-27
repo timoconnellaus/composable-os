@@ -150,7 +150,10 @@ async function importExpectation(env: OperatorEnv, migrations: Migration[]) {
         migrations,
         source.migrations,
       );
-      return [...core, ...importedExtensionObjects(await schemaRows(db), core)];
+      // No view comes from the export (`skipViews`): the host makes them again after (N3).
+      const views = new Set(core.filter((r) => r.type === "view").map((r) => r.name));
+      const kept = core.filter((r) => r.type !== "view" && !views.has(r.tbl_name));
+      return [...kept, ...importedExtensionObjects(await schemaRows(db), core)];
     } finally {
       await stubOf(env, name)
         .erase()
@@ -161,7 +164,16 @@ async function importExpectation(env: OperatorEnv, migrations: Migration[]) {
 
 type Body = Record<string, unknown> & { action?: string; client?: string };
 
-async function act(env: OperatorEnv, body: Body): Promise<unknown> {
+/** What the operator's Worker is given beside its env: what packages/db cannot import itself. */
+export interface OperatorDeps {
+  /** packages/core `rebuildRecordViews`: a database's views from the host's own definitions. */
+  rebuildRecordViews?(
+    db: D1Database,
+    coreViews: { name: string; sql: string }[],
+  ): Promise<{ views: number; formulaErrors: number }>;
+}
+
+async function act(env: OperatorEnv, body: Body, deps: OperatorDeps): Promise<unknown> {
   switch (body.action) {
     case "health":
       return { ok: true, environment: env.COS_HOST_ENVIRONMENT ?? null };
@@ -277,7 +289,38 @@ async function act(env: OperatorEnv, body: Body): Promise<unknown> {
       const migrations = migrationsOf(body.migrations);
       return importPart(clientDatabase(env.CLIENT_DB, client.id), body.part as ExportPart, {
         expectedSchema: await importExpectation(env, migrations),
+        skipViews: true,
       });
+    }
+    case "rebuild-views": {
+      // After an import (review of #526, N3): the database's views from the host's own
+      // definitions: the core views its migrations make, then the record views of its extensions.
+      const client = await clientOf(env, body.client);
+      if (!deps.rebuildRecordViews) {
+        throw new OperatorError("this operator's Worker cannot make record views", 501);
+      }
+      const migrations = migrationsOf(body.migrations);
+      const db = clientDatabase(env.CLIENT_DB, client.id);
+      const { results } = await db
+        .prepare("SELECT name FROM core_migrations ORDER BY id")
+        .all<{ name: string }>();
+      const name = `${REFERENCE_PREFIX}${crypto.randomUUID()}`;
+      let coreViews: { name: string; sql: string }[];
+      try {
+        const core = await migrationsSchema(
+          clientDatabase(env.CLIENT_DB, name),
+          migrations,
+          results.map((r) => r.name),
+        );
+        coreViews = core
+          .filter((r) => r.type === "view" && r.sql)
+          .map((r) => ({ name: r.name, sql: r.sql as string }));
+      } finally {
+        await stubOf(env, name)
+          .erase()
+          .catch(() => {});
+      }
+      return deps.rebuildRecordViews(db, coreViews);
     }
     case "requeue-embeddings": {
       // After an import: the search index is the client's namespace, empty here, so every record
@@ -406,7 +449,11 @@ async function exported(request: Request, env: OperatorEnv, rest: string): Promi
 }
 
 /** The operator's Worker's `fetch`. */
-export async function operatorFetch(request: Request, env: OperatorEnv): Promise<Response> {
+export async function operatorFetch(
+  request: Request,
+  env: OperatorEnv,
+  deps: OperatorDeps = {},
+): Promise<Response> {
   if (!authorised(request, env)) return json({ error: "not the operator" }, 401);
   const url = new URL(request.url);
   try {
@@ -421,7 +468,7 @@ export async function operatorFetch(request: Request, env: OperatorEnv): Promise
       return json({ error: "COS_HOST_ENVIRONMENT is not set" }, 503);
     }
     const body = (await request.json()) as Body;
-    return json(await act(env, body));
+    return json(await act(env, body, deps));
   } catch (error) {
     const status = error instanceof OperatorError ? error.status : 500;
     // The message of a failure: names and counts, never a value of a secret (none passes here

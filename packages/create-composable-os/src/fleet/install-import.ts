@@ -8,6 +8,7 @@
 // and every record it had embedded is queued again, so the new search index is rebuilt by the
 // embeddings tick.
 
+import { rebuildRecordViews } from "@composable-os/core/record-views";
 import {
   type ExportSource,
   importDatabase,
@@ -68,17 +69,27 @@ export async function importIntoD1(input: {
 }): Promise<{ parts: number; rows: number }> {
   const db = d1OverRest(input.api, input.accountId, input.databaseId);
   const migrations = bundleMigrations(input.bundle);
+  let coreViews: { name: string; sql: string }[] = [];
   await importDatabase(db, input.folder.parts, {
+    // No view comes from the export (review of #526, N3): made again below.
+    skipViews: true,
     async expectedSchema(imported: D1Database, source: ExportSource) {
       const reference = nodeD1();
       try {
         const core = await migrationsSchema(reference, migrations, source.migrations);
-        return [...core, ...importedExtensionObjects(await schemaRows(imported), core)];
+        coreViews = core
+          .filter((r) => r.type === "view" && r.sql)
+          .map((r) => ({ name: r.name, sql: r.sql as string }));
+        const views = new Set(coreViews.map((v) => v.name));
+        const kept = core.filter((r) => r.type !== "view" && !views.has(r.tbl_name));
+        return [...kept, ...importedExtensionObjects(await schemaRows(imported), core)];
       } finally {
         reference.close();
       }
     },
   });
+  const made = await rebuildRecordViews(db, coreViews);
+  input.log(`  views: ${made.views} made from this release's definitions`);
   // The new index is empty: every record the export had embedded is queued again.
   const now = new Date().toISOString();
   const hasEmbeddings = await db

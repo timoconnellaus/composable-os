@@ -187,6 +187,8 @@ class FakeOperator implements Operator {
         this.dbs.set(client, { ...copied, applied: [...copied.applied] });
         return r({ applied: true, done: true });
       }
+      case "rebuild-views":
+        return r({ views: 0, formulaErrors: 0 });
       case "requeue-embeddings":
         return r({ queued: 0 });
       case "secrets-export":
@@ -502,6 +504,24 @@ describe("cos fleet upgrade with three clients (criterion 12)", () => {
     expect(await addClient(ctx(), { id: "gym-d" })).toBe(0);
   });
 
+  it("refuses an operator's pause while an update runs, which would resume the client at its end (review of #526, N2)", async () => {
+    await three();
+    let refused = "";
+    const { input } = update({
+      upload: async () => {
+        refused = await pauseClient(ctx(), "gym-b").then(
+          () => "",
+          (e: Error) => e.message,
+        );
+      },
+    });
+    expect(await fleetUpdate(ctx({ yes: true }), input)).toBe("succeeded");
+    expect(refused).toMatch(/while an update .* is unfinished/);
+    // Once it has finished, the pause holds.
+    expect(await pauseClient(ctx(), "gym-b")).toBe(0);
+    expect((await readClient(registry, id("gym-b")))?.status).toBe("paused");
+  });
+
   it("smoke-checks the new Workers even when no client is active", async () => {
     await three();
     for (const c of ["gym-a", "gym-b", "gym-c"]) await pauseClient(ctx(), c);
@@ -605,6 +625,83 @@ describe("one operator's command at a time (review of #526, S1)", () => {
     await upgrade.close();
     const next = lazyOperator(registry, opener.open, { command: "client add" });
     expect(await addClient(ctx({ operator: next }), { id: "gym-c" })).toBe(0);
+    await next.close();
+  });
+
+  it("leaves the Worker to the run that took the session over: the older run's close does not cut it off (review of #526, N1)", async () => {
+    const opener = rotatingOpener(operator);
+    const a = lazyOperator(registry, opener.open, { command: "client export" });
+    await a.op("health");
+    const b = lazyOperator(registry, opener.open, { command: "client remove", takeOver: true });
+    await b.op("health");
+    // A is refused now, and closing it changes nothing of B's.
+    await expect(a.op("health")).rejects.toThrow(/holds the operator's Worker/);
+    await a.close();
+    await expect(b.op("health")).resolves.toBeTruthy();
+    // And B, having taken it over once, never takes it from a later command.
+    await b.close();
+    const c = lazyOperator(registry, opener.open, { command: "client add" });
+    await c.op("health");
+    await expect(b.op("health")).rejects.toThrow(/holds the operator's Worker/);
+    await c.close();
+  });
+
+  it("keeps a live run's session from lapsing, however long it goes between calls (N1)", async () => {
+    const opener = rotatingOpener(operator);
+    let clock = 0;
+    const a = lazyOperator(registry, opener.open, {
+      command: "fleet upgrade live",
+      now: () => clock,
+      heartbeatMs: 5,
+    });
+    await a.op("health");
+    // 20 minutes later, A still alive (a long upload, a long migration): its heartbeat renews.
+    clock = 20 * 60_000;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    // 40 minutes in: past A's first 30, but not past its renewal.
+    clock = 40 * 60_000;
+    const late = lazyOperator(registry, opener.open, { command: "client add", now: () => clock });
+    await expect(late.op("health")).rejects.toThrow(/holds the operator's Worker/);
+    await expect(a.op("health")).resolves.toBeTruthy();
+    await a.close();
+  });
+
+  it("waits for a heartbeat in flight when it closes, so the session row does not come back (review of #530, R4)", async () => {
+    const opener = rotatingOpener(operator);
+    // A slow registry: each renewal of the session takes 60 ms to land.
+    const slow = {
+      ...registry,
+      prepare: (sql: string) => {
+        const inner = registry.prepare(sql);
+        if (!sql.includes("INSERT INTO registry_operator_session")) return inner;
+        return {
+          ...inner,
+          bind: (...values: unknown[]) => {
+            const bound = inner.bind(...values);
+            return {
+              ...bound,
+              run: async () => {
+                await new Promise((resolve) => setTimeout(resolve, 60));
+                return bound.run();
+              },
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+    const a = lazyOperator(slow, opener.open, { command: "client export", heartbeatMs: 10 });
+    await a.op("health");
+    // A heartbeat is now sent and not yet landed.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await a.close();
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const row = await registry
+      .prepare("SELECT holder FROM registry_operator_session WHERE id = 'operator'")
+      .first();
+    expect(row).toBeNull();
+    // The next command takes it without --take-over.
+    const next = lazyOperator(registry, opener.open, { command: "client add" });
+    await expect(next.op("health")).resolves.toBeTruthy();
     await next.close();
   });
 

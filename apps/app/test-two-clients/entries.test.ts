@@ -777,6 +777,24 @@ describe("the host's own health, what an update smoke-checks (review of #526, M1
     ).rejects.toThrow(/smoke check failed/);
     // Only GET of that one path: anything else there is still the gatekeepers' door or a 404.
     expect((await fetchAt("callbacks.test", "/api/health/x")).status).toBe(404);
+    // A registry that does not answer: a fixed message, never the database's own text.
+    const { hostHealthResponse } = await import("../src/server/health.ts");
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const broken = await hostHealthResponse({
+        REGISTRY: {
+          prepare() {
+            throw new Error("D1_ERROR: near row text of a client");
+          },
+        } as unknown as D1Database,
+      });
+      expect(broken.status).toBe(503);
+      const text = await broken.text();
+      expect(text).toContain("the registry did not answer");
+      expect(text).not.toContain("row text");
+    } finally {
+      errors.mockRestore();
+    }
   });
 });
 

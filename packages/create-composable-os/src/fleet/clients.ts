@@ -327,6 +327,18 @@ export async function pauseClient(ctx: FleetContext, raw: string): Promise<numbe
   const id = idOf(raw);
   const client = await readClient(ctx.registry, id);
   if (!client) throw new FleetError(`No client ${id}`);
+  // An update resumes every client it paused at its end: a pause made meanwhile would be undone
+  // without a word (review of #526, N2), so none is taken then.
+  const update = await unfinishedOperation<{ from: string; to: string }>(
+    ctx.registry,
+    "update",
+    null,
+  );
+  if (update) {
+    throw new FleetError(
+      `Cannot pause ${id} while an update ${update.state.from} → ${update.state.to} (started ${update.startedAt}) is unfinished: it would resume ${id} at its end. Nothing was changed. Pause it once the update has finished, or once a run of cos fleet upgrade has finished or undone a stopped one.`,
+    );
+  }
   if (ctx.dryRun) {
     ctx.io.out(`Would pause ${id} (now ${client.status}). Nothing was changed (--dry-run).`);
     return 0;
@@ -793,7 +805,7 @@ export function readExportFolder(dir: string): {
 }
 
 interface ImportState {
-  step: "rows" | "database" | "files" | "secrets" | "done";
+  step: "rows" | "database" | "views" | "files" | "secrets" | "done";
   partsDone: number;
   filesDone: number;
 }
@@ -891,6 +903,16 @@ export async function importClient(ctx: FleetContext, input: ImportInput): Promi
       if (step.done) break;
     }
     ctx.io.out(`  database: ${folder.parts.length} parts, ${total} rows, checked`);
+    state.step = "views";
+    await saveOperation(ctx.registry, op.id, state);
+  }
+  if (state.step === "views") {
+    // No view came from the export: made again from the host's own definitions (N3).
+    const made = await ctx.operator.op<{ views: number }>("rebuild-views", {
+      client: id,
+      migrations: ctx.migrations,
+    });
+    ctx.io.out(`  views: ${made.views} made from this host's definitions`);
     state.step = "files";
     await saveOperation(ctx.registry, op.id, state);
   }

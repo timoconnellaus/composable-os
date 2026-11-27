@@ -181,11 +181,12 @@ the control plane), as one later step. Recorded in ADR 0616 too.
   registrable domain (two labels, three under a country's `co`, `com`, `org` and the like; no Public
   Suffix listing is assumed). A client's code runs only on the client's own domain (the owner's
   decision: no Public Suffix List submission).
-- **S4, what an import accepts.** Beside the core schema the code's migrations make, only: tables
-  and indexes of extension tables (`x_…`), views named `rec_…` or `x_…`, and triggers on extension
-  tables. Never a trigger or index on a core table, never another object with a core object's name;
-  anything else is a difference, and the import is refused and the database emptied
-  (`importedExtensionObjects`). The text of those extension objects is the export's own.
+- **S4, what an import accepts** (*amended after the second review, N3; see below*). Beside the core
+  schema the code's migrations make, only: tables and indexes of extension tables (`x_…`), and
+  triggers on extension tables whose SQL names nothing but extension tables. No view. Never another
+  object with a core object's name; anything else is a difference, and the import is refused and the
+  database emptied (`importedExtensionObjects`). The text of the extension tables, indexes and
+  triggers is the export's own.
 - **S5, what an export's checks are.** The hashes in `manifest.json` catch a part or file damaged or
   cut short; the manifest carries no signature, so they do not catch a folder someone edited on
   purpose: an import trusts the folder it is given. `secrets.json` is plain JSON, unencrypted, mode
@@ -193,6 +194,54 @@ the control plane), as one later step. Recorded in ADR 0616 too.
   distinct ones (`importedSecretProblem`), checked before anything is written.
 - **F-d.** `cos client add` and `import` are refused while an update is unfinished.
 - Later work from the review is issue #528.
+
+### After the second review of #526 (2026-11-28)
+- **N1, a session taken over.** A run closing replaces the operator's Worker's token only while it
+  still holds the session row; a run another took over from (or whose session lapsed) leaves the
+  Worker to that one. `--take-over` takes the row once and never again, so the run that took over
+  never takes it back from a later command. A live run renews its row on a heartbeat (every 10
+  minutes, a third of the 30 it holds) whatever it is doing, so a long migration, export or upload
+  cannot let it lapse; it lapses only when the run is gone.
+- **N2, a pause during an update.** `cos client pause` is refused while an update is unfinished: the
+  update resumes every client it paused at its end, which would undo the operator's pause.
+- **N3, what an import accepts, now** (*amended after the review of #530, R1 to R3*). The name
+  check is a **deny-by-default filter over the SQL the export wrote**, and not a proof that an
+  export is harmless. **Import only an export you trust.** What it covers:
+  - Every imported table, index and trigger must sit on an extension table (`x_…`), and every name
+    its SQL refers to must be an extension table. The SQL is tokenised (`namesIn`), not parsed:
+    comments are skipped, and `"…"`, `` `…` `` and `[…]` identifiers are unquoted. The text of
+    single-quoted strings counts as a name too, since SQLite takes `UPDATE 'core_user'`. Case is
+    folded. Each name is matched against the imported database's objects, and any name with a
+    core or platform prefix (`core_`, `rec_`, `crm_`, `pub_`, `sqlite_`) refuses the object. It
+    errs towards finding a name, never towards missing one. This covers a trigger's body, a table's
+    DEFAULT, CHECK and generated columns, and an index's expressions and partial `WHERE`.
+  - A virtual table is refused (an FTS5 table's external content reads whatever table it names).
+    So is an `INSTEAD OF` trigger.
+  - No view is taken from an export (`ImportOptions.skipViews`). Once the database is in, every
+    view is made again from the host's own definitions (packages/core `rebuildRecordViews`: the
+    views of the host's migrations, then every record view). That happens only after the imported
+    extension state is checked (`importedStateProblems`), with these rules:
+    - each object's table must be exactly the `x_<ext>_<object>` its name derives, and an imported
+      extension table;
+    - each field's table must be its own object's (or its side table), and its column a real column
+      of that table;
+    - every relation must name an object that passes.
+
+    Anything else refuses the import and empties the database. `cos client import` (the operator's
+    `rebuild-views`) and `cos install --import` both go through that one function.
+  - Consequence: a client using a pack whose behaviours make triggers naming core tables cannot be
+    exported and imported this way; the import is refused, failing closed. That is `occupies`
+    (`core_thing_time`) and `staffed` (`core_staff_time`), so Bookings and Rostering. An end-to-end
+    export and import of Memberships, Ticketing, Courses, Programs and Content has not been run.
+  - **The sturdier design**, issue #532: an import carries data only, and the host's reconciler
+    makes the extension tables, indexes, triggers and views again from the extensions' checked
+    manifests.
+- **N4, a sender domain renamed.** Registry migration 0798: a change of a row's `domain` must leave
+  it unverified (a rename, an `UPDATE OR REPLACE` onto another client's domain, an upsert's `DO
+  UPDATE SET domain`).
+- **Follow-up F1, partly.** The host's health route answers a registry failure with a fixed
+  message and logs the database's own text; it is still unauthenticated and reads the stamp per
+  request (#528).
 
 ### Email sending per client, wired (2026-11-28; issue #529)
 - A fleet deploy sets `SENDER_DOMAINS_PER_CLIENT=true` on the email-send gatekeeper (tested; a

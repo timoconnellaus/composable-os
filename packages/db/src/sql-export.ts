@@ -1084,38 +1084,146 @@ export async function migrationsSchema(
 }
 
 /**
+ * The names a piece of SQL refers to, lowercased: every identifier outside a comment, bare or
+ * quoted (`"…"`, `` `…` ``, `[…]`), with a quoted one unquoted, and the text of every
+ * single-quoted string, which SQLite also takes as a name. Keywords come back
+ * too; a caller compares the result with the names of objects, so a keyword never matches one.
+ * A tokeniser, not a parser (review of #526, N3): it cannot be dodged by quoting, casing or a
+ * comment, and it errs towards finding a name (a column named like a table counts as the table).
+ */
+export function namesIn(sql: string): Set<string> {
+  const out = new Set<string>();
+  let i = 0;
+  while (i < sql.length) {
+    const ch = sql[i] as string;
+    if (ch === "-" && sql[i + 1] === "-") {
+      const end = sql.indexOf("\n", i);
+      i = end === -1 ? sql.length : end + 1;
+      continue;
+    }
+    if (ch === "/" && sql[i + 1] === "*") {
+      const end = sql.indexOf("*/", i + 2);
+      i = end === -1 ? sql.length : end + 2;
+      continue;
+    }
+    if (ch === "'") {
+      // SQLite takes a single-quoted string where a name goes (`UPDATE 'core_user' …`), so a
+      // string's text counts as a name too (review of #530, R1): erring towards refusal.
+      let j = i + 1;
+      let text = "";
+      while (j < sql.length) {
+        if (sql[j] === "'" && sql[j + 1] === "'") {
+          text += "'";
+          j += 2;
+        } else if (sql[j] === "'") break;
+        else {
+          text += sql[j];
+          j += 1;
+        }
+      }
+      out.add(text.toLowerCase());
+      i = j + 1;
+      continue;
+    }
+    if (ch === '"' || ch === "`" || ch === "[") {
+      const close = ch === "[" ? "]" : ch;
+      let j = i + 1;
+      let name = "";
+      while (j < sql.length) {
+        if (sql[j] === close && close !== "]" && sql[j + 1] === close) {
+          name += close;
+          j += 2;
+          continue;
+        }
+        if (sql[j] === close) break;
+        name += sql[j];
+        j += 1;
+      }
+      out.add(name.toLowerCase());
+      i = j + 1;
+      continue;
+    }
+    if (/[A-Za-z_\u0080-\uffff]/.test(ch)) {
+      let j = i;
+      while (j < sql.length && /[A-Za-z0-9_$\u0080-\uffff]/.test(sql[j] as string)) j += 1;
+      out.add(sql.slice(i, j).toLowerCase());
+      i = j;
+      continue;
+    }
+    i += 1;
+  }
+  return out;
+}
+
+/** Name prefixes of what is never an extension's own: core tables and views, the platform's. */
+const NOT_EXTENSION = /^(core_|rec_|crm_|pub_|sqlite_|_cf_|_cos_)/;
+
+/**
  * Which objects of an imported database an import accepts as its extensions' own, beside the core
- * schema the code's migrations make (`core`): stage 66 step 7, review of #526 S4. Their text is
- * taken as the export declares it (checking it against what the reconciler would make from the
- * imported manifests is not built), so what may be taken is narrow:
- * - a table, or an index, of an extension table (`x_…`);
- * - a view named `rec_…` or `x_…`: a view runs on no write. The core `rec_…` views are rebuilt
- *   with the extensions' fields (packages/core `extensions/schema.ts`), so the imported text of one
- *   stands in for the migrations' (it changes only what that client's own reads see);
- * - a trigger only on an extension table (`x_…`), never on a core table or anything else.
- * Never another object of a name the core schema has. Anything else of the imported database is
- * then a difference, and the import is refused and the database emptied.
+ * schema the code's migrations make (`core`): stage 66 step 7, the reviews of #526 (S4, N3). Their
+ * text is the export's own (a check against what the reconciler would make from the imported
+ * manifests is not built), so what is taken is narrow:
+ * - a table (`x_…`), or an index of one;
+ * - a trigger on an extension table, and only when every object its SQL names (`namesIn`, matched
+ *   against the imported database's objects, case-insensitively) is an extension table, and it
+ *   names nothing with a core or platform prefix. So no imported trigger writes, or reads, a core
+ *   table. (A pack whose triggers keep a core table, such as `occupies`' claims, cannot be imported
+ *   this way: the import is refused, failing closed.)
+ * - no view at all: an import leaves views out (`ImportOptions.skipViews`) and the host makes them
+ *   again from its own definitions after the import.
+ * Never another object of a name the core schema has. Anything else is then a difference, and the
+ * import is refused and the database emptied.
  */
 export function importedExtensionObjects(actual: SchemaRow[], core: SchemaRow[]): SchemaRow[] {
-  const coreNames = new Set(core.map((row) => row.name));
-  const extensionTable = (name: string) => name.startsWith("x_");
-  return actual.filter((row) => {
-    if (coreNames.has(row.name) && !(row.type === "view" && row.name.startsWith("rec_"))) {
-      return false;
+  const coreNames = new Set(core.map((row) => row.name.toLowerCase()));
+  const extensionTables = new Set(
+    actual
+      .filter(
+        (row) => row.type === "table" && row.name.startsWith("x_") && row.tbl_name === row.name,
+      )
+      .map((row) => row.name.toLowerCase()),
+  );
+  const objects = new Set(actual.map((row) => row.name.toLowerCase()));
+  /** Every name `row`'s SQL refers to is an extension table (or the row itself). */
+  const namesOnlyExtension = (row: SchemaRow): boolean => {
+    for (const name of namesIn(row.sql ?? "")) {
+      if (NOT_EXTENSION.test(name)) return false;
+      if (objects.has(name) && name !== row.name.toLowerCase() && !extensionTables.has(name)) {
+        return false;
+      }
     }
+    return true;
+  };
+  return actual.filter((row) => {
+    if (coreNames.has(row.name.toLowerCase())) return false;
     switch (row.type) {
       case "table":
-        return extensionTable(row.name) && row.tbl_name === row.name;
+        // No virtual table: an FTS5 table's external content reads any table it names (review
+        // of #530, R2). And a table's own SQL (DEFAULT, CHECK, generated columns) names nothing
+        // but extension tables.
+        if (/^\s*CREATE\s+VIRTUAL\b/i.test(row.sql ?? "")) return false;
+        return extensionTables.has(row.name.toLowerCase()) && namesOnlyExtension(row);
       case "index":
-        return extensionTable(row.tbl_name);
-      case "view":
-        return /^(rec_|x_)/.test(row.name) && row.tbl_name === row.name;
+        // Its expressions and a partial index's WHERE, the same.
+        return extensionTables.has(row.tbl_name.toLowerCase()) && namesOnlyExtension(row);
       case "trigger":
-        return extensionTable(row.tbl_name);
+        return extensionTables.has(row.tbl_name.toLowerCase()) && namesOnlyExtension(row);
       default:
         return false;
     }
   });
+}
+
+/** Whether `sql` (one statement of a part) makes a view. */
+export function isCreateView(sql: string): boolean {
+  return /^\s*CREATE\s+(TEMP\s+|TEMPORARY\s+)?VIEW\b/i.test(sql);
+}
+
+/** Whether `sql` makes an `INSTEAD OF` trigger (one that runs on a write to a view). */
+function isInsteadOfTrigger(sql: string): boolean {
+  if (!/^\s*CREATE\s+(TEMP\s+|TEMPORARY\s+)?TRIGGER\b/i.test(sql)) return false;
+  const words = [...namesIn(sql)];
+  return words.includes("instead");
 }
 
 /** The names of objects in which two schemas differ (one has it, or their text differs). */
@@ -1200,6 +1308,12 @@ export interface ImportOptions {
    * manifests, never the file's own CREATEs.
    */
   expectedSchema(db: D1Database, source: ExportSource): Promise<SchemaRow[]>;
+  /**
+   * Leave out every view the export makes (stage 66 step 7, review of #526 N3): the importing
+   * host makes its views again from its own definitions once the import is in, so no view's text
+   * comes from the file. An `INSTEAD OF` trigger (one on a view) is then refused outright.
+   */
+  skipViews?: boolean;
 }
 
 /** Does the database hold anything an export would carry? */
@@ -1290,7 +1404,16 @@ export async function importPart(
   }
   const source = (marker?.source ?? part.source) as ExportSource;
   const declared = new Set(source.schema);
-  for (const sql of part.statements) {
+  const statements = options.skipViews
+    ? part.statements.filter((sql) => !isCreateView(sql))
+    : part.statements;
+  if (options.skipViews && statements.some(isInsteadOfTrigger)) {
+    await emptyDatabase(db);
+    throw new SqlExportError(
+      "the import was refused and the database emptied: it makes a trigger on a view (INSTEAD OF)",
+    );
+  }
+  for (const sql of statements) {
     const wrong = statementProblem(sql, declared);
     if (wrong) {
       throw new SqlExportError(
@@ -1324,9 +1447,7 @@ export async function importPart(
     : [];
   try {
     await db.batch([
-      ...["PRAGMA defer_foreign_keys = ON", ...part.statements, ...check].map((sql) =>
-        db.prepare(sql),
-      ),
+      ...["PRAGMA defer_foreign_keys = ON", ...statements, ...check].map((sql) => db.prepare(sql)),
       ...record,
     ]);
   } catch (error) {

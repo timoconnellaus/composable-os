@@ -449,6 +449,14 @@ export async function takeOperatorSession(
   };
 }
 
+/** Whether `holder` holds the operator's Worker now. */
+export async function holdsOperatorSession(registry: D1Database, holder: string): Promise<boolean> {
+  const row = await registry
+    .prepare("SELECT holder FROM registry_operator_session WHERE id = 'operator'")
+    .first<{ holder: string }>();
+  return row?.holder === holder;
+}
+
 /** Gives the operator's Worker back, if `holder` still holds it. */
 export async function releaseOperatorSession(registry: D1Database, holder: string): Promise<void> {
   await registry
