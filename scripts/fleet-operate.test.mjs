@@ -16,7 +16,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
-import { CLIENT_SETTINGS, clientIdProblem } from "../packages/db/src/registry.ts";
+import {
+  clientIdProblem,
+  firstAdminEmail,
+  labelProblem,
+  OPERATOR_SETTINGS,
+} from "../packages/db/src/registry.ts";
 import { isGivenSecretName } from "../packages/db/src/registry-sealing.ts";
 import { CloudflareClient } from "../packages/release/src/cloudflare.ts";
 import { FakeCloudflare } from "../packages/release/src/testing/fake-cloudflare.ts";
@@ -30,6 +35,8 @@ import {
   operate,
   plan,
   readInputs,
+  redactEmail,
+  TAKEN,
   takeSecrets,
   withSecretFiles,
 } from "./fleet-operate.mjs";
@@ -38,9 +45,11 @@ const TOKEN = "cf-token-for-the-fleet-0123456789";
 const ACCOUNT = "acc00000000000000000000000fleet1";
 const SUBDOMAIN = "owners-subdomain";
 const rules = {
-  knownSettings: Object.keys(CLIENT_SETTINGS),
+  knownSettings: Object.keys(OPERATOR_SETTINGS),
   isSecretName: isGivenSecretName,
   clientIdProblem,
+  isEmail: (v) => firstAdminEmail(v) !== null,
+  labelProblem,
 };
 /** A stand-in for the hosted product (PR #553's `composable`). */
 const HOSTED = {
@@ -84,7 +93,7 @@ function harness({
     fetch: (input, init) => cf.fetch(input, init),
   });
   const calls = [];
-  const written = { summary: "", log: [] };
+  const written = { summary: "", log: [], masked: [], events: [] };
   const tmp = mkdtempSync(join(tmpdir(), "s66-operate-"));
   const deps = {
     rules,
@@ -112,10 +121,17 @@ function harness({
     },
     tagOnMain,
     tmp,
-    log: (l) => written.log.push(l),
-    mask: () => {},
+    log: (l) => {
+      written.log.push(l);
+      written.events.push(["log", l]);
+    },
+    mask: (v) => {
+      written.masked.push(v);
+      written.events.push(["mask", v]);
+    },
     writeSummary: (t) => {
       written.summary += t;
+      written.events.push(["summary", t]);
     },
     process: proc ?? new EventEmitter(),
   };
@@ -176,7 +192,12 @@ test("every input is checked before anything runs; a refusal never reaches cos",
       CALLBACK_HOSTNAME: "c.example.com",
     },
   ];
-  for (const inputs of refused) {
+  for (const given of refused) {
+    // client-add's packs given, so each is refused for its own reason.
+    const inputs =
+      given.COMMAND === "client-add" && !given.SETTINGS
+        ? { ...given, SETTINGS: "COS_PACKS=" }
+        : given;
     const h = harness();
     const code = await h.run(inputs);
     assert.equal(code, 2, JSON.stringify(inputs));
@@ -486,7 +507,9 @@ test("cos gets a fixed command line and a clean environment: no test switch, no 
     FLEET_KEYS: "x",
     SECRET_VALUE: "y",
   });
-  assert.deepEqual(Object.keys(env).sort(), ["CLOUDFLARE_API_TOKEN", "PATH"]);
+  assert.deepEqual(Object.keys(env).sort(), ["CI", "CLOUDFLARE_API_TOKEN", "PATH"]);
+  // cos sees CI, so its own refusal of a printed setup link holds here (review of #552, S-W1).
+  assert.equal(env.CI, "true");
   assert.deepEqual([...ALWAYS], ["--require-gh"]);
   for (const command of Object.keys(COMMANDS)) {
     const i = {
@@ -503,6 +526,12 @@ test("cos gets a fixed command line and a clean environment: no test switch, no 
       hostname: "www.ghetto.example",
       senderDomain: "ghetto.example",
       secretName: "STRIPE_SECRET_KEY",
+      settingName: "COS_PACKS",
+      settingValue: "ticketing",
+      adminEmail: "owner@gym.example",
+      tokenSha256: "a".repeat(64),
+      label: "Gym A",
+      stream: { accountId: "a".repeat(32), customerCode: "abcd1234", keyId: "b".repeat(32) },
       confirm: "",
       dryRun: true,
       takeOver: false,
@@ -516,6 +545,12 @@ test("cos gets a fixed command line and a clean environment: no test switch, no 
       "--out",
       "--leaving",
       "--skip-staging",
+      // Nothing that prints a setup link or an address, adopts a hostname, or skips the wait.
+      "--print-link",
+      "first-admin-token",
+      "--show-email",
+      "--adopt",
+      "--no-wait",
     ]) {
       assert.ok(!argv.includes(banned), `${command}: ${banned}`);
     }
@@ -646,6 +681,7 @@ test("a live resume, and take_over on any command, need confirm too (S3)", async
       ENV: "staging",
       COMMAND: "client-add",
       CLIENT: "ghetto",
+      SETTINGS: "COS_PACKS=ticketing",
       DRY_RUN: "false",
       TAKE_OVER: "true",
     }),
@@ -656,6 +692,7 @@ test("a live resume, and take_over on any command, need confirm too (S3)", async
       ENV: "staging",
       COMMAND: "client-add",
       CLIENT: "ghetto",
+      SETTINGS: "COS_PACKS=ticketing",
       DRY_RUN: "false",
       TAKE_OVER: "true",
       CONFIRM: "ghetto",
@@ -702,10 +739,22 @@ test("identity and approval settings are never set at client-add (S4)", async ()
 });
 
 test("the keys and a secret value leave the environment before any import, and no later import or child sees them (S7)", async () => {
-  const env = { FLEET_KEYS: "k", SECRET_VALUE: "v", PATH: "/bin" };
+  const env = {
+    FLEET_KEYS: "k",
+    SECRET_VALUE: "v",
+    FLEET_STREAM_API_TOKEN: "t",
+    FLEET_STREAM_SIGNING_JWK: "j",
+    PATH: "/bin",
+  };
   const taken = takeSecrets(env);
-  assert.deepEqual(taken, { FLEET_KEYS: "k", SECRET_VALUE: "v" });
+  assert.deepEqual(taken, {
+    FLEET_KEYS: "k",
+    SECRET_VALUE: "v",
+    FLEET_STREAM_API_TOKEN: "t",
+    FLEET_STREAM_SIGNING_JWK: "j",
+  });
   assert.deepEqual(Object.keys(env), ["PATH"]);
+  assert.deepEqual([...TAKEN].sort(), Object.keys(taken).sort());
   // In the process itself: a module imported after sees neither.
   process.env.FLEET_KEYS = "keys-in-the-environment";
   process.env.SECRET_VALUE = "value-in-the-environment";
@@ -762,8 +811,17 @@ test("without the hosted product a dry run is planned only and a real run refuse
       "the hosted product (HOSTED_PRODUCT in products/index.ts, PR #553) is not in this checkout yet",
   });
   for (const [inputs, code] of [
-    [{ ENV: "staging", COMMAND: "client-add", CLIENT: "ghetto" }, 0],
-    [{ ENV: "staging", COMMAND: "client-add", CLIENT: "ghetto", DRY_RUN: "false" }, 2],
+    [{ ENV: "staging", COMMAND: "client-add", CLIENT: "ghetto", SETTINGS: "COS_PACKS=" }, 0],
+    [
+      {
+        ENV: "staging",
+        COMMAND: "client-add",
+        CLIENT: "ghetto",
+        SETTINGS: "COS_PACKS=",
+        DRY_RUN: "false",
+      },
+      2,
+    ],
     [{ ENV: "staging", COMMAND: "client-list" }, 2],
   ]) {
     const h = harness();
@@ -824,11 +882,11 @@ test("client-setting: an identity or approval setting runs only with confirm <cl
     ENV: "live",
     COMMAND: "client-setting-unset",
     CLIENT: "ghetto",
-    SETTING_NAME: "APPROVAL_FLOOR",
+    SETTING_NAME: "API_ALLOWED_ORIGINS",
     DRY_RUN: "false",
   };
   assert.equal(await unset.run({ ...unsetInputs, CONFIRM: "ghetto" }), 2);
-  assert.equal(await unset.run({ ...unsetInputs, CONFIRM: "ghetto:APPROVAL_FLOOR" }), 0);
+  assert.equal(await unset.run({ ...unsetInputs, CONFIRM: "ghetto:API_ALLOWED_ORIGINS" }), 0);
   // Any other setting: the ordinary confirm, the client's id.
   const packs = harness();
   const packsInputs = {
@@ -907,4 +965,353 @@ test("the workflows: actions pinned by commit, no install script or preloaded co
   assert.match(runStep, /^\s+NODE_OPTIONS: ""$/m);
   const teardown = read("fleet-staging-check.yml").split("- name: Teardown\n")[1].split("\n")[1];
   assert.match(teardown, /if: always\(\) && steps\.marker\.outcome == 'success'/);
+});
+
+// --- a client's first day (the follow-up to #547: reviews of #552 and #553) ----------------------
+
+const EMAIL_IN = "Owner.Name@Gym-A.example";
+const HASH = "0f".repeat(32);
+const firstAdd = {
+  ENV: "staging",
+  COMMAND: "client-add",
+  CLIENT: "gym-a",
+  LOCATION: "oc",
+  SETTINGS: "COS_PACKS=bookings,content,courses,programs,ticketing",
+  LABEL: "Gym A",
+  ADMIN_EMAIL: EMAIL_IN,
+  ADMIN_TOKEN_SHA256: HASH,
+};
+/** Everything a run wrote where anyone could read it: the log and the summary. */
+const everythingOf = (h) => `${h.written.summary}\n${h.written.log.join("\n")}`;
+
+test("client-add: its packs, its label and its first admin reach cos; the address never the log or summary", async () => {
+  // cos echoes its whole command line, as a careless one might.
+  const h = harness({ cosAnswer: ({ argv }) => ({ code: 0, out: argv.join(" ") }) });
+  assert.equal(await h.run(firstAdd), 0, h.written.summary);
+  const { argv } = h.calls[0];
+  assert.deepEqual(argv, [
+    "client",
+    "add",
+    "gym-a",
+    "--location",
+    "oc",
+    "--setting",
+    "COS_PACKS=bookings,content,courses,programs,ticketing",
+    "--label",
+    "Gym A",
+    "--admin",
+    EMAIL_IN,
+    "--admin-token-sha256",
+    HASH,
+    "--env",
+    "staging",
+    "--dry-run",
+  ]);
+  const everything = everythingOf(h);
+  for (const form of [EMAIL_IN, EMAIL_IN.toLowerCase()]) {
+    assert.ok(!everything.includes(form), "the address was written");
+  }
+  assert.match(everything, /<first admin's email>/);
+  assert.match(h.written.summary, /- first admin: O\*\*\*@G\*\*\* \(redacted\)/);
+  assert.match(h.written.summary, /- label: Gym A/);
+  // Masked, in both forms, before anything was logged or summarised.
+  const firstMask = h.written.events.findIndex(([k, v]) => k === "mask" && v === EMAIL_IN);
+  const firstWrite = h.written.events.findIndex(([k]) => k !== "mask");
+  assert.ok(firstMask >= 0 && firstMask < firstWrite, "masked before anything was written");
+  assert.ok(h.written.masked.includes(EMAIL_IN.toLowerCase()));
+  // A refusal is no different: the address is still masked and never written.
+  const refused = harness();
+  assert.equal(await refused.run({ ...firstAdd, ADMIN_TOKEN_SHA256: "" }), 2);
+  assert.ok(refused.written.masked.includes(EMAIL_IN));
+  assert.ok(!everythingOf(refused).includes(EMAIL_IN));
+  assert.equal(redactEmail("owner@gym.example"), "o***@g***");
+});
+
+test("client-add: refused before cos without its packs, with *, with half a first admin, or a bad address, hash or label", async () => {
+  const refusals = [
+    [{ SETTINGS: "" }, /client-add needs the client's packs/],
+    [{ SETTINGS: "COS_PRODUCT_LABEL=GymA" }, /client-add needs the client's packs/],
+    [{ SETTINGS: "COS_PACKS=*" }, /COS_PACKS is never \*/],
+    [{ SETTINGS: "COS_PACKS=ticketing,*" }, /COS_PACKS is never \*/],
+    [{ ADMIN_TOKEN_SHA256: "" }, /admin_email and admin_token_sha256 go together/],
+    [{ ADMIN_EMAIL: "" }, /admin_email and admin_token_sha256 go together/],
+    [{ ADMIN_TOKEN_SHA256: HASH.toUpperCase() }, /admin_token_sha256 .* is not valid/],
+    [{ ADMIN_TOKEN_SHA256: HASH.slice(1) }, /admin_token_sha256 .* is not valid/],
+    [{ ADMIN_EMAIL: "-x@gym.example" }, /admin_email .* is not valid/],
+    [{ ADMIN_EMAIL: "a b@gym.example" }, /admin_email .* is not valid/],
+    [{ ADMIN_EMAIL: "owner@localhost" }, /admin_email .* is not valid/],
+    [{ LABEL: " Gym A" }, /label .* is not valid/],
+    [{ LABEL: "x".repeat(61) }, /label .* is not valid/],
+    [{ LABEL: "<b>Gym</b>" }, /label .* is not valid/],
+    [{ LABEL: "--take-over" }, /label .* is not valid/],
+    [
+      { SETTINGS: "COS_PACKS=ticketing COS_PRODUCT_LABEL=GymA" },
+      /label and a COS_PRODUCT_LABEL setting are the same/,
+    ],
+    // The first admin goes through its own flags, never a setting.
+    [{ SETTINGS: "COS_PACKS=ticketing COS_FIRST_ADMIN=x" }, /setting COS_FIRST_ADMIN is not/],
+  ];
+  for (const [change, why] of refusals) {
+    const h = harness();
+    const code = await h.run({ ...firstAdd, ...change });
+    assert.equal(code, 2, JSON.stringify(change));
+    assert.equal(h.calls.length, 0, JSON.stringify(change));
+    assert.match(h.written.summary, why, JSON.stringify(change));
+    assert.ok(!everythingOf(h).includes(EMAIL_IN), JSON.stringify(change));
+  }
+  // The first admin's inputs are client-add's and client-first-admin's only.
+  for (const extra of [{ ADMIN_EMAIL: EMAIL_IN }, { ADMIN_TOKEN_SHA256: HASH }, { LABEL: "A" }]) {
+    const h = harness();
+    assert.equal(await h.run({ ENV: "staging", COMMAND: "client-list", ...extra }), 2);
+    assert.match(h.written.summary, /is not taken by client-list/);
+  }
+});
+
+test("client-first-admin: a dry run first, then confirmed by the client's id; the address never written", async () => {
+  const inputs = {
+    ENV: "staging",
+    COMMAND: "client-first-admin",
+    CLIENT: "gym-a",
+    ADMIN_EMAIL: EMAIL_IN,
+    ADMIN_TOKEN_SHA256: HASH,
+  };
+  const dry = harness({ cosAnswer: ({ argv }) => ({ code: 0, out: argv.join(" ") }) });
+  assert.equal(await dry.run(inputs), 0);
+  assert.deepEqual(dry.calls[0].argv, [
+    "client",
+    "first-admin",
+    "gym-a",
+    "--email",
+    EMAIL_IN,
+    "--token-sha256",
+    HASH,
+    "--env",
+    "staging",
+    "--dry-run",
+  ]);
+  assert.ok(!everythingOf(dry).includes(EMAIL_IN));
+  // The command line shown names the address by a placeholder, not by ***.
+  assert.match(everythingOf(dry), /--email <first admin's email>/);
+  for (const confirm of [undefined, "gym-b", "gym-a:COS_FIRST_ADMIN"]) {
+    const h = harness();
+    const code = await h.run({
+      ...inputs,
+      DRY_RUN: "false",
+      ...(confirm ? { CONFIRM: confirm } : {}),
+    });
+    assert.equal(code, 2, String(confirm));
+    assert.equal(h.calls.length, 0, String(confirm));
+  }
+  const ok = harness();
+  assert.equal(await ok.run({ ...inputs, DRY_RUN: "false", CONFIRM: "gym-a" }), 0);
+  assert.equal(ok.calls[0].argv.at(-1), "--yes");
+  assert.ok(!everythingOf(ok).includes(EMAIL_IN));
+  // Both are needed: never a printed link instead.
+  for (const missing of ["ADMIN_EMAIL", "ADMIN_TOKEN_SHA256"]) {
+    const h = harness();
+    assert.equal(await h.run({ ...inputs, [missing]: "" }), 2, missing);
+    assert.equal(h.calls.length, 0);
+  }
+});
+
+test("client-setting: COS_PACKS is never unset nor *, refused before cos", async () => {
+  for (const [extra, why] of [
+    [{ COMMAND: "client-setting-unset", SETTING_NAME: "COS_PACKS" }, /COS_PACKS is never unset/],
+    [
+      { COMMAND: "client-setting-set", SETTING_NAME: "COS_PACKS", SETTING_VALUE: "*" },
+      /COS_PACKS is never \*/,
+    ],
+    [
+      { COMMAND: "client-setting-set", SETTING_NAME: "COS_PACKS", SETTING_VALUE: "ticketing, *" },
+      /COS_PACKS is never \*/,
+    ],
+  ]) {
+    const h = harness();
+    const code = await h.run({ ENV: "staging", CLIENT: "gym-a", CONFIRM: "gym-a", ...extra });
+    assert.equal(code, 2, JSON.stringify(extra));
+    assert.equal(h.calls.length, 0);
+    assert.match(h.written.summary, why);
+  }
+  // A list widens as before; the list command never shows the address.
+  const set = harness();
+  assert.equal(
+    await set.run({
+      ENV: "staging",
+      COMMAND: "client-setting-set",
+      CLIENT: "gym-a",
+      SETTING_NAME: "COS_PACKS",
+      SETTING_VALUE: "ticketing,content",
+    }),
+    0,
+  );
+  const list = harness();
+  assert.equal(
+    await list.run({ ENV: "staging", COMMAND: "client-setting-list", CLIENT: "gym-a" }),
+    0,
+  );
+  assert.ok(!list.calls[0].argv.includes("--show-email"));
+});
+
+const STREAM_TOKEN_VALUE = "stream_api_token_never_printed_0123456789";
+const JWK = JSON.stringify({
+  kty: "RSA",
+  kid: "b".repeat(32),
+  n: "modulus-never-printed-AAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  e: "AQAB",
+  d: "private-exponent-never-printed-BBBBBBBBBBBBBBBBBBBB",
+  p: "prime-p-never-printed-CCCCCCCCCCCCCCCCCCCCCCCC",
+  q: "prime-q-never-printed-DDDDDDDDDDDDDDDDDDDDDDDD",
+});
+const STREAM_ACCOUNT_ID = "5".repeat(32);
+const STREAM_IDS = {
+  FLEET_STREAM_ACCOUNT_ID: STREAM_ACCOUNT_ID,
+  FLEET_STREAM_CUSTOMER_CODE: "cust0mercode",
+  FLEET_STREAM_SIGNING_KEY_ID: "b".repeat(32),
+};
+const STREAM_SECRETS = {
+  FLEET_STREAM_API_TOKEN: STREAM_TOKEN_VALUE,
+  FLEET_STREAM_SIGNING_JWK: JWK,
+};
+const realInstall = {
+  ENV: "staging",
+  COMMAND: "fleet-install",
+  VERSION: "0.1.0-beta.16",
+  DOMAIN: "staging.composableos.app",
+  CALLBACK_HOSTNAME: "callback.staging.composableos.app",
+  ZONE: "composableos.app",
+  LOCATION: "oc",
+  AI: "off",
+  DRY_RUN: "false",
+  CONFIRM: "staging.composableos.app",
+};
+
+test("fleet-install with Stream: five flags, the token and key by 0600 file removed after, nothing of them written", async () => {
+  // cos prints everything it holds: its arguments and its files.
+  const leaky = ({ argv, files }) => ({
+    code: 0,
+    out: [argv.join(" "), ...Object.values(files).map((f) => f.text)].join("\n"),
+  });
+  const h = harness({ cosAnswer: leaky });
+  assert.equal(
+    await h.run(realInstall, { FLEET_KEYS: keys64(), ...STREAM_IDS, ...STREAM_SECRETS }),
+    0,
+    h.written.summary,
+  );
+  const { argv, files } = h.calls[0];
+  const at = (flag) => argv[argv.indexOf(flag) + 1];
+  assert.equal(at("--stream-account-id"), STREAM_ACCOUNT_ID);
+  assert.equal(at("--stream-customer-code"), "cust0mercode");
+  assert.equal(at("--stream-signing-key-id"), "b".repeat(32));
+  for (const [flag, text] of [
+    ["--stream-token-file", STREAM_TOKEN_VALUE],
+    ["--stream-jwk-file", JWK],
+  ]) {
+    const path = at(flag);
+    assert.equal(files[path]?.text, text, flag);
+    assert.equal(files[path].mode, 0o600);
+    assert.equal(files[path].dirMode, 0o700);
+    assert.ok(!existsSync(path), `${flag} removed after`);
+  }
+  assert.deepEqual(readdirSync(h.tmp), []);
+  const everything = everythingOf(h);
+  for (const secret of [
+    STREAM_TOKEN_VALUE,
+    JWK,
+    STREAM_ACCOUNT_ID,
+    "modulus-never-printed-AAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "private-exponent-never-printed-BBBBBBBBBBBBBBBBBBBB",
+    "prime-p-never-printed-CCCCCCCCCCCCCCCCCCCCCCCC",
+  ]) {
+    assert.ok(!everything.includes(secret), `${secret.slice(0, 20)}… was written`);
+    assert.ok(h.written.masked.includes(secret), `${secret.slice(0, 20)}… was not masked`);
+  }
+  assert.match(h.written.summary, /- Stream: the operator's account/);
+  // cos's environment holds none of them: they go by file and argument.
+  for (const name of Object.keys({ ...STREAM_IDS, ...STREAM_SECRETS })) {
+    assert.equal(h.calls[0].env[name], undefined, name);
+  }
+  // A base64 key is cut out by its parts too.
+  const b64 = harness({ cosAnswer: leaky });
+  await b64.run(realInstall, {
+    FLEET_KEYS: keys64(),
+    ...STREAM_IDS,
+    ...STREAM_SECRETS,
+    FLEET_STREAM_SIGNING_JWK: Buffer.from(JWK).toString("base64"),
+  });
+  assert.ok(!everythingOf(b64).includes("private-exponent-never-printed"));
+});
+
+test("fleet-install: Stream's five or none; without Stream an install still runs", async () => {
+  const partial = [
+    STREAM_IDS,
+    STREAM_SECRETS,
+    { ...STREAM_IDS, FLEET_STREAM_API_TOKEN: STREAM_TOKEN_VALUE },
+    { ...STREAM_SECRETS, FLEET_STREAM_ACCOUNT_ID: STREAM_ACCOUNT_ID },
+  ];
+  for (const given of partial) {
+    for (const dry of ["true", "false"]) {
+      const h = harness();
+      const code = await h.run(
+        { ...realInstall, DRY_RUN: dry },
+        { FLEET_KEYS: keys64(), ...given },
+      );
+      assert.equal(code, 2, `${Object.keys(given)} ${dry}`);
+      assert.equal(h.calls.length, 0);
+      assert.match(h.written.summary, /go together/);
+    }
+  }
+  for (const bad of [
+    { FLEET_STREAM_ACCOUNT_ID: "not-hex" },
+    { FLEET_STREAM_SIGNING_KEY_ID: "B".repeat(32) },
+    { FLEET_STREAM_CUSTOMER_CODE: "customer-x.cloudflarestream.com" },
+  ]) {
+    const h = harness();
+    const inputs = { FLEET_KEYS: keys64(), ...STREAM_IDS, ...STREAM_SECRETS, ...bad };
+    assert.equal(await h.run(realInstall, inputs), 2, JSON.stringify(bad));
+    assert.equal(h.calls.length, 0);
+  }
+  const without = harness();
+  assert.equal(await without.run(realInstall, { FLEET_KEYS: keys64() }), 0);
+  assert.ok(!without.calls[0].argv.some((a) => a.startsWith("--stream-")));
+  assert.match(without.written.summary, /- Stream: none/);
+  // The ids are fleet-install's alone: another command ignores them, and takes no file.
+  const upgrade = harness();
+  assert.equal(
+    await upgrade.run(
+      { ENV: "staging", COMMAND: "fleet-upgrade", VERSION: "0.1.0-beta.16" },
+      { FLEET_KEYS: keys64(), ...STREAM_IDS, ...STREAM_SECRETS },
+    ),
+    0,
+  );
+  assert.ok(!upgrade.calls[0].argv.some((a) => a.startsWith("--stream-")));
+  assert.equal(Object.keys(upgrade.calls[0].files).length, 1);
+});
+
+test("cos runs with CI=true, so it refuses a printed setup link here", async () => {
+  const h = harness();
+  assert.equal(await h.run({ ENV: "staging", COMMAND: "client-list" }), 0);
+  assert.equal(h.calls[0].env.CI, "true");
+});
+
+test("the workflow: the first admin's address masked by each job's first step, from the event, never from an expression in a script", () => {
+  const text = readFileSync(
+    new URL("../.github/workflows/fleet-operate.yml", import.meta.url),
+    "utf8",
+  );
+  for (const job of ["inputs", "operate"]) {
+    const body = text.split(new RegExp(`^ {2}${job}:$`, "m"))[1].split(/^ {2}\w+:$/m)[0];
+    const first = body.split(/^\s+steps:\n/m)[1].split(/^\s+- /m)[1];
+    assert.match(first, /^name: Mask the first admin's address/, job);
+    assert.match(first, /jq -r '\.inputs\.admin_email/, job);
+    assert.match(first, /::add-mask::/, job);
+  }
+  // The address reaches a step only as OP_ADMIN_EMAIL, never inside a run: script.
+  for (const line of text.split("\n").filter((l) => l.includes("${{ inputs.admin_email"))) {
+    assert.match(line, /^\s+OP_ADMIN_EMAIL: \$\{\{ inputs\.admin_email \}\}$/);
+  }
+  // Stream's token and key reach only fleet install.
+  for (const name of ["FLEET_STREAM_API_TOKEN", "FLEET_STREAM_SIGNING_JWK"]) {
+    const line = text.split("\n").find((l) => l.includes(`secrets.${name}`));
+    assert.match(line, /inputs\.command == 'fleet-install' && secrets\./, name);
+  }
 });

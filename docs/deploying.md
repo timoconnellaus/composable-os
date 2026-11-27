@@ -1378,33 +1378,46 @@ cos client remove gym-a $P                   # export kept 90 days, then erased;
   send queued before may still be approved once it is resumed), and nothing ever after it is
   removed.
 - **A client's first day, in order** (stage 66 step 9; ADR 0618, "The first client's day one").
-  The fleet's commands run in the operator's workflow, in a public repository whose logs anyone
-  can read, so nothing that could make a client's first account is ever in it: only a hash.
+  The fleet's commands run in the operator's workflow (*Fleet operate*, [Operating a host of many
+  clients from GitHub](#operating-a-host-of-many-clients-from-github-stage-66)), in a public
+  repository whose logs anyone can read, so nothing that could make a client's first account is
+  ever in it: only a hash. Each step names the workflow's inputs; each runs first as a dry run
+  (`dry_run` true, the default), then with `dry_run` false and the `confirm` it names.
   1. **The owner makes the setup token, on his own machine** (no Cloudflare token needed; refused
-     in CI):
+     in CI, and never offered by the workflow):
      ```sh
      cos client first-admin-token --staff-hostname gym-a-admin.<fleet domain>
      ```
      It prints the link (`https://gym-a-admin.<fleet domain>/sign-in#first-admin=<token>`) and the
      token's SHA-256. He keeps the link and gives the workflow only the hash.
-  2. **The workflow adds the client with its first admin**, the hash as a plain input:
+  2. **The workflow adds the client with its packs, label and first admin**: `command=client-add`,
+     `client=gym-a`, `location=oc`, `settings=COS_PACKS=<pack,pack…>` (required), `label=Gym A`,
+     `admin_email=<the admin's address>`, `admin_token_sha256=<sha256>`; for real, `dry_run=false`
+     (no `confirm`). It runs
      ```sh
-     cos client add gym-a --env staging --location oc --label "Gym A" \
-       --admin owner@gym-a.example --admin-token-sha256 <sha256> --yes
+     cos client add gym-a --location oc --setting COS_PACKS=… --label "Gym A" \
+       --admin <address> --admin-token-sha256 <sha256> --env staging
      ```
-     It prints neither a token, a link nor the address: only that the first admin is stored, and
-     until when (72 hours). A new hash replaces the last:
-     `cos client first-admin gym-a --email owner@gym-a.example --token-sha256 <sha256>`.
+     and waits (up to 15 minutes) for the client's new staff hostname to answer. It prints
+     neither a token, a link nor the address: only that the first admin is stored, and until when
+     (72 hours). The address is masked in the run's log and shown redacted (`o***@g***`) in its
+     summary. A new hash replaces the last: `command=client-first-admin`, `client`, `admin_email`,
+     `admin_token_sha256`, and for real `confirm=gym-a`
+     (`cos client first-admin gym-a --email <address> --token-sha256 <sha256>`).
   3. **The owner sends the link to the client's admin himself.** Only that address, with that
      link, by password sign-up, before it expires, makes the client's first account, which is its
      admin. With no admin named, nobody can. The link does nothing once the client has an account;
      `first-admin` cannot tell whether it has one (the people are in the client's database, which
      these registry commands do not open), so naming one again then is harmless and does nothing.
   4. **The admin signs up** at the link, then sets up mail in the app (the sign-in mail steps
-     above: the operator's `cos client sender add` and `verify`, then Settings → Integrations and
-     Settings → Users).
-  5. **Packs, origins and redirects** with `cos client setting` (below): the client's packs, its
-     own site's origin, its app's sign-in redirect.
+     above: the operator's `command=sender-add` with `client` and `sender_domain`, then
+     `command=sender-verify` with the same and, for real, `confirm=gym-a`; then Settings →
+     Integrations and Settings → Users).
+  5. **Packs, origins and redirects** (`cos client setting`, below): `command=client-setting-set`
+     with `client`, `setting_name` and `setting_value`. `COS_PACKS` (only wider) is confirmed by
+     `confirm=gym-a`; `API_ALLOWED_ORIGINS`, `NATIVE_REDIRECT_URIS` and `APPROVAL_EXPIRY_DAYS`,
+     identity and approval settings, only by `confirm=gym-a:<NAME>`, after a dry run that shows
+     the exact value. `command=client-setting-list` shows them (never the admin's address).
 
   `--print-link` (cos makes the token and prints the link once) is for a self-hosted operator at a
   terminal, and is refused when `CI` or `GITHUB_ACTIONS` is set. `cos client setting list` shows
@@ -1813,16 +1826,17 @@ is no free-form command line:
 | `command` | runs | needs (with `dry_run` off) |
 | --- | --- | --- |
 | `client-list` | `cos client list` | |
-| `client-add` | `cos client add <client> [--location] [--setting NAME=VALUE]…` | `client`, `settings` (optional; never an identity or approval setting, below) |
+| `client-add` | `cos client add <client> [--location] --setting COS_PACKS=… [--setting NAME=VALUE]… [--label] [--admin <email> --admin-token-sha256 <sha256>]`; it waits up to 15 minutes for the new staff hostname to answer (never `--no-wait`) | `client`, `settings` with `COS_PACKS` (never `*`; never an identity or approval setting, below); optional `label`, and `admin_email` with `admin_token_sha256` together |
+| `client-first-admin` | `cos client first-admin <client> --email <email> --token-sha256 <sha256>`: names the first admin again, a new hash replacing the last | `client`, `admin_email`, `admin_token_sha256`, `confirm` |
 | `client-pause`, `client-resume` | `cos client pause/resume <client>` | `client`; on live, `confirm` = the client's id |
 | `client-export` | `cos client export <client>`: into the fleet's exports bucket, kept 90 days. The client is served nowhere while it runs. Never `--out`, which writes the client's secrets in plain text | `client`, `confirm` |
 | `client-remove` | `cos client remove <client>` | `client`, `confirm` |
 | `client-secret-set` | `cos client secret set <client> <NAME> --value-file <file>`, the value from the environment secret `CLIENT_<ID>_<NAME>` | `client` (no hyphen), `secret_name`; `confirm` to replace a stored value |
 | `client-secret-remove` | `cos client secret remove <client> <NAME>` | `client`, `secret_name`, `confirm` |
 | `sender-add`, `sender-verify`, `sender-unverify`, `sender-remove` | `cos client sender <verb> <client> <domain>` | `client`, `sender_domain`; `confirm` for all but add |
-| `hostname-list`, `hostname-add`, `hostname-verify`, `hostname-remove` | `cos client hostname …` (they arrive with PR #543: until then they are refused, saying so) | `client`, `hostname`; `confirm` for verify and remove |
-| `client-setting-list`, `client-setting-set`, `client-setting-unset` | `cos client setting list <client>`, `set <client> <NAME> <value>`, `unset <client> <NAME>` (they arrive with `cos client setting`, branch `feat/stage-66-first-client-gaps`: until then they are refused, saying so) | `client`, `setting_name`, `setting_value` for set; `confirm` = the client's id, or **`<client id>:<NAME>`** for an identity or approval setting |
-| `fleet-install` | `cos fleet install --keys-file … --callback-hostname --domain --version [--ai] [--location] [--zone]` | `version`, `domain`, `callback_hostname`, `confirm` = the domain; `zone` after #543 |
+| `hostname-list`, `hostname-add`, `hostname-verify`, `hostname-remove` | `cos client hostname …`, never `--adopt` (a cos without the command is refused, saying so) | `client`, `hostname`; `confirm` for verify and remove |
+| `client-setting-list`, `client-setting-set`, `client-setting-unset` | `cos client setting list <client>` (never `--show-email`), `set <client> <NAME> <value>`, `unset <client> <NAME>`; `COS_PACKS` is never `*` and never unset | `client`, `setting_name`, `setting_value` for set; `confirm` = the client's id, or **`<client id>:<NAME>`** for an identity or approval setting |
+| `fleet-install` | `cos fleet install --keys-file … --callback-hostname --domain --version [--ai] [--location] [--zone]`, and Stream's five flags when the environment has them (below) | `version`, `domain`, `callback_hostname`, `confirm` = the domain; `zone` |
 | `fleet-upgrade` | `cos fleet upgrade --keys-file … --version` | `version`; on live, `confirm` = the version |
 
 `confirm` is the client's id, the version or the domain, as the table says; `take_over` (taking the
@@ -1830,7 +1844,9 @@ operator's session from a command that was killed) needs it too, or the environm
 command with neither.
 
 - **First, the environment.** The first step of the job that reads a secret stops the run unless the environment secret `FLEET_ENVIRONMENT` names the fleet asked for: `staging` in `fleet`, `live` in `fleet-live`. Repository secrets have no such secret, and neither has an environment GitHub makes on the fly when a run names one that does not exist (unprotected), so neither is ever used. The job runs only from `main` (`github.ref`), as well as under the environments' own branch policy.
-- **Every input is checked**: first by a job of its own with no secret, then again by the script before anything runs. The client id is checked against the registry's rule; a version is `x.y.z[-beta.n]` and a domain a hostname. A setting must be a client setting's name with a plain value, and a secret name a given secret's. An input meant for another command is refused. Inputs reach the script only through the environment, never a shell line.
+- **Every input is checked**: first by a job of its own with no secret, then again by the script before anything runs. The client id is checked against the registry's rule; a version is `x.y.z[-beta.n]` and a domain a hostname. A setting must be one an operator writes (`COS_PACKS`, `API_ALLOWED_ORIGINS`, `NATIVE_REDIRECT_URIS`, `APPROVAL_EXPIRY_DAYS`, `COS_PRODUCT_LABEL`) with a plain value, and a secret name a given secret's. `client-add` needs `COS_PACKS` and refuses `*`; a label is the registry's (1 to 60 characters, spaces allowed); an address is an email address and a token's hash 64 lowercase hex characters. An input meant for another command is refused. Inputs reach the script only through the environment, never a shell line.
+- **A client's first admin** is an address and the SHA-256 of a setup token the owner made on his own machine (`cos client first-admin-token`, which the workflow never offers): nothing a run holds can make a client's first account. The address is a client's personal data and the log is public: the first step of each job masks it (read from the run's event, so no step shows it before), the script masks it again and never puts it in the command line it shows, and the summary has it redacted (`o***@g***`). `cos` runs with `CI=true`, so its own refusal of anything that prints a setup link holds here too; `--print-link`, `first-admin-token`, `--show-email` and `--adopt` are never mapped.
+- **Stream on a fleet install.** When the environment has them, `fleet-install` passes the operator's Stream account (the five flags, "Videos (Stream) on a fleet" above): the three ids from the environment's **variables** `FLEET_STREAM_ACCOUNT_ID`, `FLEET_STREAM_CUSTOMER_CODE` and `FLEET_STREAM_SIGNING_KEY_ID` (not secret, never committed; as variables they need none of the dispatch's inputs), and the token and signing key from its **secrets** `FLEET_STREAM_API_TOKEN` and `FLEET_STREAM_SIGNING_JWK` (the JWK as JSON or its base64), taken out of the script's environment like the keys, written to 0600 files and deleted after, masked and cut out of everything written; the account id is masked too. All five or none: some without the rest are refused before `cos`, in a dry run too. With none, the install is without Stream (a re-run without them keeps what an earlier install set).
 - **`dry_run` is on by default.** Where `cos` has a dry run, the run makes one. `fleet install` has none, so while `dry_run` is on it is only planned. Its plan says whether the fleet exists and what is recorded (version, domain, callback hostname), and whether `cos` would refuse, so a live reviewer never approves it blind. `cos fleet install` itself refuses a fleet that exists unless all three equal what is installed: a re-run, to finish an install that stopped. An upgrade is `fleet-upgrade`, which migrates every client.
 - **The confirm rule** (the table). Without the right `confirm`, the run stops before `cos`. `client-secret-set` without `confirm` stores a new value and never replaces a stored one. `--skip-staging` is never offered.
 - **The product.** The fleet is the hosted product, id `composable` (`HOSTED_PRODUCT` in `products/index.ts`, PR #553), never the CRM. Every `cos` call gets `--product composable`. The script chooses it in one marked place, `chooseProduct`, a fixed value that is never an input. Until this checkout has `HOSTED_PRODUCT` and the built `cos` takes `--product`, a dry run is planned only and a real run (a read like `client-list` too) is refused, saying so: nothing falls back to the CRM's fleet.
@@ -1887,6 +1903,7 @@ His decision, as of 2026-11-27: he approves live runs (`fleet-live` has him as r
    - **`fleet-check`** (the staging check and the client database proof): `FLEET_ENVIRONMENT` = `check`, `FLEET_CLOUDFLARE_API_TOKEN`, `FLEET_CLOUDFLARE_ACCOUNT_ID`; deployment branch policy `main`.
    - **`fleet`** (the real staging fleet): `FLEET_ENVIRONMENT` = `staging`, the two Cloudflare secrets, `FLEET_KEYS` = `base64 -w0 ~/fleet-keys/staging.json` (on macOS, `base64 -i … | tr -d '\n'`) on one line, so GitHub masks it whole; deployment branch policy `main`.
    - **`fleet-live`** (live): `FLEET_ENVIRONMENT` = `live`, the two Cloudflare secrets (or a live account's own), `FLEET_KEYS` from `live.json`; deployment branch policy `main` only; **required reviewer: the owner**.
+   - **Stream, in `fleet` and `fleet-live`, for videos** (optional; all five or none): the variables `FLEET_STREAM_ACCOUNT_ID`, `FLEET_STREAM_CUSTOMER_CODE` and `FLEET_STREAM_SIGNING_KEY_ID`, and the secrets `FLEET_STREAM_API_TOKEN` and `FLEET_STREAM_SIGNING_JWK` (the [Stream runbook](stream-runbook.md), steps 1 and 2, makes the token and the key). They are read by `fleet-install` only.
 5. **Delete the repository-level `FLEET_CLOUDFLARE_API_TOKEN` and `FLEET_CLOUDFLARE_ACCOUNT_ID`** (Settings → Secrets and variables → Actions), once the three environments hold their own: kept only in environments, no other workflow or branch can read them. Every workflow that uses them runs in one of the three.
 6. **A tag ruleset** (Settings → Rules → Rulesets, target tags `v*`; active since 2026-11-27):
    - only the owner may create a release tag;
@@ -1910,11 +1927,14 @@ gh workflow run fleet-operate.yml --ref main -f env=staging -f command=fleet-ins
   -f version=<x.y.z-beta.n> -f domain=staging.composableos.app \
   -f callback_hostname=callback.staging.composableos.app -f zone=composableos.app \
   -f location=oc -f ai=off -f dry_run=false -f confirm=staging.composableos.app
-# A client, with the Ticketing pack: a dry run, then for real.
+# A client, with its packs, its label and its first admin (the hash from cos client
+# first-admin-token, run on the owner's machine): a dry run, then for real.
 gh workflow run fleet-operate.yml --ref main -f env=staging -f command=client-add \
-  -f client=ghetto -f location=oc -f settings=COS_PACKS=ticketing
+  -f client=ghetto -f location=oc -f settings=COS_PACKS=ticketing -f "label=<label>" \
+  -f admin_email=<address> -f admin_token_sha256=<sha256>
 gh workflow run fleet-operate.yml --ref main -f env=staging -f command=client-add \
-  -f client=ghetto -f location=oc -f settings=COS_PACKS=ticketing -f dry_run=false
+  -f client=ghetto -f location=oc -f settings=COS_PACKS=ticketing -f "label=<label>" \
+  -f admin_email=<address> -f admin_token_sha256=<sha256> -f dry_run=false
 gh workflow run fleet-operate.yml --ref main -f env=staging -f command=client-list
 # The mobile app's sign-in redirect: an identity setting, the owner's own reviewed change. Its
 # dry run shows the exact value; the real run is confirmed by <client id>:<NAME>.

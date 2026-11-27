@@ -27,8 +27,16 @@
 // `--bundle-dir` or `--unverified`), and refuses anything that names the staging check's throwaway
 // prefix (`cosstg-`): the staging check and this never meet. Before anything, it refuses a run
 // whose FLEET_ENVIRONMENT secret does not name the fleet asked for: the secrets are not that
-// fleet's own environment's. FLEET_KEYS and SECRET_VALUE leave process.env before any import that
-// is not Node's own.
+// fleet's own environment's. FLEET_KEYS, SECRET_VALUE and the Stream token and signing key leave
+// process.env before any import that is not Node's own.
+//
+// A client's first day (docs/deploying.md, "A client's first day"): `client-add` with its packs,
+// label and first admin (an address and the SHA-256 of a setup token the owner made on his own
+// machine), `client-first-admin`, and the settings commands. The first admin's address is a
+// client's personal data in a public log: it is masked before anything prints, never in the
+// command line shown, and only redacted in the summary. cos runs with CI=true, so its own refusal
+// of anything that would print a setup link holds here; `--print-link`, `first-admin-token`,
+// `--show-email` and `--adopt` are never mapped.
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -46,6 +54,13 @@ const HOSTNAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]
 const VERSION = /^\d{1,4}\.\d{1,4}\.\d{1,4}(?:-beta\.\d{1,4})?$/;
 const CLIENT = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const SETTING_VALUE = /^[A-Za-z0-9,._:/@+-]{0,512}$/;
+/** A setup token's SHA-256, as `cos client first-admin-token` prints it: it opens nothing. */
+const SHA256 = /^[0-9a-f]{64}$/;
+/** An email address's shape here (the registry's own rule is checked besides): never a flag. */
+const EMAIL_SHAPE = /^(?!-)[^\s@,;<>"'`$\\]{1,64}@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
+/** Stream's ids (cos fleet install's own checks, fleet/stream.ts). */
+const HEX32 = /^[0-9a-f]{32}$/;
+const CUSTOMER_CODE = /^[a-z0-9]{4,64}$/;
 
 /**
  * The client settings that are identity or approval policy (packages/db registry.ts
@@ -71,7 +86,8 @@ const SETTING_ARGUMENT = /^(?!-)[\p{L}\p{N} ,._:/@+'&()!?#-]{1,512}$/u;
  * (changes nothing), `none` (no dry run: only planned while dry_run is on). `confirm`: what
  * `OP_CONFIRM` must be for cos to get `--yes` (null: never given `--yes` by this workflow, except
  * a staging upgrade, which needs it to run at all). `needs`: a word cos's own help must show (a
- * command that arrives with a later PR is refused, with that said, until cos has it).
+ * command that arrives with a later PR is refused, with that said, until cos has it). `optional`:
+ * inputs it takes besides `fields`.
  */
 export const COMMANDS = Object.freeze({
   // An install with dry_run off names the domain: a live reviewer sees what is installed where
@@ -93,7 +109,20 @@ export const COMMANDS = Object.freeze({
     confirmWhat: "the version",
   },
   "client-list": { dry: "read", fields: [] },
-  "client-add": { dry: "flag", fields: ["client"] },
+  // Its packs are required (COS_PACKS in `settings`); its label and first admin are optional, the
+  // admin's address and token hash together. cos waits for its new staff hostname to answer (up
+  // to 15 minutes): never --no-wait, so the run says whether the admin's link works yet.
+  "client-add": {
+    dry: "flag",
+    fields: ["client"],
+    optional: ["adminEmail", "tokenSha256", "label"],
+  },
+  // Names (or names again) who may make the client's first account: a new hash replaces the last.
+  "client-first-admin": {
+    dry: "flag",
+    fields: ["client", "adminEmail", "tokenSha256"],
+    confirm: (i) => i.client,
+  },
   "client-pause": {
     dry: "flag",
     fields: ["client"],
@@ -182,7 +211,10 @@ const bool = (s, fallback) => {
  * The dispatch's inputs from the environment, every one checked; throws an InputError naming each
  * problem. Pure: reads only `env`. `knownSettings` and `isSecretName` are the registry's own rules.
  */
-export function readInputs(env, { knownSettings, isSecretName, clientIdProblem }) {
+export function readInputs(
+  env,
+  { knownSettings, isSecretName, clientIdProblem, isEmail = () => true, labelProblem = () => null },
+) {
   const problems = [];
   const fail = (m) => problems.push(m);
   const i = {
@@ -201,9 +233,14 @@ export function readInputs(env, { knownSettings, isSecretName, clientIdProblem }
     secretName: words(env.OP_SECRET_NAME),
     settingName: words(env.OP_SETTING_NAME),
     settingValue: String(env.OP_SETTING_VALUE ?? ""),
+    adminEmail: words(env.OP_ADMIN_EMAIL),
+    tokenSha256: words(env.OP_ADMIN_TOKEN_SHA256),
+    // As given: a label with a space before or after is refused, not trimmed.
+    label: String(env.OP_LABEL ?? ""),
     confirm: words(env.OP_CONFIRM),
     dryRun: true,
     takeOver: false,
+    stream: null,
   };
   try {
     i.dryRun = bool(env.OP_DRY_RUN, true);
@@ -215,11 +252,18 @@ export function readInputs(env, { knownSettings, isSecretName, clientIdProblem }
   const command = COMMANDS[i.command];
   if (!command) fail(`command is one of ${Object.keys(COMMANDS).join(", ")}`);
   const need = new Set(command?.fields ?? []);
+  const optional = new Set(command?.optional ?? []);
   const check = (field, ok, what) => {
     const value = i[field];
     if (need.has(field) && !value) fail(`${what} is needed for ${i.command}`);
     else if (value && !ok(value)) fail(`${what} is not valid`);
-    else if (value && !need.has(field) && field !== "location" && field !== "zone") {
+    else if (
+      value &&
+      !need.has(field) &&
+      !optional.has(field) &&
+      field !== "location" &&
+      field !== "zone"
+    ) {
       fail(`${what} is not taken by ${i.command}`);
     }
   };
@@ -232,6 +276,31 @@ export function readInputs(env, { knownSettings, isSecretName, clientIdProblem }
   check("secretName", (v) => isSecretName(v), "secret_name (a given secret's name)");
   check("settingName", (v) => knownSettings.includes(v), "setting_name (a client setting's name)");
   check("settingValue", (v) => SETTING_ARGUMENT.test(v), "setting_value");
+  // Never echoed: an address is a client's personal data.
+  check(
+    "adminEmail",
+    (v) => v.length <= 254 && EMAIL_SHAPE.test(v) && isEmail(v),
+    "admin_email (the first admin's address)",
+  );
+  check("tokenSha256", (v) => SHA256.test(v), "admin_token_sha256 (64 lowercase hex characters)");
+  check(
+    "label",
+    (v) => !v.startsWith("-") && labelProblem(v) === null,
+    "label (1 to 60 characters, no space before or after, no line break, < or >)",
+  );
+  // The address and its token's hash name the first admin together.
+  if (i.command === "client-add" && Boolean(i.adminEmail) !== Boolean(i.tokenSha256)) {
+    fail("admin_email and admin_token_sha256 go together: give both, or neither");
+  }
+  // A COS_PACKS that is "*", or a COS_PACKS unset: a client's packs are an explicit list.
+  if (i.command === "client-setting-set" && i.settingName === "COS_PACKS") {
+    if (i.settingValue.includes("*")) {
+      fail("COS_PACKS is never *, the whole catalogue: list the client's packs");
+    }
+  }
+  if (i.command === "client-setting-unset" && i.settingName === "COS_PACKS") {
+    fail("COS_PACKS is never unset: a client's packs are always an explicit list; set the list");
+  }
   if (i.zone && !HOSTNAME.test(i.zone)) fail("zone is not valid");
   if (i.zone && i.command !== "fleet-install") fail(`zone is not taken by ${i.command}`);
   if (i.location && !LOCATIONS.includes(i.location))
@@ -244,7 +313,9 @@ export function readInputs(env, { knownSettings, isSecretName, clientIdProblem }
   if (i.confirm && !/^[A-Za-z0-9._:-]{1,300}$/.test(i.confirm)) fail("confirm is not valid");
   for (const pair of words(env.OP_SETTINGS).split(/\s+/).filter(Boolean)) {
     const m = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(pair);
-    if (m && POLICY_SETTINGS.includes(m[1])) {
+    if (m?.[1] === "COS_PACKS" && m[2].includes("*")) {
+      fail("COS_PACKS is never *, the whole catalogue: list the client's packs");
+    } else if (m && POLICY_SETTINGS.includes(m[1])) {
       fail(
         `setting ${m[1]} is identity or approval policy: never set at client-add; it is the owner's own change, by client-setting-set with confirm <client id>:${m[1]} (docs/deploying.md)`,
       );
@@ -256,6 +327,39 @@ export function readInputs(env, { knownSettings, isSecretName, clientIdProblem }
   }
   if (i.settings.length && i.command !== "client-add")
     fail(`settings are not taken by ${i.command}`);
+  // cos client add requires the client's packs (review of #553): said here, before any secret.
+  if (i.command === "client-add" && !i.settings.some((s) => s.startsWith("COS_PACKS="))) {
+    fail(
+      "client-add needs the client's packs: settings COS_PACKS=<pack,pack…> (COS_PACKS= for base records only; never *)",
+    );
+  }
+  if (i.label && i.settings.some((s) => s.startsWith("COS_PRODUCT_LABEL="))) {
+    fail("label and a COS_PRODUCT_LABEL setting are the same: give label only");
+  }
+  // Stream's three ids, environment variables of the fleet's environment (not secret, never
+  // committed), for fleet install only; the token and the signing key are its secrets.
+  if (i.command === "fleet-install") {
+    const ids = {
+      accountId: words(env.FLEET_STREAM_ACCOUNT_ID),
+      customerCode: words(env.FLEET_STREAM_CUSTOMER_CODE),
+      keyId: words(env.FLEET_STREAM_SIGNING_KEY_ID),
+    };
+    const given = Object.values(ids).filter(Boolean).length;
+    if (given === 3) {
+      if (!HEX32.test(ids.accountId)) fail("FLEET_STREAM_ACCOUNT_ID is not 32 hex characters");
+      if (!HEX32.test(ids.keyId)) fail("FLEET_STREAM_SIGNING_KEY_ID is not 32 hex characters");
+      if (!CUSTOMER_CODE.test(ids.customerCode)) {
+        fail(
+          "FLEET_STREAM_CUSTOMER_CODE is not the <code> of customer-<code>.cloudflarestream.com",
+        );
+      }
+      i.stream = ids;
+    } else if (given) {
+      fail(
+        "Stream's ids go together: FLEET_STREAM_ACCOUNT_ID, FLEET_STREAM_CUSTOMER_CODE and FLEET_STREAM_SIGNING_KEY_ID are all set, or none",
+      );
+    }
+  }
   // The secret's environment secret is CLIENT_<ID>_<NAME>: a name has no hyphen.
   if (i.command === "client-secret-set" && i.client.includes("-")) {
     fail(
@@ -309,6 +413,21 @@ export function plan(i) {
       ...(i.ai === "as-installed" ? [] : ["--ai", i.ai]),
       ...(i.location ? ["--location", i.location] : []),
       ...(i.zone ? ["--zone", i.zone] : []),
+      // The operator's Stream account: all five or none (the token and key by file).
+      ...(i.stream
+        ? [
+            "--stream-account-id",
+            STREAM_ACCOUNT,
+            "--stream-customer-code",
+            i.stream.customerCode,
+            "--stream-signing-key-id",
+            i.stream.keyId,
+            "--stream-token-file",
+            STREAM_TOKEN,
+            "--stream-jwk-file",
+            STREAM_JWK,
+          ]
+        : []),
     ],
     "fleet-upgrade": () => ["fleet", "upgrade", "--keys-file", KEYS, "--version", i.version],
     "client-list": () => ["client", "list"],
@@ -318,6 +437,18 @@ export function plan(i) {
       id,
       ...(i.location ? ["--location", i.location] : []),
       ...i.settings.flatMap((s) => ["--setting", s]),
+      ...(i.label ? ["--label", i.label] : []),
+      // The address is a placeholder until cos is run: never in the command line shown.
+      ...(i.adminEmail ? ["--admin", EMAIL, "--admin-token-sha256", i.tokenSha256] : []),
+    ],
+    "client-first-admin": () => [
+      "client",
+      "first-admin",
+      id,
+      "--email",
+      EMAIL,
+      "--token-sha256",
+      i.tokenSha256,
     ],
     "client-pause": () => ["client", "pause", id],
     "client-resume": () => ["client", "resume", id],
@@ -388,9 +519,42 @@ export function plan(i) {
   return { argv, run: true, why: "runs" };
 }
 
-/** Placeholders `run` swaps for the real temporary files. */
+/** Placeholders `run` swaps for the real temporary files and values. */
 export const KEYS = "<keys file>";
 export const VALUE = "<value file>";
+export const STREAM_TOKEN = "<stream token file>";
+export const STREAM_JWK = "<stream jwk file>";
+export const STREAM_ACCOUNT = "<stream account id>";
+export const EMAIL = "<first admin's email>";
+
+/** An address as the summary shows it: its first letters only (o***@g***). */
+export function redactEmail(email) {
+  const [local, domain] = String(email).split("@");
+  return `${(local ?? "").slice(0, 1)}***@${(domain ?? "").slice(0, 1)}***`;
+}
+
+/** A JWK's values long enough to be a key's part (and its text, each line), to cut out. */
+export function jwkSecrets(text) {
+  const out = [
+    text,
+    ...String(text)
+      .split("\n")
+      .map((l) => l.trim()),
+  ];
+  for (const candidate of [text, Buffer.from(String(text).trim(), "base64").toString("utf8")]) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === "object") {
+        if (candidate !== text) out.push(candidate);
+        for (const v of Object.values(parsed))
+          if (typeof v === "string" && v.length >= 16) out.push(v);
+      }
+    } catch {
+      // Not JSON this way.
+    }
+  }
+  return out.filter((s) => s && s.length >= 8);
+}
 
 /** Cuts every secret out of a text. */
 export function sanitize(text, secrets) {
@@ -458,6 +622,16 @@ export async function operate(env, deps) {
   const secrets = [env.CLOUDFLARE_API_TOKEN, env.CLOUDFLARE_ACCOUNT_ID, env.GITHUB_TOKEN].filter(
     Boolean,
   );
+  // Before anything is printed: the first admin's address (a client's personal data; the
+  // workflow masks it at the job's start too), the Stream token and signing key, and Stream's
+  // account id. Each is cut out of everything written as well.
+  const email = words(env.OP_ADMIN_EMAIL);
+  if (email) secrets.push(email, email.toLowerCase());
+  const streamToken = words(env.FLEET_STREAM_API_TOKEN);
+  const streamJwk = String(env.FLEET_STREAM_SIGNING_JWK ?? "").trim();
+  if (streamToken) secrets.push(streamToken);
+  if (streamJwk) secrets.push(...jwkSecrets(streamJwk));
+  if (words(env.FLEET_STREAM_ACCOUNT_ID)) secrets.push(words(env.FLEET_STREAM_ACCOUNT_ID));
   for (const s of secrets) deps.mask(s);
   const lines = [];
   const say = (line) => {
@@ -474,6 +648,11 @@ export async function operate(env, deps) {
           "",
           `- by: ${env.GITHUB_ACTOR ?? "?"}`,
           `- client: ${i?.client || "none"}`,
+          ...(i?.adminEmail ? [`- first admin: ${redactEmail(i.adminEmail)} (redacted)`] : []),
+          ...(i?.label ? [`- label: ${i.label}`] : []),
+          ...(i?.command === "fleet-install"
+            ? [`- Stream: ${i.stream ? "the operator's account (its five settings)" : "none"}`]
+            : []),
           `- dry run: ${i?.dryRun ?? "?"}`,
           `- cos ${shown ?? "(nothing run)"}`,
           `- result: ${outcome}`,
@@ -497,6 +676,7 @@ export async function operate(env, deps) {
   try {
     i = readInputs(env, deps.rules);
     checkProduct(deps.product);
+    if (i.command === "fleet-install") streamTogether(i, streamToken, streamJwk);
   } catch (error) {
     say(`Refused: ${error.message}`);
     return finish(2, i, null, `refused before cos: ${error.message}`);
@@ -600,6 +780,10 @@ export async function operate(env, deps) {
     deps.mask(env.SECRET_VALUE);
     files.value = env.SECRET_VALUE;
   }
+  if (i.stream) {
+    files.streamToken = streamToken;
+    files.streamJwk = streamJwk;
+  }
   const subdomain = await deps.subdomain().catch(() => null);
   if (subdomain) {
     secrets.push(subdomain);
@@ -609,9 +793,15 @@ export async function operate(env, deps) {
     deps.tmp,
     files,
     async (paths) => {
-      const argv = p.argv.map((a) =>
-        a === KEYS ? paths.keys : a === VALUE ? (paths.value ?? "-") : a,
-      );
+      const swap = {
+        [KEYS]: paths.keys,
+        [VALUE]: paths.value ?? "-",
+        [STREAM_TOKEN]: paths.streamToken,
+        [STREAM_JWK]: paths.streamJwk,
+        [STREAM_ACCOUNT]: i.stream?.accountId,
+        [EMAIL]: i.adminEmail,
+      };
+      const argv = p.argv.map((a) => (Object.hasOwn(swap, a) ? swap[a] : a));
       // A dry-run secret set needs no value: cos takes "-" (and reads nothing).
       const real =
         i.command === "client-secret-set" && i.dryRun
@@ -633,6 +823,25 @@ export async function operate(env, deps) {
   );
 }
 
+/**
+ * Stream's five settings go together (cos's own rule, fleet/stream.ts): the three ids (the
+ * environment's variables) with the token and the signing key (its secrets), or none of them.
+ */
+export function streamTogether(i, token, jwk) {
+  const missing = [
+    ...(i.stream
+      ? []
+      : ["FLEET_STREAM_ACCOUNT_ID", "FLEET_STREAM_CUSTOMER_CODE", "FLEET_STREAM_SIGNING_KEY_ID"]),
+    ...(token ? [] : ["FLEET_STREAM_API_TOKEN"]),
+    ...(jwk ? [] : ["FLEET_STREAM_SIGNING_JWK"]),
+  ];
+  if (missing.length && missing.length < 5) {
+    throw new InputError(
+      `Stream's five settings go together: ${missing.join(", ")} ${missing.length > 1 ? "are" : "is"} not set in this environment (all five, or none for an install without Stream)`,
+    );
+  }
+}
+
 /** What is installed where an install would go, in a line, and what cos would do with it. */
 export function describeRecorded(recorded, i) {
   if (!recorded) return `No ${i.env} fleet exists yet: this is its first install.`;
@@ -648,10 +857,12 @@ export function describeRecorded(recorded, i) {
 
 /**
  * cos's environment: the Cloudflare secrets and GitHub's own, never the dispatch's inputs, the
- * keys or the secret value (those go by file), and never a test switch or a test address.
+ * keys or the secret value (those go by file), and never a test switch or a test address. Always
+ * `CI=true`: cos refuses what would print a first admin's setup link (`--print-link`,
+ * `first-admin-token`) when it sees CI, and here its output is a public log (review of #552, S-W1).
  */
 export function childEnv(env) {
-  const out = {};
+  const out = { CI: "true" };
   for (const name of [
     "PATH",
     "HOME",
@@ -675,11 +886,21 @@ export const ALWAYS = Object.freeze(["--require-gh"]);
  * there (review of #547, S7). Returns them, for `operate`, which writes them only to 0600 files.
  */
 export function takeSecrets(env) {
-  const taken = { FLEET_KEYS: env.FLEET_KEYS, SECRET_VALUE: env.SECRET_VALUE };
-  delete env.FLEET_KEYS;
-  delete env.SECRET_VALUE;
+  const taken = {};
+  for (const name of TAKEN) {
+    taken[name] = env[name];
+    delete env[name];
+  }
   return taken;
 }
+
+/** The secrets `takeSecrets` takes: the keys, a client's secret value, Stream's token and key. */
+export const TAKEN = Object.freeze([
+  "FLEET_KEYS",
+  "SECRET_VALUE",
+  "FLEET_STREAM_API_TOKEN",
+  "FLEET_STREAM_SIGNING_JWK",
+]);
 
 // === THE PRODUCT IS CHOSEN HERE, and nowhere else ==============================================
 // Which product the real fleet is a release of: the hosted product, fixed (never a workflow
@@ -721,12 +942,17 @@ async function main(argv) {
   // Before any import that is not Node's own.
   const taken = takeSecrets(ENV);
   const [command] = argv;
-  const { CLIENT_SETTINGS, clientIdProblem } = await import("../packages/db/src/registry.ts");
+  const { OPERATOR_SETTINGS, clientIdProblem, firstAdminEmail, labelProblem } = await import(
+    "../packages/db/src/registry.ts"
+  );
   const { isGivenSecretName } = await import("../packages/db/src/registry-sealing.ts");
   const rules = {
-    knownSettings: Object.keys(CLIENT_SETTINGS),
+    // The settings an operator writes (cos refuses every other, at add too).
+    knownSettings: Object.keys(OPERATOR_SETTINGS),
     isSecretName: isGivenSecretName,
     clientIdProblem,
+    isEmail: (v) => firstAdminEmail(v) !== null,
+    labelProblem,
   };
   if (command === "validate") {
     try {
