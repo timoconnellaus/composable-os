@@ -15,7 +15,8 @@
 //     account does not reach: not found (nothing is attached to another's job, and an unreached
 //     record cannot be told from a missing one);
 //   - record.update writing a field that decides the reach (`who`, a path's relation, the live
-//     states' field, the window's datetimes), on any object: refused;
+//     states' field, the window's datetimes, and the record's datetimes the host copies onto them
+//     by `staffed.timesFrom`, ADR 0756), on any object: refused;
 //   - a tool runs (its own calls are held in turn), and so do the account's own core operations
 //     (`screens.mine`, `ack.*`); every other operation is refused, whatever it names.
 // Nobody else is limited, and nothing is cached: the reach follows the records on the next call.
@@ -208,6 +209,21 @@ async function holdRelations(
   }
 }
 
+/**
+ * The fields of `objectName` the host copies onto the reach's window: when `through` declares
+ * `staffed.timesFrom` naming a relation to `objectName`, the window's datetimes among the shift's
+ * own `starts` and `ends` (ADR 0751 copies them under the same names).
+ */
+function timesFromSources(reach: MineReach, objectName: string): string[] {
+  if (!reach.within) return [];
+  const staffed = getObject(reach.through)?.staffed;
+  if (!staffed?.timesFrom || staffed.timesFromObject !== objectName) return [];
+  const copied = new Set([staffed.starts, staffed.ends]);
+  return [reach.within.from, reach.within.to].filter(
+    (name): name is string => name !== undefined && copied.has(name),
+  );
+}
+
 /** The fields of `objectName` whose change would change what the role reaches. */
 function decidingFields(limit: MineLimit, objectName: string): Set<string> {
   const fields = new Set<string>();
@@ -220,6 +236,10 @@ function decidingFields(limit: MineLimit, objectName: string): Set<string> {
         if (reach.within.to) fields.add(reach.within.to);
       }
     }
+    // A window on times the host copies onto `through` from another record (ADR 0751: a crew
+    // place's from its visit): that record's fields of the same name move the window, so they
+    // decide the reach too (ADR 0756).
+    for (const name of timesFromSources(reach, objectName)) fields.add(name);
     // Each step of the path is a relation of the object before it.
     let current = getObject(reach.through);
     for (const step of reach.path) {

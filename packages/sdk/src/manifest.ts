@@ -453,6 +453,8 @@ export const toolManifestSchema = z.object({
   redact: z.array(z.string().max(40)).max(20).optional(),
   /** Answer keys the host never keeps (ADR 0628). */
   redactResult: z.array(z.string().max(40)).max(20).optional(),
+  /** Every successful call of this read is audited, a person's included (ADR 0756). */
+  auditReads: z.literal(true).optional(),
   inputSchema: jsonSchemaObject,
   outputSchema: jsonSchemaObject,
 });
@@ -949,6 +951,7 @@ export function toManifest(extension: Extension): ExtensionManifest {
           ...(tool.corePermission ? { corePermission: tool.corePermission } : {}),
           ...(tool.redact?.length ? { redact: [...tool.redact] } : {}),
           ...(tool.redactResult?.length ? { redactResult: [...tool.redactResult] } : {}),
+          ...(tool.auditReads ? { auditReads: true as const } : {}),
           ...(tool.customerFields
             ? {
                 customerFields: Object.fromEntries(
@@ -2629,6 +2632,13 @@ export function validateManifest(
           `"${field}" is a restricted field's name: list it in redact, so no audit row keeps it`,
         );
       }
+    }
+    // A read audited on every call (ADR 0756): every write is audited already.
+    if (tool.auditReads && tool.risk !== "read") {
+      contract(
+        `tools.${name}.auditReads`,
+        "auditReads is for a read tool: every call of a tool that writes is audited already",
+      );
     }
     // Answer keys the host never keeps (ADR 0628): each a key of the tool's answer.
     for (const field of tool.redactResult ?? []) {

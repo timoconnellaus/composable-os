@@ -74,7 +74,7 @@ here is what made parallel PRs conflict.
 | BG | 1010–1029 | 0720–0729 | Stage 29, Forms (spec `docs/stages/29-forms.md`). Step 1, the question schema (`feat/stage-29-question-schema`): no migration, no ADR (the spec names none for it; 0720 to 0727 stay for the steps it names them for) | in flight |
 | BH | 1030–1049 | 0730–0739 | Stage 35, Invoices and quotes (spec `docs/stages/35-invoices-quotes.md`). Step 1, the PDF writer generalised (`feat/stage-35-pdf-writer`): ADR 0737, no migrations | in flight |
 | BI | 1050–1069 | 0740–0749 | Stage 36, Shared inbox (spec `docs/stages/36-inbox.md`) | specced |
-| BJ | 1070–1089 | 0750–0759 | Stage 39, Jobs and projects (spec `docs/stages/39-jobs.md`) | specced |
+| BJ | 1070–1089 | 0750–0759 | Stage 39, Jobs and projects (spec `docs/stages/39-jobs.md`; each step's numbers are in its Status: ADRs 0750, 0751, 0755 and 0756 used, no migrations yet) | in flight |
 | BK | 1090–1109 | 0760–0769 | Stage 49, Appointments (spec `docs/stages/49-appointments.md`). Step 3, open hours (`feat/stage-49-open-hours`): migration 1090, ADR 0762 (the spec's number for open hours and free times; step 4 amends it); the spec's 1091 for open hours was not used. Step 2, `occupies` and `core_thing_time` (`feat/stage-49-occupies`): migration 1095, ADR 0765 (the spec's "0761" for `occupies`). Later steps: the lowest free numbers | in flight |
 | BL | 1110–1129 | 0770–0779 | Stage 50, Till (spec `docs/stages/50-till.md`) | specced |
 | BM | 1130–1149 | 0780–0789 | Stage 51, Kiosk check-in (spec `docs/stages/51-kiosk-check-in.md`) | specced |

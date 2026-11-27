@@ -89,7 +89,8 @@ and nothing stronger than the repository shows:
   sessions online (stage 49 step 6) drops that line from the Bookings cards in row 5 and G4.
 - Packs that are merged in part and not on the site until their spec's site step: Forms (stage
   29 step 8, with feedback after a class), Offers, promo codes and member prices (stage 34 step
-  10), the Shop (stage 37 step 9, once built end to end), Equipment (stage 59 step 8), texts and pushes (stage 30 step 7) and outside practitioners (stage 43). The member's
+  10), the Shop (stage 37 step 9, once built end to end), Equipment (stage 59 step 8), Jobs
+  (stage 39 step 7), texts and pushes (stage 30 step 7) and outside practitioners (stage 43). The member's
   contact preferences in My account (stage 30 step 5) go on G4's "Members' own account" once an
   e2e journey drives them (stage 30 step 7).
 - Staff use packs' own screens on the web in the product's admin (stage 47, ADR 0660): Bookings'

@@ -780,6 +780,13 @@ export interface ToolSpec<In extends z.ZodType = z.ZodType, Out extends z.ZodTyp
    * reply an HTTP retry replays. It only hides more, so any extension may declare it.
    */
   redactResult?: readonly string[];
+  /**
+   * Every successful call of this read tool writes an audit row, a person's included (ADR 0756):
+   * a download of what customers owe. The row holds the input (less `redact`) and names no value
+   * read. Reads are otherwise counted, not audited one by one (ADR 0017). Only on a `read` tool;
+   * it only adds to the audit trail, so any extension may declare it.
+   */
+  auditReads?: boolean;
   handler(input: z.output<In>, ctx: ExtensionContext): Promise<z.input<Out>> | z.input<Out>;
 }
 

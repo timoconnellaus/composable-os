@@ -579,9 +579,27 @@ may override any of them.
 - **Step 4** — not built — needs: stage 44 step 6 — Acceptance of a record: variation approval
   and sign-off, the phone view
 
-- **Step 5** — not built — needs: step 1, step 2, step 3 — The Jobs pack's spine: objects,
-  pipelines, crew places, lines, variations, rates, tools, settings, views, the CSV (its time
-  tools after stage 58 steps 1 and 7)
+- **Step 5** — built — PR #505 — The Jobs pack's spine (branch `feat/stage-39-jobs-pack`):
+  `packs/jobs` (`@composable-os/pack-jobs`). Jobs on `stages` with the seeded Trades and Projects
+  pipelines, Accepted, Signed off and Invoiced gated on `acceptedAt`, `signedOffAt` and
+  `invoicedAt`; the office's `recordAcceptance` (`humanOnly`); sites (no access notes); visit types
+  with a checklist; visits whose every move is a tool's; crew places (`staffed`, `timesFrom:
+  "visit"`, `private`, following the visit's cancel, one a person a visit; booked and cancelled
+  only, the spec's on-the-way and on-site being the visit's); lines whose words and numbers only
+  the tools write, once (`editLine` replaces a draft), approved, voided and billed by tools or the
+  host, a variation's lines following it; variations decided by the office on the customer's word;
+  rates; the `jobs.crew` role (`mine` on jobs, visits and crew places; sites through `myVisits` and
+  `myJob`); `jobs:manage`, `jobs:schedule`, `jobs:crew`, `jobs:prices` (restricted, grantable);
+  views, tabs, the default pipeline setting; 25 tools, among them `unbilled` and `exportUnbilled`
+  (the CSV, a read audited on every call). Platform: `auditReads` on a read tool; the mine reach
+  counts the times a `staffed.timesFrom` copies onto its window as deciding, and refuses a follow
+  into its live states (ADR 0755 amended). ADR 0756. No migration. Tests:
+  `packs/jobs/test/jobs.test.ts`, `apps/runner/test/jobs.test.ts` (criteria 1, 2, 3, 6, 11, 14,
+  15, 16), `apps/runner/test/jobs-rostering.test.ts` (4, 5). Left: the time tools, `workedOn` and
+  `partOf` (stage 58 step 7, which must let `workedOn` live in a job's open stages); access notes
+  and prices hidden from members (a field only some staff read, platform work); opening tasks,
+  notes and checklist ticks under the crew's reach; the board e2e of criterion 1 with step 7's
+  screens
 
 - **Step 6** — not built — The customer's record link and customer scope
 

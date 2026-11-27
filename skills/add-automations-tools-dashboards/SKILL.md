@@ -53,7 +53,9 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    audit log must never keep (a note about someone's leave) lists those fields in `redact`
    (Rostering: `away`); one whose answer holds a secret shown once (a batch of single-use codes)
    lists those keys in `redactResult` and is `humanOnly`, since an approved call's answer reaches
-   nobody (Offers: `generateCodes`, ADR 0699). What an AI may propose but a person decides
+   nobody (Offers: `generateCodes`, ADR 0699). A read whose every call must be in the audit log,
+   a person's too (a download of what customers owe), declares `auditReads: true`; reads are
+   otherwise counted, not audited one by one (Jobs: `exportUnbilled`, ADR 0756). What an AI may propose but a person decides
    (making a discount live) is `personApproves: true` with a `permission` (Offers:
    `activateDiscount`, Bookings: `cancelClass`). A tool only admins and accounts granted it should call names a
    **restricted** permission (see `write-extension`, Roles; Rostering's `rostering:manage`).

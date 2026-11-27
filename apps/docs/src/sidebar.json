@@ -240,6 +240,36 @@
         ]
       },
       {
+        "label": "Jobs",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "packs/jobs"
+          },
+          {
+            "slug": "packs/jobs/data-model"
+          },
+          {
+            "slug": "packs/jobs/tools"
+          },
+          {
+            "slug": "packs/jobs/permissions"
+          },
+          {
+            "slug": "packs/jobs/screens"
+          },
+          {
+            "slug": "packs/jobs/messages"
+          },
+          {
+            "slug": "packs/jobs/settings"
+          },
+          {
+            "slug": "packs/jobs/decisions"
+          }
+        ]
+      },
+      {
         "label": "Knowledge",
         "collapsed": true,
         "items": [

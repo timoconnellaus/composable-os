@@ -1,0 +1,30 @@
+{
+  "name": "@composable-os/pack-jobs",
+  "version": "0.1.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "description": "Jobs: jobs and projects for a trades or services business, moving through pipelines of stages whose facts the host keeps (accepted, signed off, invoiced); sites, visits booked with a crew (each crew member's place a shift on the roster), lines of what is quoted, added and used, variations approved by the office, charge-out rates and a CSV of what is unbilled (stage 39). Installed in every deployment of a product that lists it. Bundled as source into cos-runner.",
+  "composableOs": {
+    "optional": true,
+    "label": "Jobs",
+    "description": "Jobs and projects from first call to invoice: a board of stages, sites, visits booked with a crew who are never in two places at once, materials and extra work recorded on site, and a download of what is owed."
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@composable-os/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.5.1",
+    "@cloudflare/workers-types": "5.20261104.1",
+    "@composable-os/config": "workspace:*",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0"
+  }
+}
