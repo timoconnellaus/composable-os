@@ -113,6 +113,14 @@ Per step; a step is done when its criteria hold.
 6. No core migration; core's staffing reads the kind object from the relation, so it follows.
 7. `pnpm cos ext check` and `pnpm cos ext test` pass for Bookings, Programs, Memberships, Courses
    and Rostering.
+8. Routine mail's tie to the run's record ignores a read-only relation (ADR 0590, amended): a run
+   about one booking is refused mail about another member's booking that only shares its class
+   type, and prepares mail about another booking of the same class (both tested in
+   `apps/runner/test/routine-mail.test.ts`).
+9. **A local or e2e database that held `programs.classtype`** (made before this step) is reset:
+   the move has no migration, so delete the app's persisted local state (`apps/app/.wrangler/state`)
+   and let `pnpm dev` or the e2e run make it again. No deployed host
+   held the object.
 
 **Step 3 (identifiers).** Decided by the owner first (question 2). If renamed: every renamed
 object, field, role, permission and tool, and every client app, block, import and test that names
@@ -163,6 +171,11 @@ question 4.
 
 **Step 12 (data-only import, issue #532).** Noted only.
 
+**Step 13 (routine mail's tie made explicit).** The read-only rule (step 2) is a proxy: a mail kind
+declares which relation ties a record to the run's (Bookings' booking: `class`), or at least the
+field must be the sending extension's own; Forms (`form`) and Ticketing (`event`, `tickettype`)
+are as broad today. A test per pack shows a record tied only by another relation is refused.
+
 ## Dependencies
 
 Step 2 needs step 1. Steps 3 and 4 need step 2. Step 5 needs step 1. Steps 6 and 7 need step 5.
@@ -191,6 +204,7 @@ migration.
 | 10 | General packs' strings and host descriptions neutral; the gym preset gives the words back | pack, core |
 | 11 | The site, docs and skills | docs, site |
 | 12 | Data-only import (issue #532) | platform, noted |
+| 13 | Routine mail's tie declared by the kind, not read from read-only | platform |
 
 ## Decided by this spec, open to override
 
@@ -201,6 +215,11 @@ migration.
 - **Bookings' class type keeps Programs' shape**: `navigation: "settings"`, `signedIn` read of name
   and order, the `users` icon; the booking rules stay readable through the class by the host, not
   by members directly.
+- **`useClassTypes` stays in Programs' hooks.** Its only users are Programs' class-today blocks
+  (a member's client reads `bookings.classtype` with `my.list`, staff with `record.list`, ADR 0889);
+  Bookings' own blocks read class types through their tools (the timetable, the day). Moving it
+  would change an import in every client app for no new reader; Bookings gains one when one of its
+  blocks needs a list of class types.
 - **The tier field and its check wait for step 4**: step 2 did not need them, and the check would
   fail on Courses until step 6.
 - **The old fallbacks are gone**: tools no longer read `bookings.staffOnly` or
@@ -255,3 +274,5 @@ build step changes its own line here (CONTRIBUTING.md, Working in parallel).
 - **Step 11** — not built — needs: step 2, step 9 — The site, docs and skills
 
 - **Step 12** — not built — needs: an owner decision — Data-only import (issue #532)
+
+- **Step 13** — not built — needs: step 2 — Routine mail's tie declared by the kind

@@ -34,9 +34,11 @@ installing a product with no repository.
   cos upgrade [--version X.Y.Z]          in a client repo: move product.ts to a newer platform
                                          version, regenerate the client, replace skills/, report type
                                          errors; deploys nothing
-  cos add <block>, cos diff <block> [--accept]
+  cos add <block> [--replace], cos diff <block> [--accept]
                                          copy a block from the release; show its upstream changes
-                                         (--accept: record them as merged by hand)
+                                         (--replace: the release's copy in place of yours, --yes
+                                         when you edited it;
+                                         --accept: record them as merged by hand)
                                          (cos add with no block lists them, with their skins)
   cos client generate                    in a client repo: each app's typed client, again (and
                                          the mobile app's brand.ts from product.ts)

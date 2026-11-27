@@ -373,6 +373,21 @@ describe("the words are the declaration's, and the recipient the host's", {
     ).rejects.toMatchObject({ code: "forbidden" });
   });
 
+  it("prepares mail about another booking of the same class (what the place-free mail needs)", async () => {
+    // The tie is the booking's `class`, an own relation that is not read-only (ADRs 0590, 0980):
+    // a run about one booking may send about another on the same class.
+    const a = await booked("first");
+    const b = await booked("second", a.classId);
+    const prepared = await prepareRoutineMail(db.query, {
+      extensionId: "bookings",
+      automationId: "bookings.bookingConfirmed",
+      runId: a.row.run_id,
+      connectionId: mailConnection,
+      send: { kind: "confirmation", record: b.bookingId, message: "booked" },
+    });
+    expect(prepared).toMatchObject({ kind: "bookings.confirmation", off: false });
+  });
+
   it("a link or an address in a child's name, or a link in a class title, is held for a person", async () => {
     const parent = await member("parent");
     const childId = (
