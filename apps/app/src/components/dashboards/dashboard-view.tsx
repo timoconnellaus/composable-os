@@ -291,10 +291,10 @@ export function assistantPrompt(
   values: FilterValues,
 ): string {
   return [
-    `In my CRM, the dashboard "${dashboard.title}" (id ${dashboard.id}) has a ${widget.type} widget "${widget.title}" (widget id ${widget.id}).`,
+    `In my workspace, the dashboard "${dashboard.title}" (id ${dashboard.id}) has a ${widget.type} widget "${widget.title}" (widget id ${widget.id}).`,
     widget.sql ? `Its SQL:\n${widget.sql}` : "",
     Object.keys(values).length ? `Current filters: ${JSON.stringify(values)}` : "",
-    "Using the CRM's MCP tools (dashboard.get, widget.preview, dashboard.update), help me with this widget: explain what it shows, or change it as I describe next.",
+    "Using its MCP tools (dashboard.get, widget.preview, dashboard.update), help me with this widget: explain what it shows, or change it as I describe next.",
   ]
     .filter(Boolean)
     .join("\n\n");

@@ -44,6 +44,10 @@ One deployment can serve many clients, each with a database of its own
 and `cos client` ([ADR 0618](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0618-the-operators-commands-for-a-host-of-many-clients.md);
 the steps are in [docs/deploying.md](https://github.com/timoconnellaus/composable-os/blob/main/docs/deploying.md), "A host of many clients"):
 
+- A fleet is installed as the hosted product ("Composable OS", `products/composable/product.ts`),
+  not the CRM: every `cos fleet` and `cos client` command takes `--product composable`, and its
+  Workers are `composable-app`, `composable-runner` and so on. A release carries its bundle beside
+  the CRM's.
 - `cos fleet keys` makes the deployment's keys file once; `cos fleet install` installs the host,
   its registry and the operator's Worker; `cos fleet upgrade` takes a release across every client,
   staging first.

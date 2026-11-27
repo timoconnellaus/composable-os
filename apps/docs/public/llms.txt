@@ -198,6 +198,7 @@
 ## Solutions
 
 - [A company's own product](https://docs.composableos.dev/solutions/client/): A client repository's product definition and the packs it can turn on.
+- [Composable OS](https://docs.composableos.dev/solutions/composable/): The Composable OS product: the packs it is made of.
 - [CRM](https://docs.composableos.dev/solutions/crm/): The CRM product: the packs it is made of.
 - [Solutions](https://docs.composableos.dev/solutions/)
 

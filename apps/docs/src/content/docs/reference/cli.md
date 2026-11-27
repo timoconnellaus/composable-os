@@ -187,7 +187,7 @@ installing a product with no repository.
   --secret NAME=VALUE    a secret to set (repeatable); WORKER:NAME=VALUE for a gatekeeper's
   --update-token <t>     store a scoped token so Settings → Updates can update in place
   --store-update-token   store --token itself for one-click updates
-  --product <id>         the product to install (default crm; one of crm)
+  --product <id>         the product to install (default crm; one of crm, composable)
   --product-file <f>     instead, the staging check's throwaway product, defined in a JSON file
                          (id cosstg-…, every name starting with it), for a release built for it
   --repo <owner/repo>    where releases come from (default: the product's own repository)

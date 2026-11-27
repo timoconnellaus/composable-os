@@ -173,7 +173,7 @@ function PeoplePage() {
             <EmptyState
               icon={UsersIcon}
               title="No people yet"
-              description="Add the first person to start building your CRM."
+              description="Add the first person to get started."
               action={
                 <Button onClick={() => create("person")}>
                   <UserPlusIcon />

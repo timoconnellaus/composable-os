@@ -58,7 +58,7 @@ function SuggestedContactsPage() {
         />
       }
       width="lg"
-      description="People you email who aren't in the CRM yet, and job changes spotted in email. Nothing is added until you say so."
+      description="People you email who aren't in your people yet, and job changes spotted in email. Nothing is added until you say so."
     >
       <section className="grid min-w-0 gap-3" aria-labelledby="senders">
         <h2 id="senders" className="text-lg font-semibold">

@@ -32,9 +32,21 @@ products.
 
 The first product on Composable OS: an AI-native CRM that runs in your own Cloudflare account,
 defined in `products/crm/product.ts`. Its name is "CRM", and "the CRM" is fine as the product's name
-in prose and UI copy. A deployment of it is named for it (`crm-app`, `crm-runner`, database `crm`).
+in prose; the platform's screens and mail name a product only through its label
+(`productName`). A deployment of it is named for it (`crm-app`, `crm-runner`, database `crm`).
 The operations API inside extension code is the platform's, not the CRM's: `codemode:ops`,
 `ctx.ops` and the `rec_*` views.
+
+### Hosted product
+
+(stage 66; the owner's decision of 2026-11-27)
+
+The neutral product a host of many clients is installed as, defined in
+`products/composable/product.ts`: id `composable`, label "Composable OS", so its deployment is
+`composable-app`, `composable-runner`, `composable-client-db` and so on. It offers every built pack;
+each client takes them or a subset (`COS_PACKS`). A client sees its own label where one is set,
+else "Composable OS"; never "CRM". A release carries its bundle beside the CRM's.
+_Avoid_: the CRM (for a fleet), hosted CRM (stage 10)
 
 ### Deployment
 
@@ -1305,7 +1317,8 @@ only the token `cos` sets on it for one command; no Worker of the host binds it.
 A deployment of the host for many clients: its state says so (`fleet`: its environment, callback
 hostname, domain and public sealing key), and the deploy engine adds the bindings, keys, queues and
 Workers a host of many clients needs (ADR 0615's list), never to the committed configuration. Live
-and staging are two fleet deployments. Its keys live in the operator's keys file, never in the
+and staging are two fleet deployments. It is installed as the **hosted product**
+(`cos fleet install --product composable`), from a published, attested release. Its keys live in the operator's keys file, never in the
 state. Its gatekeepers are a list fixed by the platform, not chosen by the operator: email sending
 alone, today.
 _Avoid_: tenant (stage 10's hosted CRM), cluster

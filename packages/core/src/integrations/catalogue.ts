@@ -66,7 +66,7 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
   {
     vendor: "slack-post",
     title: "Slack (post messages)",
-    description: "Post to channels and send DMs as the CRM's Slack bot.",
+    description: "Post to channels and send DMs as your Slack bot.",
     connect: "oauth",
     scopes: ["org"],
   },
@@ -80,14 +80,14 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
   {
     vendor: "email",
     title: "Inbound email",
-    description: "Receive mail at a CRM address (Cloudflare Email Routing).",
+    description: "Receive mail at an address of yours (Cloudflare Email Routing).",
     connect: "oauth",
     scopes: ["org"],
   },
   {
     vendor: "email-send",
     title: "Email sending",
-    description: "Send email from the CRM's own addresses (Cloudflare Email Service).",
+    description: "Send email from your own addresses (Cloudflare Email Service).",
     connect: "auto",
     scopes: ["org"],
   },
@@ -110,7 +110,7 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
     vendor: "webhook",
     title: "Inbound webhooks",
     description:
-      "External systems post signed events to the CRM. Bad signatures are rejected; good ones " +
+      "External systems post signed events here. Bad signatures are rejected; good ones " +
       "become typed events for automations.",
     connect: "auto",
     scopes: ["org"],
@@ -120,7 +120,7 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
     title: "Payments",
     description:
       "Take payment for orders on the provider's own page (Stripe), into your own account. Keys " +
-      "stay in the gatekeeper; card details never reach the CRM.",
+      "stay in the gatekeeper; card details never reach the host.",
     connect: "auto",
     scopes: ["org"],
   },

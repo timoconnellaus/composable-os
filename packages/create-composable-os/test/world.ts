@@ -2,6 +2,7 @@
 // Shared by the installer's tests (cli.test.ts) and the client repo's (client-repo.test.ts).
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import type { ProductDefinition } from "@composable-os/product";
 import {
   FIXTURE_PRODUCT_DEFINITION as DEMO,
   FakeCloudflare,
@@ -23,6 +24,8 @@ export interface World {
   githubCalls: { path: string; authorization: string | null }[];
   /** Answers a GitHub request in place of the fake (a rate limit), when it returns a response. */
   githubHook?: ((path: string) => Response | undefined) | undefined;
+  /** The products `--product` may name (default: the fixture's demo alone). */
+  products?: { all: Record<string, ProductDefinition>; default: string };
 }
 
 export async function startWorld(): Promise<World> {
@@ -92,7 +95,7 @@ export async function runIn(world: World, ...argv: string[]) {
       },
     },
     redactor,
-    products: { all: { [DEMO.id]: DEMO }, default: DEMO.id },
+    products: world.products ?? { all: { [DEMO.id]: DEMO }, default: DEMO.id },
     env: world.env,
     ghVerifier: null,
     smokeDelayMs: 0,

@@ -106,6 +106,7 @@ cos client: the clients of a host of many clients (each takes --env <live|stagin
   cos client sender add|verify|unverify|remove <id> <domain>
                  a client's sender domains; verify is your confirmation that the domain is
                  onboarded to Email Sending in this account with valid records
+Every command takes --product <id>: a fleet is installed as the hosted product, --product composable.
 Every command that removes or overwrites asks for the client's id (or --yes); --dry-run changes nothing.
 One command at a time uses the operator's Worker; --take-over takes it from one that was killed.`;
 

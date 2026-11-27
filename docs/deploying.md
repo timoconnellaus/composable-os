@@ -1186,9 +1186,12 @@ says the deployment is from source and does not offer in-app updates.
 ```sh
 node scripts/release/build-release.ts --version 1.2.3 --out release-out
 node scripts/release/inspect-bundle.ts release-out/composable-os-crm-1.2.3.tar.gz
+# Every product (the CRM and the hosted product), as a tag's release carries them:
+node scripts/release/build-release.ts --version 1.2.3 --products all --out release-out
 ```
 
-Releases are built by `.github/workflows/release.yml` on a `vX.Y.Z` / `vX.Y.Z-beta.N` tag; see
+Releases are built by `.github/workflows/release.yml` on a `vX.Y.Z` / `vX.Y.Z-beta.N` tag, with a
+bundle and manifest for every product in `products/index.ts` and one `SHA256SUMS`; see
 [`scripts/release/README.md`](../scripts/release/README.md).
 
 ## A host of many clients (stage 66 step 7)
@@ -1200,27 +1203,43 @@ every command below is proved locally and against the fake API only, until the s
 ([Proving a host of many clients on Cloudflare](#proving-a-host-of-many-clients-on-cloudflare-stage-66))
 is run.
 
+A fleet is installed as **the hosted product** (`products/composable/product.ts`, "Composable OS"),
+not the CRM: every `cos fleet` and `cos client` command below takes `--product composable`. It
+installs from that product's bundle in a published, attested release
+(`composable-os-composable-<version>.tar.gz`, beside the CRM's), so the fleet's Workers are
+`composable-app`, `composable-runner`, `composable-client-db`, `composable-operator` and
+`composable-gatekeeper-email-send` (staging adds `-staging`). A command without `--product`
+looks for the CRM's fleet, finds none, and changes nothing.
+
 ```sh
+# Every command here is the hosted product's.
+P="--product composable"
 # Once per environment: the deployment's keys, into a file outside any repository (mode 0600).
 cos fleet keys --env staging --out ~/fleet-keys/staging.json
-# The host, its registry (migrated), cos-client-db, the operator's Worker, every fleet binding.
+# The host, its registry (migrated), the client-db and operator Workers, every fleet binding.
 # --location <hint> and --ai off are chosen here, at the first install only.
-cos fleet install --env staging --keys-file ~/fleet-keys/staging.json \
+cos fleet install $P --env staging --keys-file ~/fleet-keys/staging.json \
   --callback-hostname callback-staging.<fleet domain> --domain <fleet domain> --location oc
 # A client: its registry rows, its database made and migrated, its hostnames. No upload.
-cos client add gym-a --env staging --location oc --web-hostname staging.gym-a.example
-cos client secret set gym-a GOOGLE_CLIENT_SECRET --env staging   # asked for, hidden; sealed
+cos client add gym-a $P --env staging --location oc --web-hostname staging.gym-a.example
+cos client secret set gym-a GOOGLE_CLIENT_SECRET $P --env staging   # asked for, hidden; sealed
 # Its sender domain: added unverified; verify once it is onboarded to Email Sending in this account.
-cos client sender add gym-a gym-a.example --env staging
-cos client sender verify gym-a gym-a.example --env staging
+cos client sender add gym-a gym-a.example $P --env staging
+cos client sender verify gym-a gym-a.example $P --env staging
 # A release across every client: staging first, then live.
-cos fleet upgrade --env staging --keys-file ~/fleet-keys/staging.json --version 1.4.0
-cos fleet upgrade --env live --keys-file ~/fleet-keys/live.json --version 1.4.0
+cos fleet upgrade $P --env staging --keys-file ~/fleet-keys/staging.json --version 1.4.0
+cos fleet upgrade $P --env live --keys-file ~/fleet-keys/live.json --version 1.4.0
 # A leaving client takes its data and its secrets; its own install keeps them.
-cos client export gym-a --out ./gym-a-export --leaving
-cos install --import ./gym-a-export          # in the client's own account
-cos client remove gym-a                      # export kept 90 days, then erased; id never reused
+cos client export gym-a $P --out ./gym-a-export --leaving
+cos install --import ./gym-a-export          # in the client's own account (the CRM by default)
+cos client remove gym-a $P                   # export kept 90 days, then erased; id never reused
 ```
+
+- **What a client sees.** The hosted product offers every built pack; a client takes them or a
+  subset with its `COS_PACKS` setting (`cos client add … --setting COS_PACKS=ticketing,content`),
+  and one with none set gets them all, Deals, Leads and Ticketing installed and the rest offered.
+  Its screens and mail name the product by its label, "Composable OS" where the client has none of
+  its own, and never say "CRM".
 
 - **The keys file** holds the root key, the sealing key pair, the binding key and the props key.
   `cos fleet keys` writes it once, refuses a path inside a git working tree, and never prints a

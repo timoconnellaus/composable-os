@@ -311,6 +311,38 @@ installing the gatekeeper.*
   ("a fleet's gatekeepers") and the runner's two-client `email-sending.test.ts` ("a client
   paused, then removed, by the operator").
 
+### The product a fleet is installed as (2026-11-27, the owner's decision)
+*Amends "What a fleet deployment binds" and `cos fleet install` above: they install whichever
+product `cos` is given, and with none given that was the CRM, so a fleet was `crm-*` and labelled
+"CRM".* A fleet is installed as **the hosted product**, `products/composable/product.ts`: a
+neutral product of ours, id `composable`, label "Composable OS", offering every built pack (a
+client takes them or a subset with its `COS_PACKS`), with no apps of its own (the hosted control
+plane, `products/crm/apps/control`, stays the CRM's).
+- **Its names.** `composable-app`, `composable-runner`, `composable-client-db`,
+  `composable-operator`, `composable-gatekeeper-email-send`, the `composable` and
+  `composable-registry` databases (staging adds `-staging`). Not `cos`: packages name their
+  Workers `cos-*`, and a deployment so named could not be told from them. `composable-*` is unlike
+  every name the fleet's account already holds (`cos-docs`, `cos-site`,
+  `crm-client-db-proof…`) and the staging check's throwaway `cosstg-<run id>-*`.
+- **The release.** A tag's release carries a bundle of every product in `products/index.ts`
+  (`build-release.ts --products all`): each product built into a folder of its own exactly as it
+  would be alone (the CRM with no `COS_PRODUCT`, so its bundle is the bytes it always was), then
+  merged with one `SHA256SUMS` listing every file; the workflow attests every bundle and manifest.
+  `cos` already found a product's bundle by its name (`composable-os-<product>-<version>.tar.gz`),
+  so `npm create composable-os` and a single-client `cos install` take the CRM's as before.
+- **The command.** `cos fleet install --product composable`, and the same flag on every later
+  `cos fleet` and `cos client` command: they find the fleet by the product's database name, so a
+  command without it looks for the CRM's fleet, finds none, and changes nothing. The CRM stays the
+  default product for everything. `--product-file` keeps taking a throwaway `cosstg-` product only.
+- **What a client reads.** The product's label is what a client's screens and mail show where it
+  has none of its own; the platform's screens and mail never say "CRM"
+  (`scripts/release/test/hosted-product.test.ts` scans them).
+- Tests: `scripts/release/test/hosted-product.test.ts` (the definition, its packs, its manifest
+  with the fleet's Workers, the merged release) and `packages/create-composable-os/test/
+  hosted-product.test.ts` (a fleet installed as it from a release carrying both products, against
+  the fake API; a single-client install from that release creating exactly what it does from the
+  CRM's alone).
+
 ## What is left out, and why
 - **Videos are not copied.** Step 5 (#522, merged) stamps each video with its client's creator
   (`<environment>:<client>`) and refuses one without. An import re-stamps every video the client's
