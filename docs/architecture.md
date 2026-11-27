@@ -3397,10 +3397,16 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
   **ScreenHost** from the router's context (`src/screen-host/`): `cookieScreenHost` over the web
   app's routes and cookie, or `tokenScreenHost` over `/api/v1` with a customer device session
   (emailed code, ADR 0455), every request `credentials: "omit"`, the tokens in memory mirrored to
-  the tab's `sessionStorage`. One device session per tab: a tab whose storage was copied from a
-  live one (Duplicate Tab) starts signed out. Calls go through `tokenSession`'s `fetch`, which on
-  a `token_expired` refusal (a clock behind the host's) refreshes once, shared, and tries again; a
-  refresh forgets the session only when the host refuses it, never on a 5xx or no answer. The
+  the tab's `sessionStorage`. One device session per tab: the tab using a session holds a Web
+  Lock named for it, and a tab whose copied session's lock another live tab still holds
+  (Duplicate Tab) starts signed out, while a discarded, killed or reloaded tab finds it free and
+  stays signed in (without Web Locks, a mark in the tab's storage stands in, and
+  `document.wasDiscarded` is never a copy). Calls go through `tokenSession`'s `fetch`: a call
+  waits for a refresh in flight, one refused with a token a refresh has since replaced is sent
+  again with the new one, and a `token_expired` refusal (a clock behind the host's) gets one
+  shared refresh and a second try; a refresh forgets the session only when the host refuses it,
+  never on a 5xx or no answer, and keeps nothing once a sign-out or a new sign-in has replaced
+  the session it began with. The
   browser build routes by hash and shows a notice on `upgrade_required`. Served from another
   address than the host's, that origin must be in the client's `API_ALLOWED_ORIGINS`, which the
   signed-agreement PDF route applies as the surface does (preflight answered, `content-disposition`

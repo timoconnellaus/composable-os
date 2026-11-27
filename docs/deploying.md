@@ -1234,8 +1234,11 @@ cos client remove gym-a                      # export kept 90 days, then erased;
   changed. Losing it means a planned move of every client: keep it as you keep the account's
   token.
 - **The operator's Worker** (`<prefix>operator`) is how `cos` reaches clients' databases. Each
-  command sets it a fresh random token and replaces it at the end; it answers nobody else. One
-  command at a time uses it: a second command that needs it (`add`, `export`, `import`, `remove`,
+  command sets it a fresh random token and replaces it at the end; it answers nobody else. Setting
+  the token deploys a new version of the Worker, which takes a few seconds to reach every copy of
+  it: a call a copy on the earlier version refuses ("not the operator", before it does anything)
+  is tried again for up to a minute, and `cos` says so. `cos uninstall` and `cos rollback` refuse a
+  fleet's deployment, as `cos install` and `cos upgrade` do. One command at a time uses it: a second command that needs it (`add`, `export`, `import`, `remove`,
   `fleet upgrade`) is refused, before it changes anything, while another runs. `list`, `secret` and
   `sender` do not use it and are safe to run beside one; `pause` and `resume` are refused while an
   update is unfinished (the update resumes every client it paused at its end). A running command
@@ -1566,10 +1569,13 @@ no zone says first which steps are not proved.
 9. **Teardown, always** (its own step, run after a failure, a timeout or a cancel too):
    - it lists the account under the prefix, every kind, the Durable Object namespaces of the
      run's Workers among them, and deletes what it finds by exact name (an id only as that listing
-     gave it): the Custom Domains, the Workers (their namespaces, every client's database, their
-     secrets and queue consumers go with them), the queues, the Workflows, the buckets (each
-     emptied first), the D1 databases (the registry and the deployment's), KV, Vectorize and AI
-     Gateways, each tried twice;
+     gave it): first each of the run's queues' consumers (Cloudflare deletes neither a Worker that
+     consumes a queue, 10064, nor a queue that is a consumer's dead-letter queue or that a Worker
+     binds, 11005, even with `force`: the first real run, 45966813610, left 24 things so), then the
+     Custom Domains, the Workers (their namespaces, every client's database and their secrets go
+     with them), the queues, the Workflows, the buckets (each emptied first), the D1 databases
+     (the registry and the deployment's), KV, Vectorize and AI Gateways, each tried twice; a delete
+     answered "not found" counts as gone only if the listing after agrees;
    - of a kind the account cannot list, it deletes the names the run recorded as it went (a
      ledger in the runner's temp folder), only of the kinds deleted by name (Workers, Workflows,
      buckets, indexes, gateways), never by a recorded id it cannot check against its name;

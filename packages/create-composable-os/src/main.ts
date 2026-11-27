@@ -740,10 +740,21 @@ function firstInstallNames(flags: Flags): {
  * would write the state again without `fleet`, and the next upload would drop the registry, the
  * client databases' bindings and the per-client email sending. Before anything is written.
  */
-function refuseFleet(state: DeploymentState | null, command: "install" | "upgrade"): void {
+function refuseFleet(
+  state: DeploymentState | null,
+  command: "install" | "upgrade" | "uninstall" | "rollback",
+): void {
   if (!state?.fleet) return;
+  const instead: Record<typeof command, string> = {
+    install: `Use cos fleet install --env ${state.fleet.environment}.`,
+    upgrade: `Use cos fleet upgrade --env ${state.fleet.environment}.`,
+    // Deleting the registry and every resource the clients share is no command's (review of #544).
+    uninstall:
+      "It would delete the registry and every resource the clients share: nothing was deleted. Remove clients with cos client remove.",
+    rollback: `A failed fleet update is undone by cos fleet upgrade --env ${state.fleet.environment} itself: nothing was restored.`,
+  };
   throw new CliError(
-    `This deployment is a host of many clients (${state.fleet.environment}): cos ${command} is for a single-client one and would undo it. Use cos fleet ${command} --env ${state.fleet.environment}.`,
+    `This deployment is a host of many clients (${state.fleet.environment}): cos ${command} is for a single-client one. ${instead[command]}`,
   );
 }
 
@@ -1373,6 +1384,8 @@ async function rollback(flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
   const s = await session(flags, deps);
   const { databaseId, state } = await locate(s, flags);
+  // A fleet's update is undone by cos fleet upgrade itself; this would restore one database.
+  refuseFleet(state, "rollback");
   const runs = await runsViaApi(s.api, s.accountId, databaseId, 20);
   const last = rollbackTarget(runs);
   if (!last?.from_version) {
@@ -1471,6 +1484,8 @@ async function uninstall(flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
   const s = await session(flags, deps);
   const { state } = await locate(s, flags);
+  // A fleet's deployment holds the registry and what every client shares: never this command's.
+  refuseFleet(state, "uninstall");
   if (!flags.yes) {
     if (!io.interactive) throw new CliError("uninstall deletes everything; pass --yes");
     const answer = await io.ask(
@@ -1494,6 +1509,15 @@ async function uninstall(flags: Flags, deps: Deps): Promise<number> {
       failures.push(`${label}: ${(error as Error).message}`);
     }
   };
+  // Cloudflare deletes neither a Worker that consumes a queue (10064) nor a queue that is a
+  // consumer's dead-letter queue or that a Worker binds (11005): the deployment's queues lose
+  // their consumers first, then the Workers go, then the queues (the staging check's first run).
+  const queues = Object.entries(state.resources)
+    .filter(([key]) => key.startsWith("QUEUE_NAME("))
+    .map(([, value]) => value);
+  await attempt(`the consumers of ${queues.length} queues`, () =>
+    s.api.unconsumeQueues(s.accountId, queues),
+  );
   for (const name of names)
     await attempt(`Worker ${name}`, () => s.api.deleteScript(s.accountId, name));
   const seen = new Set<string>();

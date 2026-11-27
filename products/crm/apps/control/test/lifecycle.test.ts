@@ -192,6 +192,8 @@ describe("export and delete", () => {
     expect([...(ns?.keys() ?? [])].some((n) => n.startsWith(tenant))).toBe(false);
     expect([...s.fake.cloudflare.d1.values()].some((d) => d.name === `demo-${tenant}`)).toBe(false);
     expect([...s.fake.cloudflare.r2].some((b) => b.endsWith(tenant))).toBe(false);
+    // Its queues too: their consumers were removed first, as Cloudflare requires (10064, 11005).
+    expect([...s.fake.cloudflare.queues.values()].some((q) => q.name.endsWith(tenant))).toBe(false);
     expect(s.fake.cloudflare.gateways.has(`${tenant}-demo`)).toBe(false);
     expect(await readRoute(env.ROUTES, "leaving.relationshiposcrm.com")).toBeNull();
     const owner = await env.DB.prepare(

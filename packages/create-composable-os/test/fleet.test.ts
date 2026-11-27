@@ -1536,7 +1536,7 @@ describe("a fleet's gatekeepers (ADR 0618, issue #529)", () => {
 });
 
 describe("single-client commands on a fleet's deployment (review of #544, follow-up 2)", () => {
-  it("cos install and cos upgrade refuse a fleet's state before writing anything", async () => {
+  it("cos install, upgrade, uninstall and rollback refuse a fleet's state before writing or deleting anything", async () => {
     const { buildFixtureRelease } = await import("@composable-os/release/testing");
     const { runIn, startWorld } = await import("./world.ts");
     const world = await startWorld();
@@ -1568,9 +1568,14 @@ describe("single-client commands on a fleet's deployment (review of #544, follow
       const uploads = () =>
         world.cf.calls.filter((c) => c.method !== "GET" && !c.path.endsWith("/query")).length;
       const writes = uploads();
+      const scripts = [...world.cf.scripts.keys()].sort();
+      const stores = [...world.cf.d1.values()].map((d) => d.name).sort();
       for (const argv of [
         ["install", "--yes", "--version", "1.0.0"],
         ["upgrade", "--yes", "--version", "1.1.0"],
+        // `cos uninstall --yes` would delete the registry and everything the clients share.
+        ["uninstall", "--yes"],
+        ["rollback", "--yes"],
       ]) {
         const { code, output } = await runIn(world, ...argv);
         expect(JSON.parse(await stateText()).fleet, output).toBeDefined();
@@ -1579,6 +1584,8 @@ describe("single-client commands on a fleet's deployment (review of #544, follow
         expect(output).toContain("a host of many clients");
       }
       expect(uploads()).toBe(writes);
+      expect([...world.cf.scripts.keys()].sort()).toEqual(scripts);
+      expect([...world.cf.d1.values()].map((d) => d.name).sort()).toEqual(stores);
     } finally {
       world.server.close();
     }

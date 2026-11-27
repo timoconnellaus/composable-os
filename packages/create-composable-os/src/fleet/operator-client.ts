@@ -26,45 +26,88 @@ function token(): string {
   return Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url");
 }
 
+/** The operator Worker's answer to a request without its current token (packages/db operator.ts). */
+export const NOT_THE_OPERATOR = "not the operator";
+
+/** What cos says when a call is tried again for that answer: the cause, named, with no token. */
+export const STALE_NOTE =
+  "the operator's Worker answered from a copy without this command's token (its new version is still reaching every copy); trying again";
+
+export interface HttpOperatorOptions {
+  /**
+   * How long a call answered "not the operator" is tried again (default 60 s). Setting the
+   * session's token deploys a new version of the Worker, and Cloudflare may answer from a copy
+   * still on the previous version for a while after one answer from the new: the staging check's
+   * first real run had `place` accepted and the next call, `migrate`, refused. The Worker refuses
+   * such a call before it reads anything else, so trying it again changes nothing twice.
+   */
+  staleMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  /** Told each time a call is tried again, with the call's name (never a token). */
+  onStale?: (what: string, attempt: number) => void;
+}
+
 /** An operator over HTTP at `origin` with `bearer`. */
 export function httpOperator(
   origin: string,
   bearer: string,
   doFetch: typeof fetch = fetch,
+  options: HttpOperatorOptions = {},
 ): Operator {
   const headers = { authorization: `Bearer ${bearer}` };
-  const fail = async (response: Response, what: string): Promise<never> => {
-    let message = `${response.status}`;
+  const staleMs = options.staleMs ?? 60_000;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const errorOf = async (response: Response): Promise<string> => {
     try {
-      message = ((await response.json()) as { error?: string }).error ?? message;
+      return ((await response.clone().json()) as { error?: string }).error ?? `${response.status}`;
     } catch {
-      // Not JSON.
+      return `${response.status}`;
     }
-    throw new OperatorError(`${what}: ${message}`);
+  };
+  /** Sends a request, again while a stale copy of the Worker answers "not the operator". */
+  const send = async (what: string, request: () => Promise<Response>): Promise<Response> => {
+    const deadline = Date.now() + staleMs;
+    for (let attempt = 1; ; attempt += 1) {
+      const response = await request();
+      if (response.status !== 401 || (await errorOf(response)) !== NOT_THE_OPERATOR) {
+        return response;
+      }
+      if (Date.now() >= deadline) return response;
+      options.onStale?.(what, attempt);
+      await sleep(Math.min(2_000, 250 * attempt));
+    }
+  };
+  const fail = async (response: Response, what: string): Promise<never> => {
+    throw new OperatorError(`${what}: ${await errorOf(response)}`);
   };
   return {
     async op<T>(action: string, body: Record<string, unknown> = {}) {
-      const response = await doFetch(`${origin}/op`, {
-        method: "POST",
-        headers: { ...headers, "content-type": "application/json" },
-        body: JSON.stringify({ action, ...body }),
-      });
+      const response = await send(action, () =>
+        doFetch(`${origin}/op`, {
+          method: "POST",
+          headers: { ...headers, "content-type": "application/json" },
+          body: JSON.stringify({ action, ...body }),
+        }),
+      );
       if (!response.ok) return fail(response, action);
       return (await response.json()) as T;
     },
     async putFile(client, key, bytes, contentType) {
       const path = key.split("/").map(encodeURIComponent).join("%2F");
-      const response = await doFetch(`${origin}/files/${client}/${path}`, {
-        method: "PUT",
-        headers: { ...headers, ...(contentType ? { "content-type": contentType } : {}) },
-        body: bytes as BodyInit,
-      });
+      const response = await send(`file ${key}`, () =>
+        doFetch(`${origin}/files/${client}/${path}`, {
+          method: "PUT",
+          headers: { ...headers, ...(contentType ? { "content-type": contentType } : {}) },
+          body: bytes as BodyInit,
+        }),
+      );
       if (!response.ok) await fail(response, `file ${key}`);
     },
     async getExport(path) {
-      const response = await doFetch(
-        `${origin}/exports/${path.split("/").map(encodeURIComponent).join("/")}`,
-        { headers },
+      const response = await send(`export file ${path}`, () =>
+        doFetch(`${origin}/exports/${path.split("/").map(encodeURIComponent).join("/")}`, {
+          headers,
+        }),
       );
       if (!response.ok) return fail(response, `export file ${path}`);
       return new Uint8Array(await response.arrayBuffer());
@@ -85,11 +128,17 @@ export async function openOperator(input: {
   fetch?: typeof fetch;
   redact: (value: string) => void;
   waitMs?: number;
+  /** Each call tried again while the new token reaches every copy of the Worker (see above). */
+  stale?: HttpOperatorOptions;
 }): Promise<Operator & { close(): Promise<void> }> {
   const bearer = token();
   input.redact(bearer);
   await input.api.putSecret(input.accountId, input.script, OPERATOR_TOKEN_VAR, bearer);
-  const operator = httpOperator(input.origin, bearer, input.fetch ?? fetch);
+  const operator = httpOperator(input.origin, bearer, input.fetch ?? fetch, {
+    ...input.stale,
+    // The first answer is waited for below: no retry inside it.
+    staleMs: 0,
+  });
   const deadline = Date.now() + (input.waitMs ?? 60_000);
   for (let attempt = 1; ; attempt += 1) {
     try {
@@ -105,7 +154,7 @@ export async function openOperator(input: {
     }
   }
   return {
-    ...operator,
+    ...httpOperator(input.origin, bearer, input.fetch ?? fetch, input.stale),
     async close() {
       const forgotten = token();
       input.redact(forgotten);
