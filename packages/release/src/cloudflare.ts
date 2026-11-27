@@ -704,6 +704,23 @@ export class CloudflareClient {
     await this.request("DELETE", `/accounts/${accountId}/workers/domains/${id}`);
   }
 
+  /** The account's Durable Object namespaces, each with the Worker that defines its class. */
+  listDurableObjectNamespaces(accountId: string) {
+    return this.all<{ id: string; name: string; script?: string; class?: string }>(
+      `/accounts/${accountId}/workers/durable_objects/namespaces`,
+    );
+  }
+
+  /** A Worker's deployed bindings (a plain var with its text; a secret by name only). */
+  async scriptBindings(accountId: string, name: string) {
+    return (
+      await this.request<{ bindings: { type: string; name: string; text?: string }[] }>(
+        "GET",
+        `${this.scripts(accountId)}/${name}/settings`,
+      )
+    ).result.bindings;
+  }
+
   // ---- Workflows ------------------------------------------------------------------------------
 
   listWorkflows(accountId: string) {

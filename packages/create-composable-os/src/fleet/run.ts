@@ -315,7 +315,7 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
 async function fleetUpgrade(flags: Flags, deps: Deps): Promise<number> {
   const environment = environmentOf(flags);
   // The staging check's forced failure, refused before anything is read anywhere else.
-  const forced = forcedFailure(deps.env, { environment, productId: productOf(flags, deps).id });
+  const forced = forcedFailure(deps.env, { environment, product: productOf(flags, deps) });
   const keys = await readKeys(flags, deps, environment);
   const s = await session(flags, deps);
   const { databaseId, state } = await locateFleet(s, environment);

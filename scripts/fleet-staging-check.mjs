@@ -4,25 +4,27 @@
 // Cloudflare, then deleted. Run by hand only, from GitHub Actions.
 //
 //   node scripts/fleet-staging-check.mjs prepare  --run <id>            no secret: the throwaway
-//        product's files, and two releases built for it (<version>, then <version + 1>)
+//        product's files, and two releases built for it (0.1.0, then 0.1.1 with one more migration)
 //   node scripts/fleet-staging-check.mjs check    --run <id> [--location oc] [--zone z]
-//        [--sending-domain d] [--ai off|on]                            steps 1 to 8, each timed
+//        [--sending-domain d]                                          steps 0 to 8, each timed
 //   node scripts/fleet-staging-check.mjs teardown --run <id>            step 9: delete it all
 //   node scripts/fleet-staging-check.mjs remove   --target <run id | cosstg-<run id>>
 //        what a failed run left, by the same rule, and what remains
 //
 // Everything the run makes is named from one throwaway prefix, `cosstg-<run id>` (the product's id,
 // so every Worker, database, bucket, queue, namespace and index is `cosstg-<run id>-…`), and the
-// hostnames are under `cosstg-<run id>.<zone>`. Teardown deletes only what is named so: the names
-// recorded as the run went (`ledger.json`) and what the account lists under the prefix, by exact
-// name. Nothing else in the account is touched.
+// hostnames are under `cosstg-<run id>.<zone>`. Teardown deletes only what is named so: what the
+// account lists under the prefix, by exact name, and, of a kind it cannot list, the names the run
+// recorded as it went (`ledger.json`). Nothing else in the account is touched, and a kind that
+// cannot be listed fails the teardown. A step that proves less than it says is `partial`, which
+// fails the check as `fail` does.
 //
 // CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are read from the environment of `check`,
 // `teardown` and `remove` only. Nothing here prints them, the account's workers.dev subdomain, a
 // key or a password: each is masked in the log (`::add-mask::`) and cut out of every line written.
 // The keys file and the exports are in RUNNER_TEMP, outside the checkout, and deleted at the end.
 import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   appendFileSync,
   copyFileSync,
@@ -46,6 +48,17 @@ const ENV = process.env;
 export const PREFIX_ROOT = "cosstg-";
 /** The two releases: installed, then upgraded to. */
 export const VERSIONS = Object.freeze({ from: "0.1.0", to: "0.1.1" });
+/**
+ * The migration only the second release has (written into the checkout for its build, then
+ * removed): each client's upgrade to it changes its schema and its rows, so a restore undoes
+ * something and a success shows (review of #541, F5).
+ */
+export const STAGING_MIGRATION = Object.freeze({
+  file: "9000_staging_check_marker.sql",
+  schema: 9000,
+  table: "core_staging_check",
+  sql: "CREATE TABLE core_staging_check (id INTEGER PRIMARY KEY, release TEXT NOT NULL);\nINSERT INTO core_staging_check (release) VALUES ('0.1.1');\n",
+});
 /** The clients the check adds, in the registry's order (the forced migration fails on the last). */
 export const CLIENTS = Object.freeze({
   a: "alpha",
@@ -212,13 +225,33 @@ export function summaryTable(results) {
   return ["| Step | Result | Time | Notes |", "| --- | --- | --- | --- |", ...rows].join("\n");
 }
 
+/**
+ * What a run proved. Every step must pass: a `partial` step (it ran, and proved less than its name
+ * says) fails the run as `fail` and `skipped` do (review of #541, F5). A step `not checked` names
+ * what this check cannot check at all (a send); it is listed, and fails nothing.
+ */
+export function verdict(results) {
+  const short = results.filter((r) => r.status !== "pass" && r.status !== "not checked");
+  const unchecked = results.filter((r) => r.status === "not checked");
+  const line = short.length
+    ? `**Not proved.** ${short.map((r) => `${r.name.split(" ")[0].replace(/\.$/, "")} ${r.status}`).join(", ")}: see each note.`
+    : "**Proved:** every step passed.";
+  return {
+    proved: short.length === 0,
+    line: unchecked.length
+      ? `${line} Not checked here at all: ${unchecked.map((r) => r.name).join("; ")}.`
+      : line,
+  };
+}
+
 // --- the account's inventory and its teardown -----------------------------------------------------
 
 /**
- * Everything in the account named with `prefix`: Workers (their Durable Object namespaces, secrets
- * and workers.dev routes go with them), Custom Domains (by hostname label or Worker), D1 databases,
- * R2 buckets, KV namespaces, queues, Vectorize indexes, Workflows and AI Gateways. Each kind that
- * cannot be listed is named in `unlisted` (the token may lack its permission).
+ * Everything in the account named with `prefix`: Workers (their secrets and workers.dev routes go
+ * with them), their Durable Object namespaces, Custom Domains (by hostname label or Worker), D1
+ * databases, R2 buckets, KV namespaces, queues, Vectorize indexes, Workflows and AI Gateways. Each
+ * kind that cannot be listed is named in `unlisted` (the token may lack its permission, or the API
+ * may refuse): nothing of that kind is known to be gone.
  */
 export async function inventory(api, accountId, prefix) {
   const items = [];
@@ -237,6 +270,13 @@ export async function inventory(api, accountId, prefix) {
       "worker",
       () => api.listScripts(accountId),
       (s) => (owned(s.id, prefix) ? { name: s.id, id: s.id } : null),
+    ],
+    [
+      // Each defined by one of the run's Workers, and deleted with it (`?force=true`): listed so
+      // the teardown knows they went (review of #541, F6).
+      "durable_object",
+      () => api.listDurableObjectNamespaces(accountId),
+      (n) => (owned(n.script, prefix) ? { name: n.name, id: n.id, script: n.script } : null),
     ],
     [
       "queue",
@@ -292,7 +332,25 @@ export async function inventory(api, accountId, prefix) {
 }
 
 /** The order things are deleted in: what routes to a Worker, the Workers, then what they bound. */
-const ORDER = ["domain", "worker", "queue", "workflow", "r2", "d1", "kv", "vectorize", "gateway"];
+const ORDER = [
+  "domain",
+  "worker",
+  "durable_object",
+  "queue",
+  "workflow",
+  "r2",
+  "d1",
+  "kv",
+  "vectorize",
+  "gateway",
+];
+
+/**
+ * The kinds deleted by their name. The others (`d1`, `kv`, `queue`, `domain`) are deleted by an
+ * id: only one the account listed just now under the run's name, never one from the ledger, which
+ * nothing checks against the name (review of #541, F7).
+ */
+const BY_NAME = new Set(["worker", "workflow", "r2", "vectorize", "gateway"]);
 
 async function emptyBucket(api, accountId, bucket) {
   let removed = 0;
@@ -343,28 +401,40 @@ export function isRuns(item, prefix) {
 }
 
 /**
- * Deletes what the run made: the items recorded as it went and what the account lists under the
- * prefix now (each by its exact name; an id is looked up again, as an object may have been made
- * again since). Then lists the prefix once more: `remaining` is what is still there.
+ * Deletes what the run made: what the account lists under the prefix now, by its exact name (an
+ * id only as the listing gave it with that name), and, of a kind the account could not list, the
+ * names the run recorded as it went (those deleted by name only). A Durable Object namespace is
+ * not deleted on its own: it goes with its Worker. Then lists the prefix once more: `remaining` is
+ * what is still there, and `unlisted` the kinds nobody could check.
  */
 export async function teardown(api, accountId, prefix, recorded = []) {
   const now = await inventory(api, accountId, prefix);
   const byKey = new Map(now.items.map((i) => [key(i), i]));
-  // A recorded item of a kind the account listed, and no longer listed, is gone already. One of a
-  // kind it could not list is deleted by the name (and id) recorded. One that is not the run's is
-  // never touched.
+  const failed = [];
+  // A recorded item of a kind the account listed, and no longer listed, is gone already. One that
+  // is not the run's is never touched.
   for (const item of recorded) {
     if (!isRuns(item, prefix) || byKey.has(key(item))) continue;
-    byKey.set(key(item), { ...item, gone: !now.unlistedKinds.includes(item.kind) });
+    if (!now.unlistedKinds.includes(item.kind)) continue;
+    if (BY_NAME.has(item.kind))
+      byKey.set(key(item), { kind: item.kind, name: item.name, id: item.name });
+    else {
+      failed.push({
+        kind: item.kind,
+        name: item.name,
+        error:
+          "not deleted: its kind could not be listed, and it is deleted by an id that cannot be checked against its name",
+      });
+    }
   }
   const deleted = [];
-  let failed = [];
   let todo = [...byKey.values()]
-    .filter((item) => !item.gone) // recorded, and no longer listed: already gone
+    .filter((item) => item.kind !== "durable_object") // goes with its Worker
     .sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind));
+  let failing = [];
   // Twice: something another of the run's things still used may go once that one has gone.
   for (let pass = 0; pass < 2 && todo.length; pass++) {
-    failed = [];
+    failing = [];
     for (const item of todo) {
       try {
         const objects = await deleteItem(api, accountId, item);
@@ -374,12 +444,12 @@ export async function teardown(api, accountId, prefix, recorded = []) {
           ...(typeof objects === "number" ? { objects } : {}),
         });
       } catch (error) {
-        failed.push({ item, kind: item.kind, name: item.name, error: firstError(error.message) });
+        failing.push({ item, kind: item.kind, name: item.name, error: firstError(error.message) });
       }
     }
-    todo = failed.map((f) => f.item);
+    todo = failing.map((f) => f.item);
   }
-  failed = failed.map(({ item: _item, ...f }) => f);
+  failed.push(...failing.map(({ item: _item, ...f }) => f));
   const after = await inventory(api, accountId, prefix);
   return {
     deleted,
@@ -389,9 +459,20 @@ export async function teardown(api, accountId, prefix, recorded = []) {
   };
 }
 
-/** The teardown's report, for the job summary. */
+/** Whether a teardown left the account clean, as far as anyone can tell. */
+export function teardownClean(result) {
+  return !result.remaining.length && !result.failed.length && !result.unlisted.length;
+}
+
+/** The teardown's report, for the job summary: what was not checked first. */
 export function teardownReport(result, prefix) {
   const lines = [`### Teardown of ${prefix}`, ""];
+  if (result.unlisted.length) {
+    lines.push(
+      `**Not checked: ${result.unlisted.length} kind${result.unlisted.length === 1 ? "" : "s"} could not be listed, so the account may still hold things of the run's of ${result.unlisted.length === 1 ? "it" : "them"}.** ${result.unlisted.map(md).join("; ")}. Look in the dashboard, or run mode remove once listing works.`,
+      "",
+    );
+  }
   lines.push(
     result.deleted.length
       ? `Deleted (${result.deleted.length}): ${result.deleted.map((d) => `${d.kind} \`${d.name}\`${d.objects ? ` (${d.objects} objects)` : ""}`).join(", ")}`
@@ -405,11 +486,10 @@ export function teardownReport(result, prefix) {
     "",
     result.remaining.length
       ? `**Still there with the prefix (${result.remaining.length}):** ${result.remaining.map((r) => `${r.kind} \`${r.name}\``).join(", ")}`
-      : `Nothing with the prefix ${prefix} is left in the account.`,
+      : result.unlisted.length
+        ? `Nothing with the prefix ${prefix} is left among the kinds that could be listed.`
+        : `Nothing with the prefix ${prefix} is left in the account.`,
   );
-  if (result.unlisted.length) {
-    lines.push("", `Could not list (so not checked): ${result.unlisted.map(md).join("; ")}`);
-  }
   return lines.join("\n");
 }
 
@@ -527,6 +607,8 @@ export async function runSteps(steps, ctx, onResult = () => {}) {
         ms: Date.now() - started,
         note: outcome.note ?? "",
       };
+      // A partial step did its work (a fleet installed, clients added), so what needs that runs;
+      // it still fails the run's verdict (`verdict`).
       if (status === "pass" || status === "partial") passed.add(step.id);
     } catch (error) {
       result = {
@@ -611,6 +693,7 @@ async function signIn(ctx, hostname, email, password) {
   });
 }
 
+/** An operation called with a cookie: its status, and its error's code when the body is JSON. */
 async function staffOp(ctx, hostname, cookie, name) {
   const origin = `https://${hostname}`;
   const answer = await request(ctx.fetch, `${origin}/api/v1/op/${name}`, {
@@ -624,7 +707,14 @@ async function staffOp(ctx, hostname, cookie, name) {
     body: "{}",
   });
   const text = answer.response ? await answer.response.text() : "";
-  return { status: answer.status, text };
+  let code = null;
+  try {
+    const body = JSON.parse(text);
+    code = body?.error?.code ?? body?.code ?? null;
+  } catch {
+    code = null;
+  }
+  return { status: answer.status, code };
 }
 
 async function clientList(ctx) {
@@ -632,12 +722,35 @@ async function clientList(ctx) {
   return parseClientList(run.out);
 }
 
-/** The export's manifest: its row counts and its files' hashes. */
-function exportFacts(dir) {
+/** The app Worker's deployed release, from its bindings (works with no zone). */
+async function deployedVersion(ctx) {
+  const bindings = await ctx.api.scriptBindings(ctx.accountId, workerName(ctx.prefix, "app"));
+  return bindings.find((b) => b.name === "COS_RELEASE_VERSION")?.text ?? null;
+}
+
+const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+
+/**
+ * What an export folder holds, checked here and not only as cos says: each database part's and
+ * each file's sha256 against its manifest, recomputed from the bytes on disk (review of #541, F5).
+ */
+export function exportFacts(dir) {
   const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
+  const problems = [];
+  for (const part of manifest.database?.parts ?? []) {
+    const path = join(dir, part.path);
+    if (!existsSync(path)) problems.push(`part ${part.path} is missing`);
+    else if (sha256(readFileSync(path)) !== part.sha256) problems.push(`part ${part.path} differs`);
+  }
+  for (const file of manifest.files ?? []) {
+    const path = join(dir, "files", file.key);
+    if (!existsSync(path)) problems.push(`file ${file.key} is missing`);
+    else if (sha256(readFileSync(path)) !== file.sha256) problems.push(`file ${file.key} differs`);
+  }
   return {
     counts: manifest.database?.counts ?? {},
     files: (manifest.files ?? []).map((f) => `${f.key} ${f.sha256}`).sort(),
+    problems,
   };
 }
 
@@ -658,16 +771,23 @@ export function compareExports(a, b) {
   return problems;
 }
 
-/** Steps 1 to 8 (docs/deploying.md, "Proving a host of many clients on Cloudflare"). */
+/** Steps 0 to 8 (docs/deploying.md, "Proving a host of many clients on Cloudflare"). */
 export function checkSteps() {
   const { a, b, imported, late } = CLIENTS;
-  const needZone = (ctx) => {
-    if (!ctx.zoneId)
-      return {
-        status: "skipped",
-        note: "no zone given: no client hostname is reachable without one (see the first step)",
-      };
-    return null;
+  const noZone =
+    "no zone given: no client hostname is reachable without one (see step 0), so this is not proved";
+  const page = (ctx, id) =>
+    waitFor(ctx.fetch, `https://${ctx.hosts.staff[id]}/sign-in`, (x) => x.status === 200, {
+      timeoutMs: ctx.waitMs,
+      sleep: ctx.sleep,
+    });
+  /** Every client of `ids` as it was in `before`: its status and its schema. */
+  const asBefore = (now, before, ids, when) => {
+    for (const id of ids) {
+      if (now[id]?.status !== before[id]?.status || now[id]?.schema !== before[id]?.schema) {
+        fail(`${id} is ${JSON.stringify(now[id])} ${when}, was ${JSON.stringify(before[id])}`);
+      }
+    }
   };
   return [
     {
@@ -694,10 +814,14 @@ export function checkSteps() {
           notes.push(`zone ${ctx.zone} found; the fleet's domain is ${ctx.hosts.domain}`);
         } else {
           notes.push(
-            "no zone given: cos attaches no hostname to the host, so without a zone no client is reachable; the steps that need one are skipped",
+            "no zone given: cos attaches no hostname to the host, so without a zone no client is reachable, and the steps that need one are partial",
           );
         }
         const before = await inventory(ctx.api, ctx.accountId, ctx.prefix);
+        if (before.unlisted.length)
+          fail(
+            `the account cannot be fully listed (${before.unlisted.join("; ")}): the teardown could not prove it left nothing, so nothing is made`,
+          );
         if (before.items.length)
           fail(
             `the account already holds ${before.items.length} things named ${ctx.prefix}: run the workflow with mode remove first`,
@@ -725,22 +849,28 @@ export function checkSteps() {
           "--location",
           ctx.location,
           "--ai",
-          ctx.ai,
+          "off",
           "--yes",
         ]);
         await ctx.snapshot();
+        const version = await deployedVersion(ctx);
+        if (version !== VERSIONS.from) fail(`the app Worker runs ${version}, not ${VERSIONS.from}`);
         await attach(ctx, [ctx.hosts.callback]);
         const notes = [
-          `installed ${VERSIONS.from} in ${(install.ms / 1000).toFixed(0)} s (AI ${ctx.ai}, location ${ctx.location})`,
+          `installed ${VERSIONS.from} in ${(install.ms / 1000).toFixed(0)} s (AI off, location ${ctx.location}); the app Worker runs it`,
         ];
-        if (ctx.zoneId) {
-          const health = await hostHealth(ctx, VERSIONS.from);
-          if (!health.ok)
-            fail(
-              `the host's health on the callback hostname did not answer ${VERSIONS.from} (last: ${health.status}${health.error ? ` ${health.error}` : ""})`,
-            );
-          notes.push("the callback hostname answers the host's health");
+        if (!ctx.zoneId) {
+          return {
+            status: "partial",
+            note: `${notes.join("; ")}; the host's health on the callback hostname is not checked: ${noZone}`,
+          };
         }
+        const health = await hostHealth(ctx, VERSIONS.from);
+        if (!health.ok)
+          fail(
+            `the host's health on the callback hostname did not answer ${VERSIONS.from} (last: ${health.status}${health.error ? ` ${health.error}` : ""})`,
+          );
+        notes.push("the callback hostname answers the host's health");
         return { note: notes.join("; ") };
       },
     },
@@ -760,10 +890,14 @@ export function checkSteps() {
           "--yes",
         ]);
         const second = await must(ctx, ["client", "add", b, "--location", ctx.location, "--yes"]);
+        const list = await clientList(ctx);
+        for (const id of [a, b]) {
+          if (list[id]?.status !== "active") fail(`${id} is ${list[id]?.status} after its add`);
+        }
         await attach(ctx, [ctx.hosts.staff[a], ctx.hosts.staff[b]]);
         const reported = (out) => /Added \S+ in ([\d.]+) s/.exec(out)?.[1];
         return {
-          note: `${a}: ${reported(first.out) ?? "?"} s inside cos, ${(first.ms / 1000).toFixed(1)} s for the command (with --web-hostname ${ctx.hosts.web}, accepted without DNS); ${b}: ${reported(second.out) ?? "?"} s, ${(second.ms / 1000).toFixed(1)} s`,
+          note: `${a}: ${reported(first.out) ?? "?"} s inside cos, ${(first.ms / 1000).toFixed(1)} s for the command (with --web-hostname ${ctx.hosts.web}, accepted without DNS); ${b}: ${reported(second.out) ?? "?"} s, ${(second.ms / 1000).toFixed(1)} s; both active, schema ${list[a]?.schema}`,
         };
       },
     },
@@ -781,18 +915,12 @@ export function checkSteps() {
         notes.push(
           `the app's workers.dev address answers ${dev.status}${dev.status === 404 ? " (the unknown hostname's answer: a client is decided by its hostname only)" : ""}`,
         );
-        const skip = needZone(ctx);
-        if (skip) return { status: "partial", note: `${notes.join("; ")}; ${skip.note}` };
+        if (!ctx.zoneId) return { status: "partial", note: `${notes.join("; ")}; ${noZone}` };
         for (const id of [a, b]) {
-          const page = await waitFor(
-            ctx.fetch,
-            `https://${ctx.hosts.staff[id]}/sign-in`,
-            (x) => x.status === 200,
-            { timeoutMs: ctx.waitMs, sleep: ctx.sleep },
-          );
-          if (!page.ok)
+          const answer = await page(ctx, id);
+          if (!answer.ok)
             fail(
-              `${id}'s staff sign-in page did not answer 200 (last: ${page.status}${page.error ? ` ${page.error}` : ""})`,
+              `${id}'s staff sign-in page did not answer 200 (last: ${answer.status}${answer.error ? ` ${answer.error}` : ""})`,
             );
         }
         notes.push("both staff sign-in pages answer 200");
@@ -811,22 +939,27 @@ export function checkSteps() {
           const own = await staffOp(ctx, ctx.hosts.staff[id], ctx.staff[id].cookie, "person.list");
           if (own.status !== 200) fail(`${id}'s staff session at ${id} answered ${own.status}`);
         }
+        // A's cookie at B is answered as no cookie is: the same refusal (status and code; the
+        // bodies may differ in a request id).
         const other = await staffOp(ctx, ctx.hosts.staff[b], ctx.staff[a].cookie, "person.list");
         const none = await staffOp(ctx, ctx.hosts.staff[b], "", "person.list");
-        if (other.status < 400 || other.status !== none.status || other.text !== none.text) {
+        if (none.status < 400) fail(`${b} answered ${none.status} to an operation with no session`);
+        if (other.status !== none.status || other.code !== none.code) {
           fail(
-            `${a}'s session at ${b}'s address answered ${other.status}, not as no session (${none.status})`,
+            `${a}'s session at ${b}'s address answered ${other.status} ${other.code}, not as no session (${none.status} ${none.code})`,
           );
         }
+        // B's password at A is a wrong password there: 401, never a rate limit or an error.
         const crossed = await signIn(
           ctx,
           ctx.hosts.staff[a],
           ctx.staff[b].email,
           ctx.staff[b].password,
         );
-        if (crossed.status === 200) fail(`${b}'s staff signed in at ${a}'s address`);
+        if (crossed.status !== 401)
+          fail(`${b}'s password at ${a}'s address answered ${crossed.status}, not 401`);
         notes.push(
-          `each client's staff session works at its own address; ${a}'s is no session at ${b}'s, and ${b}'s password signs in nowhere at ${a}'s (${crossed.status})`,
+          `each client's staff session works at its own address; ${a}'s is no session at ${b}'s (${none.status}), and ${b}'s password is a wrong one at ${a}'s (401)`,
         );
         const health = await hostHealth(ctx, VERSIONS.from);
         if (!health.ok)
@@ -844,36 +977,36 @@ export function checkSteps() {
           },
           body: PROBE_PNG,
         });
-        notes.push(
-          upload.status >= 200 && upload.status < 300
-            ? `a picture uploaded at ${a}`
-            : `the picture upload at ${a} answered ${upload.status} (the export then carries no file)`,
-        );
+        if (upload.status < 200 || upload.status >= 300)
+          fail(`the picture upload at ${a} answered ${upload.status}`);
+        ctx.uploaded = sha256(PROBE_PNG);
+        notes.push(`a picture uploaded at ${a}`);
         return { note: notes.join("; ") };
       },
     },
     {
       id: "sender",
       needs: ["add"],
-      name: "4. cos client sender add, verify; sending",
+      name: "4. cos client sender add, verify, unverify",
       async run(ctx) {
         await must(ctx, ["client", "sender", "add", a, ctx.hosts.sender, "--yes"]);
         await must(ctx, ["client", "sender", "verify", a, ctx.hosts.sender, "--yes"]);
         await must(ctx, ["client", "sender", "unverify", a, ctx.hosts.sender, "--yes"]);
-        const notes = [
-          `${ctx.hosts.sender} added to ${a} unverified, verified, then unverified again`,
-        ];
+        return {
+          note: `${ctx.hosts.sender} added to ${a} unverified, verified, then unverified again`,
+        };
+      },
+    },
+    {
+      id: "send",
+      name: "4b. A send (refused unverified, or real)",
+      async run(ctx) {
         // `cos fleet install` installs no gatekeeper (a fleet's state lists none), so there is no
         // email-send Worker to send from, verified domain or not.
-        notes.push(
-          "a send (refused for an unverified domain, or a real one) is not checked: a fleet is installed with no gatekeepers, so no email-send Worker is deployed to send from",
-        );
-        if (ctx.sendingDomain)
-          notes.push(
-            `the sending domain ${ctx.sendingDomain} was given and not used, for the same reason`,
-          );
-        else notes.push("no sending domain was given");
-        return { status: "partial", note: notes.join("; ") };
+        return {
+          status: "not checked",
+          note: `a fleet is installed with no gatekeepers, so no email-send Worker is deployed to send from; ${ctx.sendingDomain ? `the sending domain ${ctx.sendingDomain} was given and not used` : "no sending domain was given"}`,
+        };
       },
     },
     {
@@ -883,12 +1016,17 @@ export function checkSteps() {
       async run(ctx) {
         const notes = [];
         const before = await clientList(ctx);
+        for (const id of [a, b]) {
+          if (before[id]?.schema === String(STAGING_MIGRATION.schema))
+            fail(`${id} is already at schema ${STAGING_MIGRATION.schema} before the upgrade`);
+        }
         const upgrade = (env) =>
           ctx.cos(
             ["fleet", "upgrade", "--keys-file", ctx.keysFile, "--version", VERSIONS.to, "--yes"],
             env ? { env } : {},
           );
-        // 1. bravo's migration fails: alpha (migrated first) and bravo restored, nothing uploaded.
+        // 1. bravo's migration fails after alpha's has really applied (0.1.1 adds one): alpha and
+        //    bravo restored, nothing uploaded.
         const one = await upgrade({ COS_FLEET_FORCE_FAILURE: `migration:${b}` });
         if (one.code === 0) fail("the upgrade with a failing migration succeeded");
         if (!/stopped before any upload/.test(one.out))
@@ -896,66 +1034,65 @@ export function checkSteps() {
             `the failed migration did not stop the update before the upload: ${firstError(one.out)}`,
           );
         const restored = /stopped before any upload: (.*?) restored/.exec(one.out)?.[1] ?? "";
-        if (!restored.includes(a) || !restored.includes(b))
+        if (!restored.split(", ").includes(a) || !restored.split(", ").includes(b))
           fail(`not every client was restored (${restored})`);
-        const afterOne = await clientList(ctx);
-        for (const id of [a, b]) {
-          if (
-            afterOne[id]?.status !== before[id]?.status ||
-            afterOne[id]?.schema !== before[id]?.schema
-          ) {
-            fail(
-              `${id} is ${JSON.stringify(afterOne[id])} after the failed migration, was ${JSON.stringify(before[id])}`,
-            );
-          }
-        }
-        if (ctx.zoneId) {
-          const health = await hostHealth(ctx, VERSIONS.from);
-          if (!health.ok)
-            fail(`after the failed migration the host does not answer ${VERSIONS.from}`);
-        }
+        asBefore(await clientList(ctx), before, [a, b], "after the failed migration");
+        const afterOne = await deployedVersion(ctx);
+        if (afterOne !== VERSIONS.from)
+          fail(
+            `after the failed migration the app Worker runs ${afterOne}: something was uploaded`,
+          );
+        if (ctx.zoneId && !(await hostHealth(ctx, VERSIONS.from)).ok)
+          fail(`after the failed migration the host does not answer ${VERSIONS.from}`);
         notes.push(
-          `a failing migration on ${b}: stopped (${(one.ms / 1000).toFixed(0)} s), ${restored} restored, both as they were, nothing uploaded${ctx.zoneId ? ` (${VERSIONS.from} still answers)` : ""}`,
+          `a failing migration on ${b} after ${a}'s had applied: stopped (${(one.ms / 1000).toFixed(0)} s), ${restored} restored to schema ${before[a]?.schema}, the app Worker still ${VERSIONS.from}`,
         );
         // 2. The smoke check fails after the upload: the previous Workers again, everyone restored.
         const two = await upgrade({ COS_FLEET_FORCE_FAILURE: "smoke" });
         if (two.code === 0) fail("the upgrade with a failing smoke check succeeded");
         if (!/Rolled back/.test(two.out))
           fail(`the failed smoke check was not rolled back: ${firstError(two.out)}`);
-        if (ctx.zoneId) {
-          const health = await hostHealth(ctx, VERSIONS.from);
-          if (!health.ok) fail(`after the rollback the host does not answer ${VERSIONS.from}`);
-        }
+        // Without a zone the real smoke check fails first (no callback hostname), and the switch
+        // is never reached: a rollback all the same, but not the one asked for.
+        const switched = /COS_FLEET_FORCE_FAILURE=smoke: made to fail/.test(two.out);
+        asBefore(await clientList(ctx), before, [a, b], "after the rollback");
+        const afterTwo = await deployedVersion(ctx);
+        if (afterTwo !== VERSIONS.from)
+          fail(`after the rollback the app Worker runs ${afterTwo}, not ${VERSIONS.from}`);
+        if (ctx.zoneId && !(await hostHealth(ctx, VERSIONS.from)).ok)
+          fail(`after the rollback the host does not answer ${VERSIONS.from}`);
         notes.push(
-          `a failing smoke check: rolled back (${(two.ms / 1000).toFixed(0)} s)${ctx.zoneId ? `, ${VERSIONS.from} answers again` : ""}`,
+          `a failing smoke check: rolled back (${(two.ms / 1000).toFixed(0)} s), both clients as they were, the app Worker ${VERSIONS.from} again${switched ? "" : " (the real smoke check failed first: the switch was not reached)"}`,
         );
-        // 3. A real one.
         if (!ctx.zoneId) {
           notes.push(
-            `the successful upgrade is not run: its smoke check needs the callback hostname, which needs a zone`,
+            `the successful upgrade is not run: its smoke check is on the callback hostname, which needs a zone`,
           );
           return { status: "partial", note: notes.join("; ") };
         }
+        if (!switched) fail("the smoke check failed for real before the switch was reached");
+        // 3. A real one.
         const three = await upgrade(null);
         if (three.code !== 0)
           fail(`the upgrade to ${VERSIONS.to} failed: ${firstError(three.out)}`);
-        const health = await hostHealth(ctx, VERSIONS.to);
-        if (!health.ok) fail(`after the upgrade the host does not answer ${VERSIONS.to}`);
+        if (!(await hostHealth(ctx, VERSIONS.to)).ok)
+          fail(`after the upgrade the host does not answer ${VERSIONS.to}`);
+        const afterThree = await deployedVersion(ctx);
+        if (afterThree !== VERSIONS.to) fail(`after the upgrade the app Worker runs ${afterThree}`);
         const after = await clientList(ctx);
-        for (const id of [a, b])
+        for (const id of [a, b]) {
           if (after[id]?.status !== "active")
             fail(`${id} is ${after[id]?.status} after the upgrade`);
-        for (const id of [a, b]) {
-          const page = await waitFor(
-            ctx.fetch,
-            `https://${ctx.hosts.staff[id]}/sign-in`,
-            (x) => x.status === 200,
-            { timeoutMs: ctx.waitMs, sleep: ctx.sleep },
-          );
-          if (!page.ok) fail(`${id}'s sign-in page answers ${page.status} after the upgrade`);
+          if (after[id]?.schema !== String(STAGING_MIGRATION.schema))
+            fail(`${id} is at schema ${after[id]?.schema}, not ${STAGING_MIGRATION.schema}`);
         }
+        for (const id of [a, b]) {
+          const answer = await page(ctx, id);
+          if (!answer.ok) fail(`${id}'s sign-in page answers ${answer.status} after the upgrade`);
+        }
+        ctx.upgraded = true;
         notes.push(
-          `then ${VERSIONS.from} → ${VERSIONS.to} (${(three.ms / 1000).toFixed(0)} s): ${VERSIONS.to} answers, both clients served`,
+          `then ${VERSIONS.from} → ${VERSIONS.to} (${(three.ms / 1000).toFixed(0)} s): both clients at schema ${STAGING_MIGRATION.schema} and served, ${VERSIONS.to} answers`,
         );
         return { note: notes.join("; ") };
       },
@@ -971,22 +1108,34 @@ export function checkSteps() {
         await must(ctx, ["client", "export", imported, "--out", ctx.reexportDir, "--yes"]);
         const first = exportFacts(ctx.exportDir);
         const again = exportFacts(ctx.reexportDir);
-        const problems = compareExports(first, again);
-        if (problems.length)
-          fail(`the imported client differs: ${problems.slice(0, 5).join("; ")}`);
-        const notes = [
-          `${a} exported (${Object.keys(first.counts).length} tables, ${Object.values(first.counts).reduce((x, y) => x + y, 0)} rows, ${first.files.length} files), imported as ${imported}, exported again: the same row counts and file hashes`,
+        const problems = [
+          ...first.problems.map((p) => `${a}'s export: ${p}`),
+          ...again.problems.map((p) => `${imported}'s export: ${p}`),
+          ...compareExports(first, again),
         ];
-        if (ctx.zoneId) {
-          const page = await waitFor(
-            ctx.fetch,
-            `https://${ctx.hosts.staff[imported]}/sign-in`,
-            (x) => x.status === 200,
-            { timeoutMs: ctx.waitMs, sleep: ctx.sleep },
+        const rows = Object.values(first.counts).reduce((x, y) => x + y, 0);
+        if (!Object.keys(first.counts).length || rows === 0)
+          problems.push(`${a}'s export counts no rows`);
+        if (ctx.upgraded && first.counts[STAGING_MIGRATION.table] !== 1)
+          problems.push(`${STAGING_MIGRATION.table} (the upgrade's row) is not in the export`);
+        if (ctx.uploaded && !first.files.some((f) => f.endsWith(` ${ctx.uploaded}`)))
+          problems.push(`the picture uploaded at ${a} is not in its export`);
+        if (problems.length)
+          fail(
+            `the export or the import is not as it should be: ${problems.slice(0, 5).join("; ")}`,
           );
-          if (!page.ok) fail(`${imported}'s sign-in page answered ${page.status}`);
-          notes.push(`${imported}'s sign-in page answers`);
+        const notes = [
+          `${a} exported (${Object.keys(first.counts).length} tables, ${rows} rows, ${first.files.length} files, every hash recomputed from the bytes), imported as ${imported}, exported again: the same row counts and file hashes`,
+        ];
+        if (!ctx.zoneId) {
+          return {
+            status: "partial",
+            note: `${notes.join("; ")}; ${imported}'s sign-in page is not checked and the export carries no uploaded file: ${noZone}`,
+          };
         }
+        const answer = await page(ctx, imported);
+        if (!answer.ok) fail(`${imported}'s sign-in page answered ${answer.status}`);
+        notes.push(`${imported}'s sign-in page answers`);
         return { note: notes.join("; ") };
       },
     },
@@ -999,18 +1148,34 @@ export function checkSteps() {
         const holding = new Promise((resolve) => {
           started = resolve;
         });
-        const first = ctx.cos(["client", "add", late, "--yes"], {
-          onOutput: (out) => {
-            if (/registry: /.test(out)) started();
-          },
-        });
+        let firstEnded = null;
+        const first = ctx
+          .cos(["client", "add", late, "--yes"], {
+            onOutput: (out) => {
+              if (/registry: /.test(out)) started();
+            },
+          })
+          .then((r) => {
+            firstEnded = Date.now();
+            return r;
+          });
         await Promise.race([holding, first]);
+        const secondStarted = Date.now();
         const second = await ctx.cos(["client", "export", b, "--yes"]);
         const firstRun = await first;
-        if (second.code === 0) fail("the second command was not refused");
+        if (firstRun.code !== 0) fail(`the first command failed: ${firstError(firstRun.out)}`);
+        if (second.code === 0) {
+          // The add finished before the export began: no overlap, so nothing was shown.
+          if (firstEnded !== null && firstEnded <= secondStarted) {
+            return {
+              status: "partial",
+              note: `cos client add ${late} finished before cos client export ${b} started: the two did not overlap, so the refusal is not shown`,
+            };
+          }
+          fail("the second command was not refused while the first held the operator's Worker");
+        }
         if (!/Another operator's command/.test(second.out))
           fail(`the second command failed otherwise: ${firstError(second.out)}`);
-        if (firstRun.code !== 0) fail(`the first command failed: ${firstError(firstRun.out)}`);
         return {
           note: `cos client add ${late} held the operator's Worker; cos client export ${b} beside it was refused before it changed anything; the add finished`,
         };
@@ -1025,8 +1190,7 @@ export function checkSteps() {
         const list = await clientList(ctx);
         if (list[a]) fail(`${a} is still listed after the remove`);
         if (list[b]?.status !== "active") fail(`${b} is ${list[b]?.status} after ${a} was removed`);
-        const skip = needZone(ctx);
-        if (skip) return { status: "partial", note: `${a} removed, ${b} active; ${skip.note}` };
+        if (!ctx.zoneId) return { status: "partial", note: `${a} removed, ${b} active; ${noZone}` };
         // The host serves the change within its registry refresh (10 s).
         const gone = await waitFor(
           ctx.fetch,
@@ -1035,12 +1199,11 @@ export function checkSteps() {
           { timeoutMs: 120000, sleep: ctx.sleep },
         );
         if (!gone.ok) fail(`${a}'s address still answers ${gone.status}`);
-        const page = await request(ctx.fetch, `https://${ctx.hosts.staff[b]}/sign-in`);
-        if (page.status !== 200) fail(`${b}'s sign-in page answers ${page.status}`);
-        if (ctx.staff[b]) {
-          const own = await staffOp(ctx, ctx.hosts.staff[b], ctx.staff[b].cookie, "person.list");
-          if (own.status !== 200) fail(`${b}'s staff session answers ${own.status}`);
-        }
+        const answer = await request(ctx.fetch, `https://${ctx.hosts.staff[b]}/sign-in`);
+        if (answer.status !== 200) fail(`${b}'s sign-in page answers ${answer.status}`);
+        if (!ctx.staff[b]) fail(`${b} has no staff session to check (step 3 did not make one)`);
+        const own = await staffOp(ctx, ctx.hosts.staff[b], ctx.staff[b].cookie, "person.list");
+        if (own.status !== 200) fail(`${b}'s staff session answers ${own.status}`);
         return {
           note: `${a}'s address answers the unknown hostname's 404; ${b} answers and its staff stay signed in`,
         };
@@ -1075,7 +1238,8 @@ const mask = (value) => {
   if (value && ENV.GITHUB_ACTIONS === "true") process.stdout.write(`::add-mask::${value}\n`);
 };
 
-function account() {
+/** The account's client, and what names it (the token, its id, its workers.dev subdomain), masked. */
+async function account() {
   const token = ENV.CLOUDFLARE_API_TOKEN;
   const accountId = ENV.CLOUDFLARE_ACCOUNT_ID;
   if (!token || !accountId)
@@ -1086,14 +1250,19 @@ function account() {
     token,
     ...(ENV.COS_CLOUDFLARE_API ? { apiBase: ENV.COS_CLOUDFLARE_API } : {}),
   });
-  return { api, accountId, token };
+  const secrets = [token, accountId];
+  const subdomain = await api.workersSubdomain(accountId).catch(() => null);
+  if (subdomain) {
+    mask(subdomain);
+    secrets.push(subdomain);
+  }
+  return { api, accountId, secrets };
 }
 
 /** `prepare`: the product's files and the two releases, merged into one folder. No secret. */
 async function prepare(opts) {
-  const run = opts.run;
-  const dir = workDir(run);
-  const product = productDefinition(run, ENV.GITHUB_REPOSITORY || undefined);
+  const dir = workDir(opts.run);
+  const product = productDefinition(opts.run, ENV.GITHUB_REPOSITORY || undefined);
   writeFileSync(join(dir, "product.json"), `${JSON.stringify(product, null, 2)}\n`);
   writeFileSync(
     join(dir, "product.ts"),
@@ -1102,22 +1271,35 @@ async function prepare(opts) {
   const bundles = join(dir, "bundles");
   mkdirSync(bundles, { recursive: true });
   let sums = "";
-  for (const [i, version] of [VERSIONS.from, VERSIONS.to].entries()) {
-    const out = join(dir, `release-${version}`);
-    const argv = [
-      "scripts/release/build-release.ts",
-      "--version",
-      version,
-      "--product",
-      join(dir, "product.ts"),
-      "--out",
-      out,
-    ];
-    // The second build reuses the first's Workers: only the version differs.
-    if (i > 0) argv.push("--skip-build");
-    const code = await new Promise((done) => {
+  const migration = join(ROOT, "packages/db/migrations", STAGING_MIGRATION.file);
+  if (existsSync(migration))
+    throw new Error(`${STAGING_MIGRATION.file} is already in the checkout`);
+  const node = (argv) =>
+    new Promise((done) => {
       spawn(process.execPath, argv, { cwd: ROOT, stdio: "inherit" }).on("close", done);
     });
+  for (const [i, version] of [VERSIONS.from, VERSIONS.to].entries()) {
+    const out = join(dir, `release-${version}`);
+    // The second release carries one more migration, so its upgrade migrates every client for
+    // real: it is built in full, since the code's schema version follows the migrations.
+    if (i > 0) writeFileSync(migration, STAGING_MIGRATION.sql);
+    let code;
+    try {
+      code = await node([
+        "scripts/release/build-release.ts",
+        "--version",
+        version,
+        "--product",
+        join(dir, "product.ts"),
+        "--out",
+        out,
+      ]);
+    } finally {
+      if (i > 0) {
+        rmSync(migration, { force: true });
+        await node(["packages/db/scripts/schema-version.mjs"]);
+      }
+    }
     if (code !== 0) throw new Error(`building ${version} failed (exit ${code})`);
     for (const name of readdirSync(out)) {
       if (name === "SHA256SUMS") sums += readFileSync(join(out, name), "utf8");
@@ -1133,8 +1315,14 @@ export function checkOptions(opts) {
   const location = opts.location || "oc";
   if (!LOCATIONS.includes(location))
     throw new Error(`--location is one of ${LOCATIONS.join(", ")}`);
-  const ai = opts.ai || "off";
-  if (ai !== "on" && ai !== "off") throw new Error("--ai is on or off");
+  // AI stays off: an install with it makes an account API token and creates or changes the
+  // account-wide custom AI provider, which no teardown deletes or puts back (review of #541, F1).
+  if (opts.ai !== undefined && opts.ai !== "off") {
+    throw new Error(
+      "--ai: the check installs without AI only (with it, an account API token and the account's custom AI provider would outlive the teardown)",
+    );
+  }
+  const ai = "off";
   const hostname = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
   const zone = (opts.zone || "").trim().toLowerCase();
   if (zone && !hostname.test(zone)) throw new Error("--zone is a domain name");
@@ -1196,7 +1384,15 @@ export async function check(options, deps) {
     [
       `## Staging check of a host of many clients: ${options.prefix}`,
       "",
-      `Location ${options.location}, AI ${options.ai}, zone ${options.zone || "none"}, releases ${VERSIONS.from} and ${VERSIONS.to} built from this commit for the throwaway product.`,
+      verdict(results).line,
+      ...(options.zone
+        ? []
+        : [
+            "",
+            "**No zone:** no client hostname was reachable, so the requests (3), the successful upgrade (5) and the remove's answers (8) are not proved.",
+          ]),
+      "",
+      `Location ${options.location}, AI off, zone ${options.zone || "none"}, releases ${VERSIONS.from} and ${VERSIONS.to} (with migration ${STAGING_MIGRATION.file}) built from this commit for the throwaway product.`,
       "",
       summaryTable(results),
     ].join("\n"),
@@ -1211,10 +1407,12 @@ export async function teardownCommand(prefix, deps) {
   const recorded =
     ledgerFile && existsSync(ledgerFile) ? JSON.parse(readFileSync(ledgerFile, "utf8")) : [];
   const result = await teardown(api, accountId, prefix, recorded);
-  const report = teardownReport(result, prefix);
+  // Cloudflare's errors name the account in their paths: cut out, as everywhere (review of #541, F8).
+  const report = sanitize(teardownReport(result, prefix), [...(deps.secrets ?? [])]);
   log(report);
   writeSummary(report);
-  return result.remaining.length || result.failed.length ? 1 : 0;
+  // A kind nobody could list is not known to be gone: that fails too (review of #541, F6).
+  return teardownClean(result) ? 0 : 1;
 }
 
 async function main(argv) {
@@ -1224,9 +1422,9 @@ async function main(argv) {
   if (command === "prepare") return prepare(opts);
   if (command === "check") {
     const options = checkOptions(opts);
-    const { api, accountId, token } = account();
+    const { api, accountId, secrets: known } = await account();
     const dir = workDir(options.run);
-    const secrets = new Set([token, accountId]);
+    const secrets = new Set(known);
     const cos = cosRunner({
       cli: join(ROOT, "packages/create-composable-os/dist/cli.js"),
       productFile: join(dir, "product.json"),
@@ -1246,13 +1444,20 @@ async function main(argv) {
       mask,
       writeSummary: summary,
     });
-    return results.some((r) => r.status === "fail") ? 1 : 0;
+    return verdict(results).proved ? 0 : 1;
   }
   if (command === "teardown") {
     const prefix = prefixOf(opts.run);
-    const { api, accountId } = account();
+    const { api, accountId, secrets } = await account();
     const dir = workDir(opts.run);
-    const code = await teardownCommand(prefix, { api, accountId, dir, writeSummary: summary, log });
+    const code = await teardownCommand(prefix, {
+      api,
+      accountId,
+      dir,
+      secrets,
+      writeSummary: summary,
+      log,
+    });
     // The keys file, the exports (with their secrets.json) and the releases: deleted.
     rmSync(dir, { recursive: true, force: true });
     log(`Deleted the run's local folder (keys file, exports, releases).`);
@@ -1260,8 +1465,15 @@ async function main(argv) {
   }
   if (command === "remove") {
     const prefix = targetPrefix(opts.target);
-    const { api, accountId } = account();
-    return teardownCommand(prefix, { api, accountId, dir: null, writeSummary: summary, log });
+    const { api, accountId, secrets } = await account();
+    return teardownCommand(prefix, {
+      api,
+      accountId,
+      dir: null,
+      secrets,
+      writeSummary: summary,
+      log,
+    });
   }
   console.error(
     "usage: node scripts/fleet-staging-check.mjs prepare|check|teardown|remove (see the top of this file)",

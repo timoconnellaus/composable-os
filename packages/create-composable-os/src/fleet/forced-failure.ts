@@ -11,12 +11,11 @@
 // product, inside that workflow's run on GitHub Actions: it is never a switch a live host, a real
 // product or an operator's terminal can turn on.
 import type { Migration } from "@composable-os/db";
-import { CliError, type Env } from "../main.ts";
+import type { ProductDefinition } from "@composable-os/product";
+import { CliError, type Env, throwawayProblem } from "../main.ts";
 import type { Operator } from "./operator-client.ts";
 
 export const FORCE_FAILURE_VAR = "COS_FLEET_FORCE_FAILURE";
-/** The staging check's throwaway products' ids start with this (scripts/fleet-staging-check.mjs). */
-export const STAGING_CHECK_PRODUCT_PREFIX = "cosstg-";
 export const STAGING_CHECK_WORKFLOW = ".github/workflows/fleet-staging-check.yml";
 
 /** The migration a forced failure adds: it inserts into a table no release has, so it fails. */
@@ -33,7 +32,7 @@ export type ForcedFailure = { kind: "migration"; client: string } | { kind: "smo
  */
 export function forcedFailure(
   env: Env,
-  where: { environment: string; productId: string },
+  where: { environment: string; product: ProductDefinition },
 ): ForcedFailure {
   const value = env[FORCE_FAILURE_VAR]?.trim();
   if (!value) return null;
@@ -43,9 +42,10 @@ export function forcedFailure(
     );
   };
   if (where.environment !== "staging") refuse("this is not a staging fleet");
-  if (!where.productId.startsWith(STAGING_CHECK_PRODUCT_PREFIX)) {
-    refuse(`the product is not the check's throwaway one (${STAGING_CHECK_PRODUCT_PREFIX}…)`);
-  }
+  // Its id and every name: the fleet is found by the product's database name, so an id alone
+  // could aim the switch at a real product's staging fleet (review of #541, F3).
+  const problem = throwawayProblem(where.product);
+  if (problem) refuse(`the product is not the check's throwaway one (${problem})`);
   if (
     env.GITHUB_ACTIONS !== "true" ||
     !env.GITHUB_WORKFLOW_REF?.includes(`/${STAGING_CHECK_WORKFLOW}@`)

@@ -188,8 +188,8 @@ installing a product with no repository.
   --update-token <t>     store a scoped token so Settings → Updates can update in place
   --store-update-token   store --token itself for one-click updates
   --product <id>         the product to install (default crm; one of crm)
-  --product-file <f>     instead, a product defined in a JSON file (its names only, as product.ts
-                         holds them), for a release built for it (build-release.ts --product)
+  --product-file <f>     instead, the staging check's throwaway product, defined in a JSON file
+                         (id cosstg-…, every name starting with it), for a release built for it
   --repo <owner/repo>    where releases come from (default: the product's own repository)
   --no-gh                skip `gh attestation verify` even if gh is installed
   --require-gh           fail unless `gh attestation verify` passes (full Sigstore check)

@@ -658,6 +658,27 @@ export class FakeCloudflare {
       this.domains.splice(at, 1);
       return ok(null);
     }
+    // The Durable Object namespaces: one per class a Worker of the account defines (a binding
+    // with no script_name), gone with its Worker.
+    if (path === `${a}/workers/durable_objects/namespaces` && method === "GET") {
+      const namespaces = [...this.scripts.values()].flatMap((s) => {
+        const live = s.versions.find((v) => v.id === s.current);
+        const bindings = (live?.metadata.bindings ?? []) as {
+          type: string;
+          class_name?: string;
+          script_name?: string;
+        }[];
+        return bindings
+          .filter((x) => x.type === "durable_object_namespace" && !x.script_name)
+          .map((x) => ({
+            id: `ns-${s.name}-${x.class_name}`,
+            name: `${s.name}_${x.class_name}`,
+            script: s.name,
+            class: x.class_name,
+          }));
+      });
+      return ok(namespaces, { page: 1, total_pages: 1 });
+    }
     if (path === `${a}/workflows` && method === "GET") {
       return ok(
         [...this.workflows.keys()].map((name) => ({ id: name, name })),
@@ -832,6 +853,11 @@ export class FakeCloudflare {
     if (rest === "/subdomain" && method === "POST") {
       script.workersDev = Boolean(b.enabled);
       return ok({ enabled: script.workersDev });
+    }
+    // The deployed version's bindings (secrets show by name only, as the real API's do).
+    if (rest === "/settings" && method === "GET") {
+      const live = script.versions.find((v) => v.id === script.current);
+      return ok({ bindings: (live?.metadata.bindings ?? []) as unknown[] });
     }
     return fail(404, 7003, `no route for ${method} /scripts/${name}${rest}`);
   }

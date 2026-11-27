@@ -3,15 +3,19 @@
 # hand only (docs/deploying.md, "Proving a host of many clients on Cloudflare").
 #
 #   check   two releases built from this commit for a throwaway product (`cosstg-<run id>`), then
-#           cos fleet keys and install, two clients added, requests to their hostnames, sender
-#           domains, three upgrades (a failed migration, a failed smoke check, a success), export
-#           and import, two operator commands at once, a remove; each step's result and time in
-#           the summary; then the teardown, always, of everything named `cosstg-<run id>`
+#           cos fleet keys and install (without AI), two clients added, requests to their
+#           hostnames, sender domains, three upgrades to a release with one more migration (a
+#           failed migration, a failed smoke check, a success), export and import, two operator
+#           commands at once, a remove; each step's result and time in the summary, and a verdict
+#           that fails the job unless every step passed; then the teardown, always, of everything
+#           named `cosstg-<run id>`, which fails if anything is left or cannot be listed
 #   remove  deletes what a failed run left (by its run id or `cosstg-<run id>`), by the same rule
 #
 # Uses FLEET_CLOUDFLARE_API_TOKEN and FLEET_CLOUDFLARE_ACCOUNT_ID, given only to the steps that call
-# Cloudflare, in the `fleet` environment (the owner may add required reviewers to it). Without them
-# nothing is made and the workflow passes with a notice. The keys file, the exports (their
+# Cloudflare. Every job that reads them runs in the `fleet` environment, so they may be repository
+# secrets or the environment's own (docs/deploying.md says what the owner sets there: the secrets,
+# a branch policy and a reviewer). Without them nothing is made and the workflow passes with a
+# notice. The keys file, the exports (their
 # secrets.json) and the releases are in the runner's temp folder, outside the checkout, and deleted
 # at the end; nothing secret goes into an artifact or the summary (the script masks and cuts out
 # the token, the account id, its workers.dev subdomain, passwords and cookies).
@@ -31,16 +35,11 @@ on:
         default: oc
         options: [oc, apac, wnam, enam, weur, eeur]
       zone:
-        description: An active zone of the account; the fleet's hostnames go under cosstg-<run id>.<zone> as Workers Custom Domains. Empty, no client hostname is reachable and those steps are skipped
+        description: A spare active zone of the account (not a live site's); the fleet's hostnames go under cosstg-<run id>.<zone> as Workers Custom Domains. Empty, no client hostname is reachable, those steps are partial and the run is not proved
         default: ""
       sending_domain:
         description: A sending domain already onboarded to Email Sending in the account, for a real send (empty skips it; see the summary)
         default: ""
-      ai:
-        description: Install with AI (a Vectorize index and an AI Gateway, made and deleted with the rest) or without
-        type: choice
-        default: "off"
-        options: ["off", "on"]
       target:
         description: For mode remove only, the failed run's id (or cosstg-<run id>)
         default: ""
@@ -56,6 +55,8 @@ jobs:
   configured:
     name: Fleet account configured?
     runs-on: ubuntu-latest
+    # In the environment, so it sees the secrets wherever they are kept (review of #541, F2).
+    environment: fleet
     outputs:
       enabled: ${{ steps.check.outputs.enabled }}
     steps:
@@ -80,13 +81,11 @@ jobs:
           LOCATION: ${{ inputs.location }}
           ZONE: ${{ inputs.zone }}
           SENDING_DOMAIN: ${{ inputs.sending_domain }}
-          AI: ${{ inputs.ai }}
           TARGET: ${{ inputs.target }}
         run: |
           domain='^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$'
           case "$MODE" in check|remove) ;; *) echo "::error::mode must be check or remove"; exit 1 ;; esac
           case "$LOCATION" in oc|apac|wnam|enam|weur|eeur) ;; *) echo "::error::location is not a location hint"; exit 1 ;; esac
-          case "$AI" in on|off) ;; *) echo "::error::ai must be on or off"; exit 1 ;; esac
           if [ -n "$ZONE" ] && ! [[ "$ZONE" =~ $domain ]]; then echo "::error::zone must be a domain name"; exit 1; fi
           if [ -n "$SENDING_DOMAIN" ] && ! [[ "$SENDING_DOMAIN" =~ $domain ]]; then echo "::error::sending_domain must be a domain name"; exit 1; fi
           if [ "$MODE" = remove ] && ! [[ "$TARGET" =~ ^(cosstg-)?[0-9]{1,20}$ ]]; then
@@ -110,13 +109,14 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       # No secret in these steps' environment: dependencies' install scripts and the release build
-      # never see the token.
+      # run without the token (the dependencies' code runs later in the steps that hold it).
       - run: pnpm install --frozen-lockfile
       - name: Build cos
         run: pnpm --filter create-composable-os build
       - name: Build two releases for the throwaway product
         run: node scripts/fleet-staging-check.mjs prepare --run "$RUN"
-      # Steps 0 to 8, each into the summary. A failed step is recorded and the rest go on.
+      # Steps 0 to 8, each into the summary. A failed step is recorded and the rest go on; the step
+      # fails unless every one passed (a partial one, say for want of a zone, fails it too).
       - name: Check
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.FLEET_CLOUDFLARE_API_TOKEN }}
@@ -124,13 +124,12 @@ jobs:
           LOCATION: ${{ inputs.location }}
           ZONE: ${{ inputs.zone }}
           SENDING_DOMAIN: ${{ inputs.sending_domain }}
-          AI: ${{ inputs.ai }}
         run: |
           node scripts/fleet-staging-check.mjs check --run "$RUN" --location "$LOCATION" \
-            --zone "$ZONE" --sending-domain "$SENDING_DOMAIN" --ai "$AI"
+            --zone "$ZONE" --sending-domain "$SENDING_DOMAIN"
       # Step 9, whatever happened before (a failure, a timeout, a cancel): everything named
       # cosstg-<run id> is deleted, what was and what could not be is listed, and the job fails if
-      # anything is left. Then the run's local folder (the keys file, the exports) is deleted.
+      # anything is left or a kind could not be listed. Then the run's local folder (the keys file, the exports) is deleted.
       - name: Teardown
         if: always()
         env:

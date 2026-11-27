@@ -245,8 +245,8 @@ Options
   --update-token <t>     store a scoped token so Settings → Updates can update in place
   --store-update-token   store --token itself for one-click updates
   --product <id>         the product to install (default ${DEFAULT_PRODUCT}; one of ${Object.keys(products).join(", ")})
-  --product-file <f>     instead, a product defined in a JSON file (its names only, as product.ts
-                         holds them), for a release built for it (build-release.ts --product)
+  --product-file <f>     instead, the staging check's throwaway product, defined in a JSON file
+                         (id cosstg-…, every name starting with it), for a release built for it
   --repo <owner/repo>    where releases come from (default: the product's own repository)
   --no-gh                skip \`gh attestation verify\` even if gh is installed
   --require-gh           fail unless \`gh attestation verify\` passes (full Sigstore check)
@@ -391,6 +391,25 @@ export interface Session extends ReleaseSource {
   accountId: string;
 }
 
+/** The staging check's throwaway products' ids start with this (scripts/fleet-staging-check.mjs). */
+export const THROWAWAY_PRODUCT_PREFIX = "cosstg-";
+
+/**
+ * Why a product is not one of the staging check's throwaway ones, or null when it is: its id
+ * starts with `cosstg-`, and every name is its id or starts with its id and a hyphen.
+ */
+export function throwawayProblem(product: ProductDefinition): string | null {
+  const id = product.id;
+  if (!id.startsWith(THROWAWAY_PRODUCT_PREFIX)) {
+    return `only a throwaway product is taken from a file: its id starts with ${THROWAWAY_PRODUCT_PREFIX}`;
+  }
+  const own = (name: string) => name === id || name.startsWith(`${id}-`);
+  const strays = Object.entries(product.names).filter(([, name]) => !own(name));
+  return strays.length
+    ? `every name of a throwaway product starts with its id (${id}-): ${strays.map(([key, name]) => `names.${key} is ${name}`).join(", ")}`
+    : null;
+}
+
 /** `--product`, or the default product. */
 export function productOf(flags: Flags, deps: Deps): ProductDefinition {
   // A product this cos does not carry, by its names in a file: the staging check's throwaway one
@@ -400,11 +419,15 @@ export function productOf(flags: Flags, deps: Deps): ProductDefinition {
     if (str(flags, "product")) throw new CliError("--product and --product-file: give one");
     let definition: ProductDefinition;
     try {
-      definition = JSON.parse(readFileSync(file, "utf8")) as ProductDefinition;
-      return defineProduct(definition);
+      definition = defineProduct(JSON.parse(readFileSync(file, "utf8")) as ProductDefinition);
     } catch (error) {
       throw new CliError(`--product-file ${file}: ${(error as Error).message}`);
     }
+    // Only a throwaway product, every name its own: a file can never name a real deployment's
+    // Workers or database and so take it over under another label (review of #541, F4).
+    const problem = throwawayProblem(definition);
+    if (problem) throw new CliError(`--product-file ${file}: ${problem}`);
+    return definition;
   }
   const known = deps.products ?? { all: products, default: DEFAULT_PRODUCT };
   const id = str(flags, "product") ?? known.default;

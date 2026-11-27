@@ -1,8 +1,9 @@
 // The staging check's logic (fleet-staging-check.mjs) against the fake Cloudflare API the CLI's
 // tests use: the names, what teardown lists and deletes (and refuses to touch), a run that fails
-// half-way, and that no secret reaches what is written.
+// half-way, what each step demands before it passes, and that no secret reaches what is written.
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -11,10 +12,13 @@ import { CloudflareClient } from "../packages/release/src/cloudflare.ts";
 import { FakeCloudflare } from "../packages/release/src/testing/fake-cloudflare.ts";
 import { nodeSqliteEngine } from "../packages/release/src/testing/node-sqlite.ts";
 import {
+  CLIENTS,
   check,
   checkOptions,
+  checkSteps,
   compareExports,
   explainFailure,
+  exportFacts,
   hostnamesOf,
   inventory,
   owned,
@@ -22,17 +26,21 @@ import {
   prefixOf,
   productDefinition,
   runSteps,
+  STAGING_MIGRATION,
   sanitize,
   summaryTable,
   targetPrefix,
   teardown,
   teardownCommand,
   teardownReport,
+  VERSIONS,
+  verdict,
 } from "./fleet-staging-check.mjs";
 
 const TOKEN = "fake-token-0123456789";
 const ACCOUNT = "acc0000000000000000000000000stg";
 const PREFIX = prefixOf("123");
+const ZONE = "zone000000000000000000000000001";
 
 function world() {
   const cf = new FakeCloudflare({
@@ -40,7 +48,7 @@ function world() {
     accountId: ACCOUNT,
     sql: nodeSqliteEngine,
     subdomain: "secret-subdomain",
-    zones: [{ id: "zone000000000000000000000000001", name: "fleet.example", status: "active" }],
+    zones: [{ id: ZONE, name: "fleet.example", status: "active" }],
   });
   const api = new CloudflareClient({
     token: TOKEN,
@@ -50,26 +58,36 @@ function world() {
   return { cf, api };
 }
 
-const script = (name) => ({
+/** A Worker in the fake, live with these bindings (a class of its own makes a namespace). */
+const script = (name, bindings = []) => ({
   name,
-  versions: [],
+  versions: [{ id: `v-${name}`, metadata: { bindings }, modules: [], sources: {} }],
+  current: `v-${name}`,
   secrets: new Map(),
   schedules: [],
   workersDev: false,
   bindings: [],
   tags: [],
 });
+const ownClass = (className) => ({
+  type: "durable_object_namespace",
+  name: className,
+  class_name: className,
+});
 
-/** What an install of the run's fleet makes, and one thing of another product's beside it. */
+/** What an install of the run's fleet makes, and things of another product's beside it. */
 async function seed(cf, api, prefix = PREFIX) {
-  for (const name of [
+  cf.scripts.set(
     `${prefix}-app-staging`,
-    `${prefix}-runner-staging`,
-    `${prefix}-operator-staging`,
-    "crm-app",
-  ]) {
-    cf.scripts.set(name, script(name));
-  }
+    script(`${prefix}-app-staging`, [ownClass("ParkingLedger")]),
+  );
+  cf.scripts.set(`${prefix}-runner-staging`, script(`${prefix}-runner-staging`));
+  cf.scripts.set(
+    `${prefix}-client-db-staging`,
+    script(`${prefix}-client-db-staging`, [ownClass("ClientDb")]),
+  );
+  cf.scripts.set(`${prefix}-operator-staging`, script(`${prefix}-operator-staging`));
+  cf.scripts.set("crm-app", script("crm-app", [ownClass("ParkingLedger")]));
   await api.createD1(ACCOUNT, `${prefix}-registry-staging`);
   await api.createD1(ACCOUNT, `${prefix}-staging`);
   await api.createD1(ACCOUNT, "crm");
@@ -89,10 +107,13 @@ async function seed(cf, api, prefix = PREFIX) {
     ACCOUNT,
     `alpha-admin.${prefix}.fleet.example`,
     `${prefix}-app-staging`,
-    "zone000000000000000000000000001",
+    ZONE,
   );
-  await api.putDomain(ACCOUNT, "crm.fleet.example", "crm-app", "zone000000000000000000000000001");
-  // The exports bucket holds an export (more than a page of keys); the blobs bucket a picture.
+  await api.putDomain(ACCOUNT, "crm.fleet.example", "crm-app", ZONE);
+  // Near misses of the run's hostname label: another run's, and a longer label.
+  await api.putDomain(ACCOUNT, `alpha-admin.${prefix}4.fleet.example`, "crm-app", ZONE);
+  await api.putDomain(ACCOUNT, `${prefix}x.fleet.example`, "crm-app", ZONE);
+  // The exports bucket holds an export; the blobs bucket a picture.
   for (let i = 0; i < 3; i++)
     cf.r2Objects.set(`${prefix}-exports-staging/alpha/g/s/database/${i}.json`, new Uint8Array([i]));
   cf.r2Objects.set(`${prefix}-blobs-staging/clients/alpha/media/probe.png`, new Uint8Array([1]));
@@ -109,6 +130,11 @@ const others = (cf) => ({
   objects: [...cf.r2Objects.keys()].filter((k) => !owned(k.split("/")[0], PREFIX)),
 });
 
+const refuse = (code, message, status = 403) =>
+  new Response(JSON.stringify({ success: false, errors: [{ code, message }], result: null }), {
+    status,
+  });
+
 test("names: one throwaway prefix from the run id, exact, and a product cos and the build accept", () => {
   assert.equal(PREFIX, "cosstg-123");
   assert.throws(() => prefixOf("12; rm -rf"), /digits/);
@@ -124,7 +150,10 @@ test("names: one throwaway prefix from the run id, exact, and a product cos and 
   assert.ok(!owned("crm-app", PREFIX));
   const product = defineProduct(productDefinition("123"));
   assert.equal(product.id, PREFIX);
-  for (const name of Object.values(product.names)) assert.ok(name.startsWith(`${PREFIX}`), name);
+  // cos takes a product from a file only when every name is its id's (review of #541, F4).
+  for (const name of Object.values(product.names)) {
+    assert.ok(name === PREFIX || name.startsWith(`${PREFIX}-`), name);
+  }
   const hosts = hostnamesOf(PREFIX, "fleet.example");
   assert.equal(hosts.domain, "cosstg-123.fleet.example");
   assert.equal(hosts.callback, "callback.cosstg-123.fleet.example");
@@ -134,7 +163,7 @@ test("names: one throwaway prefix from the run id, exact, and a product cos and 
   assert.equal(hostnamesOf(PREFIX, "").domain, "cosstg-123.invalid");
 });
 
-test("the inputs are checked", () => {
+test("the inputs are checked, and AI is never on (review of #541, F1)", () => {
   assert.deepEqual(checkOptions({ run: "9" }), {
     run: "9",
     prefix: "cosstg-9",
@@ -143,14 +172,15 @@ test("the inputs are checked", () => {
     zone: "",
     sendingDomain: "",
   });
+  assert.equal(checkOptions({ run: "9", ai: "off" }).ai, "off");
+  assert.throws(() => checkOptions({ run: "9", ai: "on" }), /without AI only/);
   assert.throws(() => checkOptions({ run: "9", location: "mars" }), /location/);
-  assert.throws(() => checkOptions({ run: "9", ai: "maybe" }), /ai/);
   assert.throws(() => checkOptions({ run: "9", zone: "not a zone" }), /zone/);
   assert.throws(() => checkOptions({ run: "9", "sending-domain": "x;y" }), /sending/);
   assert.throws(() => checkOptions({ run: "x" }), /digits/);
 });
 
-test("the inventory lists every kind the run made, and nothing of anyone else's", async () => {
+test("the inventory lists every kind the run made, its Durable Object namespaces too, and nothing of anyone else's", async () => {
   const { cf, api } = world();
   await seed(cf, api);
   const { items, unlisted } = await inventory(api, ACCOUNT, PREFIX);
@@ -159,25 +189,31 @@ test("the inventory lists every kind the run made, and nothing of anyone else's"
     "d1 cosstg-123-registry-staging",
     "d1 cosstg-123-staging",
     "domain alpha-admin.cosstg-123.fleet.example",
+    "durable_object cosstg-123-app-staging_ParkingLedger",
+    "durable_object cosstg-123-client-db-staging_ClientDb",
     "kv cosstg-123-oauth-staging",
     "queue cosstg-123-app-fanout-staging",
     "r2 cosstg-123-blobs-staging",
     "r2 cosstg-123-exports-staging",
     "worker cosstg-123-app-staging",
+    "worker cosstg-123-client-db-staging",
     "worker cosstg-123-operator-staging",
     "worker cosstg-123-runner-staging",
     "workflow cosstg-123-automation-staging",
   ]);
 });
 
-test("teardown deletes all of it (buckets emptied first), lists nothing left, and touches nothing else", async () => {
+test("teardown deletes all of it (buckets emptied first, namespaces with their Workers), lists nothing left, and touches nothing else", async () => {
   const { cf, api } = world();
   await seed(cf, api);
   const before = others(cf);
   const result = await teardown(api, ACCOUNT, PREFIX);
   assert.deepEqual(result.failed, []);
   assert.deepEqual(result.remaining, []);
-  assert.equal(result.deleted.length, 11);
+  assert.deepEqual(result.unlisted, []);
+  // The namespaces are not deleted on their own: they went with their Workers.
+  assert.ok(!result.deleted.some((d) => d.kind === "durable_object"));
+  assert.equal(result.deleted.length, 12);
   // In order: the domain before its Worker, the Workers before what they bound.
   assert.equal(result.deleted[0].kind, "domain");
   assert.ok(
@@ -186,34 +222,53 @@ test("teardown deletes all of it (buckets emptied first), lists nothing left, an
   );
   assert.equal(result.deleted.find((d) => d.name === `${PREFIX}-exports-staging`).objects, 3);
   assert.deepEqual(others(cf), before);
-  // Nothing of the run remains in any store of the fake.
   assert.ok(![...cf.r2Objects.keys()].some((k) => k.startsWith(PREFIX)));
+  assert.match(
+    teardownReport(result, PREFIX),
+    /Nothing with the prefix cosstg-123 is left in the account\./,
+  );
   // A second teardown finds nothing and deletes nothing.
   const again = await teardown(api, ACCOUNT, PREFIX);
   assert.deepEqual(again.deleted, []);
   assert.deepEqual(again.remaining, []);
 });
 
-test("teardown names what it could not delete and what is left, and the command fails", async () => {
+test("a namespace that outlives its Worker's deletion is what is left, and the command fails", async () => {
   const { cf, api } = world();
   await seed(cf, api);
-  const registry = [...cf.d1].find(([, d]) => d.name === `${PREFIX}-registry-staging`)[0];
   cf.failOn = (method, path) =>
-    method === "DELETE" && path.endsWith(`/d1/database/${registry}`)
-      ? new Response(
-          JSON.stringify({
-            success: false,
-            errors: [{ code: 7500, message: "internal error" }],
-            result: null,
-          }),
-          { status: 500 },
-        )
+    method === "DELETE" && path.endsWith(`/scripts/${PREFIX}-client-db-staging`)
+      ? refuse(10000, "internal error", 500)
       : undefined;
   let written = "";
   const code = await teardownCommand(PREFIX, {
     api,
     accountId: ACCOUNT,
     dir: null,
+    secrets: [TOKEN, ACCOUNT],
+    log: () => {},
+    writeSummary: (t) => {
+      written += t;
+    },
+  });
+  assert.equal(code, 1);
+  assert.match(written, /durable_object `cosstg-123-client-db-staging_ClientDb`/);
+});
+
+test("teardown names what it could not delete and what is left, the account cut out, and the command fails (review of #541, F8)", async () => {
+  const { cf, api } = world();
+  await seed(cf, api);
+  const registry = [...cf.d1].find(([, d]) => d.name === `${PREFIX}-registry-staging`)[0];
+  cf.failOn = (method, path) =>
+    method === "DELETE" && path.endsWith(`/d1/database/${registry}`)
+      ? refuse(7500, "internal error", 500)
+      : undefined;
+  let written = "";
+  const code = await teardownCommand(PREFIX, {
+    api,
+    accountId: ACCOUNT,
+    dir: null,
+    secrets: [TOKEN, ACCOUNT],
     log: () => {},
     writeSummary: (t) => {
       written += t;
@@ -223,44 +278,85 @@ test("teardown names what it could not delete and what is left, and the command 
   assert.match(written, /Could not delete \(1\):/);
   assert.match(written, /d1 `cosstg-123-registry-staging`: .*internal error/);
   assert.match(written, /Still there with the prefix \(1\):\*\* d1 `cosstg-123-registry-staging`/);
-  // Everything else went.
+  // Cloudflare's error names the call's path, which names the account: never written.
+  assert.match(written, /\/accounts\/\*\*\*\/d1/);
+  assert.ok(!written.includes(ACCOUNT));
   assert.equal((await inventory(api, ACCOUNT, PREFIX)).items.length, 1);
 });
 
-test("where the account cannot list a kind, teardown deletes the run's recorded names of it, and never another's", async () => {
+test("a kind that cannot be listed fails the teardown, said first, never 'nothing left' (review of #541, F6)", async () => {
   const { cf, api } = world();
   await seed(cf, api);
-  // The token cannot list Workers or Custom Domains (but can delete them).
   cf.failOn = (method, path) =>
-    method === "GET" && (path.endsWith("/workers/scripts") || path.endsWith("/workers/domains"))
-      ? new Response(
-          JSON.stringify({
-            success: false,
-            errors: [{ code: 10000, message: "Authentication error" }],
-            result: null,
-          }),
-          { status: 403 },
-        )
+    method === "GET" && path.endsWith("/workflows")
+      ? refuse(10000, "Authentication error")
       : undefined;
-  const runs = cf.domains.find((d) => d.hostname.startsWith("alpha-admin."));
+  let written = "";
+  const code = await teardownCommand(PREFIX, {
+    api,
+    accountId: ACCOUNT,
+    dir: null,
+    secrets: [TOKEN, ACCOUNT],
+    log: () => {},
+    writeSummary: (t) => {
+      written += t;
+    },
+  });
+  assert.equal(code, 1);
+  const lines = written.split("\n").filter((l) => l.trim());
+  assert.match(lines[1], /^\*\*Not checked: 1 kind could not be listed/);
+  assert.match(written, /workflow: /);
+  assert.ok(!/is left in the account/.test(written));
+  assert.match(written, /left among the kinds that could be listed/);
+  // The kinds it could list are deleted all the same.
+  assert.ok(!cf.scripts.has(`${PREFIX}-app-staging`));
+});
+
+test("where a kind cannot be listed, teardown deletes the run's recorded names of a kind deleted by name, never another's, and never by a recorded id (review of #541, F7)", async () => {
+  const { cf, api } = world();
+  await seed(cf, api);
+  // The token cannot list Workers, Custom Domains or D1 (but could delete them).
+  cf.failOn = (method, path) =>
+    method === "GET" &&
+    (path.endsWith("/workers/scripts") ||
+      path.endsWith("/workers/domains") ||
+      path.endsWith("/d1/database"))
+      ? refuse(10000, "Authentication error")
+      : undefined;
+  const crm = [...cf.d1].find(([, d]) => d.name === "crm")[0];
+  const runs = cf.domains.find((d) => d.hostname.startsWith(`alpha-admin.${PREFIX}.`));
   const recorded = [
     { kind: "worker", name: "crm-app", id: "crm-app" },
-    {
-      kind: "domain",
-      name: "crm.fleet.example",
-      id: cf.domains.find((d) => d.hostname === "crm.fleet.example").id,
-    },
     { kind: "worker", name: `${PREFIX}-app-staging`, id: `${PREFIX}-app-staging` },
+    // A run's name with another's id (a damaged ledger): deleting by that id would delete crm.
+    { kind: "d1", name: `${PREFIX}-staging`, id: crm },
     { kind: "domain", name: runs.hostname, id: runs.id },
+    { kind: "domain", name: `callback.${PREFIX}.fleet.example` },
   ];
   const result = await teardown(api, ACCOUNT, PREFIX, recorded);
   assert.ok(!cf.scripts.has(`${PREFIX}-app-staging`));
-  assert.ok(!cf.domains.some((d) => d.hostname === runs.hostname));
   assert.ok(cf.scripts.has("crm-app"));
+  assert.ok([...cf.d1.values()].some((d) => d.name === "crm"));
+  // Those deleted by id are not deleted from the ledger: named, and the teardown is not clean.
+  assert.deepEqual(result.failed.map((f) => `${f.kind} ${f.name}`).sort(), [
+    `d1 ${PREFIX}-staging`,
+    `domain alpha-admin.${PREFIX}.fleet.example`,
+    `domain callback.${PREFIX}.fleet.example`,
+  ]);
+  assert.match(result.failed[0].error, /cannot be checked against its name/);
   assert.ok(cf.domains.some((d) => d.hostname === "crm.fleet.example"));
-  // What it could not list it says, so nothing is taken as checked that was not.
-  assert.equal(result.unlisted.length, 2);
-  assert.match(teardownReport(result, PREFIX), /Could not list \(so not checked\): domain: /);
+  assert.equal(result.unlisted.length, 3);
+});
+
+test("domains: only a hostname with a label exactly the prefix, or a run's Worker's", async () => {
+  const { cf, api } = world();
+  await seed(cf, api);
+  await teardown(api, ACCOUNT, PREFIX);
+  assert.deepEqual(cf.domains.map((d) => d.hostname).sort(), [
+    "alpha-admin.cosstg-1234.fleet.example",
+    "cosstg-123x.fleet.example",
+    "crm.fleet.example",
+  ]);
 });
 
 test("a run that fails half-way: the later steps are skipped, the summary says why, and teardown leaves nothing", async () => {
@@ -277,6 +373,13 @@ test("a run that fails half-way: the later steps are skipped, the summary says w
     }
     if (args[0] === "fleet" && args[1] === "install") {
       await seed(cf, api);
+      cf.scripts.set(
+        `${PREFIX}-app-staging`,
+        script(`${PREFIX}-app-staging`, [
+          ownClass("ParkingLedger"),
+          { type: "plain_text", name: "COS_RELEASE_VERSION", text: VERSIONS.from },
+        ]),
+      );
       return { code: 0, out: "Done: the staging host is 0.1.0.", ms: 50 };
     }
     if (args[0] === "client" && args[1] === "add") {
@@ -307,10 +410,12 @@ test("a run that fails half-way: the later steps are skipped, the summary says w
   const status = Object.fromEntries(results.map((r) => [r.id, r.status]));
   assert.deepEqual(status, {
     account: "pass",
-    install: "pass",
+    // No zone: the install ran, and the host's health was not checked.
+    install: "partial",
     add: "fail",
     requests: "skipped",
     sender: "skipped",
+    send: "not checked",
     upgrade: "skipped",
     export: "skipped",
     concurrent: "skipped",
@@ -318,23 +423,24 @@ test("a run that fails half-way: the later steps are skipped, the summary says w
   });
   const add = results.find((r) => r.id === "add");
   assert.match(add.note, /Queues are not available on this account's plan/);
-  // The account id was in cos's error: it is never in the note or the summary.
   assert.ok(!add.note.includes(ACCOUNT));
   assert.ok(!summary.includes(ACCOUNT));
   assert.ok(!summary.includes("secret-subdomain"));
+  // The verdict and the zone's absence open the summary.
+  assert.match(summary, /^## .*\n\n\*\*Not proved\.\*\* 1 partial, 2 fail, 3 skipped/);
+  assert.match(summary, /\*\*No zone:\*\*/);
   assert.match(summary, /\| 2\. cos client add, two clients \| \*\*fail\*\* \|/);
   assert.match(summary, /\| 3\. Requests.* \| skipped \| {2}\| needs add \|/);
-  // What the install made was recorded as the run went, by exact name.
   const ledger = JSON.parse(readFileSync(join(dir, "ledger.json"), "utf8"));
   assert.ok(ledger.some((i) => i.kind === "d1" && i.name === `${PREFIX}-registry-staging`));
   assert.ok(!ledger.some((i) => i.name === "crm"));
-  // Teardown, from the ledger and the listing: nothing of the run is left, nothing else touched.
   const before = others(cf);
   let report = "";
   const code = await teardownCommand(PREFIX, {
     api,
     accountId: ACCOUNT,
     dir,
+    secrets: [TOKEN, ACCOUNT],
     log: () => {},
     writeSummary: (t) => {
       report += t;
@@ -346,53 +452,303 @@ test("a run that fails half-way: the later steps are skipped, the summary says w
   assert.ok(commands.every((c) => !c.includes(TOKEN)));
 });
 
-test("a run that finds the prefix already in the account stops before installing", async () => {
-  const { cf, api } = world();
-  await seed(cf, api);
-  const ran = [];
-  const results = await check(checkOptions({ run: "123" }), {
-    api,
-    accountId: ACCOUNT,
-    cos: async (args) => {
-      ran.push(args.join(" "));
-      return { code: 0, out: "", ms: 1 };
+test("a run that finds the prefix already in the account, or cannot list it, stops before installing", async () => {
+  for (const setUp of [
+    async (cf, api) => seed(cf, api),
+    async (cf) => {
+      cf.failOn = (method, path) =>
+        method === "GET" && path.endsWith("/workflows")
+          ? refuse(10000, "Authentication error")
+          : undefined;
     },
-    fetchImpl: async () => new Response("", { status: 404 }),
-    dir: mkdtempSync(join(tmpdir(), "s66s7-stg-")),
-    log: () => {},
-    writeSummary: () => {},
-  });
-  assert.equal(results[0].status, "fail");
-  assert.match(results[0].note, /mode remove first/);
-  assert.deepEqual(ran, []);
+  ]) {
+    const { cf, api } = world();
+    await setUp(cf, api);
+    const ran = [];
+    const results = await check(checkOptions({ run: "123" }), {
+      api,
+      accountId: ACCOUNT,
+      cos: async (args) => {
+        ran.push(args.join(" "));
+        return { code: 0, out: "", ms: 1 };
+      },
+      fetchImpl: async () => new Response("", { status: 404 }),
+      dir: mkdtempSync(join(tmpdir(), "s66s7-stg-")),
+      log: () => {},
+      writeSummary: () => {},
+    });
+    assert.equal(results[0].status, "fail");
+    assert.match(results[0].note, /mode remove first|cannot be fully listed/);
+    assert.deepEqual(ran, []);
+  }
 });
 
-test("runSteps: a failure is recorded with its time, and only what needs it is skipped", async () => {
+test("runSteps and the verdict: a partial step lets what needs it run, and fails the run (review of #541, F5)", async () => {
   const results = await runSteps(
     [
-      { id: "a", name: "A", run: async () => ({ note: "ok" }) },
+      { id: "a", name: "1. A", run: async () => ({ note: "ok" }) },
       {
         id: "b",
-        name: "B",
+        name: "2. B",
         needs: ["a"],
         run: async () => {
           throw new Error("broke");
         },
       },
-      { id: "c", name: "C", needs: ["b"], run: async () => ({}) },
-      { id: "d", name: "D", needs: ["a"], run: async () => ({ status: "partial", note: "half" }) },
-      { id: "e", name: "E", needs: ["d"], run: async () => ({}) },
+      { id: "c", name: "3. C", needs: ["b"], run: async () => ({}) },
+      {
+        id: "d",
+        name: "4. D",
+        needs: ["a"],
+        run: async () => ({ status: "partial", note: "half" }),
+      },
+      { id: "e", name: "5. E", needs: ["d"], run: async () => ({}) },
+      { id: "f", name: "6. F", run: async () => ({ status: "not checked", note: "cannot" }) },
     ],
     {},
   );
   assert.deepEqual(
     results.map((r) => `${r.id}:${r.status}`),
-    ["a:pass", "b:fail", "c:skipped", "d:partial", "e:pass"],
+    ["a:pass", "b:fail", "c:skipped", "d:partial", "e:pass", "f:not checked"],
   );
   assert.equal(results[1].note, "broke");
   assert.equal(typeof results[1].ms, "number");
   assert.equal(results[2].ms, null);
-  assert.match(summaryTable(results), /\| B \| \*\*fail\*\* \| 0\.0 s \| broke \|/);
+  assert.match(summaryTable(results), /\| 2\. B \| \*\*fail\*\* \| 0\.0 s \| broke \|/);
+  const v = verdict(results);
+  assert.equal(v.proved, false);
+  assert.match(v.line, /2 fail, 3 skipped, 4 partial/);
+  assert.match(v.line, /Not checked here at all: 6\. F/);
+  // Only a partial step short: still not proved.
+  assert.equal(
+    verdict([
+      { name: "1. A", status: "pass" },
+      { name: "2. B", status: "partial" },
+    ]).proved,
+    false,
+  );
+  assert.equal(
+    verdict([
+      { name: "1. A", status: "pass" },
+      { name: "6. F", status: "not checked" },
+    ]).proved,
+    true,
+  );
+});
+
+// --- the steps' own demands, with cos and the hostnames scripted ---------------------------------
+
+const step = (id) => checkSteps().find((s) => s.id === id);
+const listing = (rows) =>
+  `${Object.keys(rows).length} clients (staging):\n${Object.entries(rows)
+    .map(([id, [status, schema]]) => `  ${id}  ${status}  standard  schema ${schema}`)
+    .join("\n")}`;
+
+/** A context for one step: cos answering from `answer(args, env)`, the app Worker at `version`. */
+function stepCtx({ answer, version = () => VERSIONS.from, fetch, zone = true }) {
+  const hosts = hostnamesOf(PREFIX, zone ? "fleet.example" : "");
+  return {
+    prefix: PREFIX,
+    run: "123",
+    zoneId: zone ? ZONE : null,
+    hosts,
+    keysFile: "/nonexistent/keys.json",
+    accountId: ACCOUNT,
+    api: {
+      scriptBindings: async () => [
+        { type: "plain_text", name: "COS_RELEASE_VERSION", text: version() },
+      ],
+    },
+    cos: async (args, options = {}) => answer(args, options.env ?? {}),
+    fetch: fetch ?? (async () => new Response("{}", { status: 200 })),
+    waitMs: 0,
+    sleep: async () => {},
+    staff: {},
+    secrets: () => [],
+    addSecret: () => {},
+    record: () => {},
+  };
+}
+
+/** The upgrade's three runs as cos answers them, with what `cos client list` says between. */
+function upgradeCos({ restoreLeavesAlpha = false, uploadsAnyway = false } = {}) {
+  const { a, b } = CLIENTS;
+  const state = { schema: { [a]: "1450", [b]: "1450" }, version: VERSIONS.from };
+  const answer = (args, env) => {
+    if (args[1] === "list") {
+      return {
+        code: 0,
+        out: listing({ [a]: ["active", state.schema[a]], [b]: ["active", state.schema[b]] }),
+        ms: 1,
+      };
+    }
+    if (env.COS_FLEET_FORCE_FAILURE?.startsWith("migration:")) {
+      if (restoreLeavesAlpha) state.schema[a] = String(STAGING_MIGRATION.schema);
+      if (uploadsAnyway) state.version = VERSIONS.to;
+      return {
+        code: 1,
+        out: `The update stopped before any upload: ${a}, ${b} restored to their bookmarks; every client is as it was.`,
+        ms: 9,
+      };
+    }
+    if (env.COS_FLEET_FORCE_FAILURE === "smoke") {
+      return {
+        code: 1,
+        out: "  smoke check failed: COS_FLEET_FORCE_FAILURE=smoke: made to fail (the staging check)\nRolled back: 0.1.0's Workers again, 2 clients restored.",
+        ms: 9,
+      };
+    }
+    state.schema[a] = state.schema[b] = String(STAGING_MIGRATION.schema);
+    state.version = VERSIONS.to;
+    return { code: 0, out: "Updated 0.1.0 → 0.1.1", ms: 9 };
+  };
+  return { answer, state };
+}
+const healthFetch = (state) => async (url) =>
+  new Response(
+    url.endsWith("/api/health") ? JSON.stringify({ host: true, version: state.version }) : "ok",
+    { status: 200 },
+  );
+
+test("the upgrade step: its three runs pass only as they should (review of #541, F5)", async () => {
+  const good = upgradeCos();
+  const ctx = stepCtx({
+    answer: good.answer,
+    version: () => good.state.version,
+    fetch: healthFetch(good.state),
+  });
+  const ok = await step("upgrade").run(ctx);
+  assert.equal(ok.status, undefined, ok.note);
+  assert.match(ok.note, /schema 9000/);
+  // A restore that left alpha migrated fails.
+  const left = upgradeCos({ restoreLeavesAlpha: true });
+  await assert.rejects(
+    step("upgrade").run(
+      stepCtx({
+        answer: left.answer,
+        version: () => left.state.version,
+        fetch: healthFetch(left.state),
+      }),
+    ),
+    /alpha is .* after the failed migration/,
+  );
+  // An upload in spite of the failed migration fails, seen on the Worker, not in cos's words.
+  const uploaded = upgradeCos({ uploadsAnyway: true });
+  await assert.rejects(
+    step("upgrade").run(
+      stepCtx({
+        answer: uploaded.answer,
+        version: () => uploaded.state.version,
+        fetch: healthFetch(uploaded.state),
+      }),
+    ),
+    /something was uploaded/,
+  );
+  // With no zone, the success is not run: partial.
+  const noZone = upgradeCos();
+  const partial = await step("upgrade").run(
+    stepCtx({ answer: noZone.answer, version: () => noZone.state.version, zone: false }),
+  );
+  assert.equal(partial.status, "partial");
+});
+
+test("the requests step: B's password at A must be the wrong-password answer, not any refusal (review of #541, F5)", async () => {
+  // Each client's session cookie names its client; it is a session only at that client's address.
+  const host = (url) => new URL(url).hostname.split("-admin.")[0];
+  const answerWith =
+    (crossed) =>
+    async (url, init = {}) => {
+      if (url.endsWith("/api/auth/sign-up/email")) {
+        return new Response("{}", {
+          status: 200,
+          headers: { "set-cookie": `__Host-cos.session_token=${host(url)}; Path=/` },
+        });
+      }
+      if (url.endsWith("/api/auth/sign-in/email")) return new Response("{}", { status: crossed });
+      if (url.includes("/api/v1/op/")) {
+        return init.headers?.cookie === `__Host-cos.session_token=${host(url)}`
+          ? new Response("{}", { status: 200 })
+          : new Response(
+              JSON.stringify({ error: { code: "unauthenticated", id: crypto.randomUUID() } }),
+              { status: 401 },
+            );
+      }
+      if (url.endsWith("/api/health"))
+        return new Response(JSON.stringify({ host: true, version: VERSIONS.from }));
+      if (url.includes("/api/media")) return new Response("{}", { status: 201 });
+      return new Response("ok", { status: url.includes("workers.dev") ? 404 : 200 });
+    };
+  const run = (crossed) =>
+    step("requests").run({
+      ...stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }) }),
+      subdomain: "x",
+      fetch: answerWith(crossed),
+    });
+  // The op answers differ only in a request id: still the same refusal.
+  await assert.doesNotReject(run(401));
+  await assert.rejects(run(429), /answered 429, not 401/);
+  await assert.rejects(run(500), /answered 500, not 401/);
+});
+
+/** An export folder as cos writes one, with one file. */
+function exportDir(counts, file = new Uint8Array([9, 9])) {
+  const dir = mkdtempSync(join(tmpdir(), "s66s7-exp-"));
+  mkdirSync(join(dir, "database"));
+  mkdirSync(join(dir, "files", "media"), { recursive: true });
+  const part = '{"statements":[]}';
+  writeFileSync(join(dir, "database", "000000.json"), part);
+  writeFileSync(join(dir, "files", "media", "probe.png"), file);
+  const sha = (b) => createHash("sha256").update(b).digest("hex");
+  writeFileSync(
+    join(dir, "manifest.json"),
+    JSON.stringify({
+      database: { parts: [{ path: "database/000000.json", sha256: sha(part) }], counts },
+      files: [{ key: "media/probe.png", sha256: sha(new Uint8Array([9, 9])) }],
+    }),
+  );
+  return dir;
+}
+
+test("an export's hashes are recomputed from its bytes, and an empty one is no proof (review of #541, F5)", async () => {
+  const good = exportDir({ core_settings: 3 });
+  assert.deepEqual(exportFacts(good).problems, []);
+  const damaged = exportDir({ core_settings: 3 }, new Uint8Array([1]));
+  assert.deepEqual(exportFacts(damaged).problems, ["file media/probe.png differs"]);
+  // The step: an export that counts no rows fails, however alike the two are.
+  const ctx = (first, again) => ({
+    ...stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }), zone: false }),
+    exportDir: first,
+    reexportDir: again,
+  });
+  await assert.rejects(step("export").run(ctx(exportDir({}), exportDir({}))), /counts no rows/);
+  await assert.rejects(step("export").run(ctx(good, damaged)), /differs/);
+  const partial = await step("export").run(ctx(good, exportDir({ core_settings: 3 })));
+  assert.equal(partial.status, "partial");
+});
+
+test("two commands at once: no overlap is partial, never a pass or a false failure (review of #541, F5)", async () => {
+  const quick = stepCtx({
+    answer: (args) => ({
+      code: 0,
+      out: args[1] === "add" ? "registry: delta added" : "Exported bravo",
+      ms: 1,
+    }),
+  });
+  const result = await step("concurrent").run(quick);
+  assert.equal(result.status, "partial");
+  const refused = stepCtx({
+    answer: (args) =>
+      args[1] === "add"
+        ? new Promise((done) =>
+            setTimeout(() => done({ code: 0, out: "registry: delta added", ms: 1 }), 20),
+          )
+        : {
+            code: 1,
+            out: "Error: Another operator's command (client add) holds the operator's Worker",
+            ms: 1,
+          },
+  });
+  assert.equal((await step("concurrent").run(refused)).status, undefined);
 });
 
 test("what a failure needed, said plainly; secrets cut out; cos's list and exports read", () => {
