@@ -1766,7 +1766,8 @@ generator's input. A change that would break a compiled client is a new API vers
 
 A native app's sign-in on the HTTP surface: a short-lived access token and a refresh token that
 rotates on every use, for one audience, named by the device. A reused refresh token ends it, and
-so does a period without use (ADR 0419).
+so does a period without use (ADR 0419); the one token just rotated past gets the same answer
+again for 60 seconds, for a device whose answer was lost (ADR 0419, amended 2026-11-27).
 _Avoid_: token session, API key
 
 ### Staff invite
