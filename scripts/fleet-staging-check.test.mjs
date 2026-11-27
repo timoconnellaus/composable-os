@@ -1383,7 +1383,7 @@ test("a client's packs must answer within PACKS_BOUND_MS: at once, after 503s st
 });
 
 test("a client's first operation must answer within FIRST_OP_BOUND_MS: a fresh client's (step 3) and the first after an upgrade (step 5), issue #558", async () => {
-  assert.equal(FIRST_OP_BOUND_MS, 5000);
+  assert.equal(FIRST_OP_BOUND_MS, 8000);
   const host = (url) => new URL(url).hostname.split("-admin.")[0];
   /** Every call answers as it should; `slow`'s first person.list takes `ms` (a clock moved on). */
   const fetchWith =
@@ -1423,7 +1423,7 @@ test("a client's first operation must answer within FIRST_OP_BOUND_MS: a fresh c
     // Staging run 46007691132: a fresh client's first person.list answered in 18.3 s.
     await assert.rejects(
       requests(18_300),
-      /bravo's first person\.list took 200 in 18\.3 s: more than 5 s for a first operation/,
+      /bravo's first person\.list took 200 in 18\.3 s: more than 8 s for a first operation/,
     );
     await assert.doesNotReject(requests(FIRST_OP_BOUND_MS - 1000));
 
@@ -1444,7 +1444,7 @@ test("a client's first operation must answer within FIRST_OP_BOUND_MS: a fresh c
     };
     await assert.rejects(
       upgrade(19_300),
-      /after the upgrade alpha's first person\.list took 200 in 19\.3 s: more than 5 s/,
+      /after the upgrade alpha's first person\.list took 200 in 19\.3 s: more than 8 s/,
     );
     const ok = await upgrade(1000);
     assert.match(ok.note, /alpha's first person\.list after the upgrade answered 200 in 1\.0 s/);
@@ -1710,24 +1710,48 @@ function exportWithRows(statements, packs = "deals,leads") {
 
 const setting = (key, value) =>
   `INSERT INTO "core_settings" ("key", "value", "updated_at") VALUES ('${key}', '${value}', '2026-11-27')`;
-const audit = (id, operation) =>
-  `INSERT INTO "core_audit" ("id", "at", "operation") VALUES ('${id}', '2026-11-27', '${operation}')`;
+const audit = (id, operation, input = "{}") =>
+  `INSERT INTO "core_audit" ("id", "at", "operation", "input") VALUES ('${id}', '2026-11-27', '${operation}', '${input}')`;
+const install = (id, pack) => audit(id, "extension.install", `{"id":"${pack}","shipped":true}`);
 const counter = (id, hour) =>
   `INSERT INTO "core_automation_counters" ("automation_id", "hour", "runs") VALUES ('${id}', '${hour}', 1)`;
 const person = (id, name) => `INSERT INTO "core_person" ("id", "name") VALUES ('${id}', '${name}')`;
 const embedding = (table, id) =>
   `INSERT INTO "${table}" ("object_type", "record_id", "queued_at") VALUES ('person', '${id}', '2026-11-27')`;
+const extension = (id, commit, at, version = "1.0.0") =>
+  `INSERT INTO "core_extensions" ("id", "source", "status", "version", "commit_oid", "manifest", "installed_at", "updated_at") VALUES ('${id}', 'shipped', 'active', '${version}', '${commit}', '{}', '2026-11-27T16:30', '${at}')`;
+const extensionVersion = (id, commit) =>
+  `INSERT INTO "core_extension_versions" ("extension_id", "commit_oid", "version", "installed_at") VALUES ('${id}', '${commit}', '1.0.0', '2026-11-27')`;
+const automation = (id, pack, commit, at, label = "Follow up") =>
+  `INSERT INTO "core_automations" ("id", "extension_id", "label", "commit_oid", "updated_at") VALUES ('${id}', '${pack}', '${label}', '${commit}', '${at}')`;
 const ALPHA = [
   'CREATE TABLE "core_settings" (key TEXT PRIMARY KEY, value TEXT)',
+  'CREATE TABLE "core_person" ("id" TEXT NOT NULL, "name" TEXT, PRIMARY KEY ("id"))',
   setting("org_name", "Staging check"),
   setting("embedding_backfill", '{"after":"10"}'),
   audit("1", "person.create"),
   counter("~dateRelative", "2026-11-26"),
   person("p1", "Ada"),
+  extension("deals", "aaa", "2026-11-27T16:30"),
+  extensionVersion("deals", "aaa"),
+  automation("deals.followUp", "deals", "aaa", "2026-11-27T16:30"),
   "INSERT INTO sqlite_sequence (name, seq) VALUES ('core_audit', 3)",
+];
+/** Charlie's first operation on this host: deals installed again, as installExtension writes it. */
+const REINSTALLED = [
+  ...ALPHA.filter(
+    (s) =>
+      s !== extension("deals", "aaa", "2026-11-27T16:30") &&
+      s !== automation("deals.followUp", "deals", "aaa", "2026-11-27T16:30"),
+  ),
+  extension("deals", "bbb", "2026-11-27T16:50"),
+  extensionVersion("deals", "bbb"),
+  automation("deals.followUp", "deals", "bbb", "2026-11-27T16:50"),
+  install("9", "deals"),
 ];
 const facts = (statements) => exportFacts(exportWithRows(statements));
 const first = facts(ALPHA);
+const problemsOf = (statements) => [...compareExports(first, facts(statements))];
 
 test("an import keeps every table exactly, the host's own writes only as named (staging run 46034389470, step 6; review of #562, S1)", async () => {
   // A large row: its scratch statements are one unit with its INSERT.
@@ -1745,15 +1769,13 @@ test("an import keeps every table exactly, the host's own writes only as named (
   assert.equal(columnOf(setting("a", "it''s, (x)"), "value"), "it's, (x)");
   assert.deepEqual([...compareExports(first, first)], []);
 
-  // What the host writes to a live client: markers, a cron setting changing, the pack install's
-  // audit rows, its stamp. Allowed, and named by key, operation and marker, never by value.
+  // What the host writes to a live client: markers, a cron setting changing, its stamp. Allowed,
+  // and named by key and marker, never by value.
   const live = compareExports(
     first,
     facts([
       ...ALPHA.filter((s) => !s.includes("embedding_backfill") && !s.includes("~dateRelative")),
       setting("embedding_backfill", '{"after":"11"}'),
-      audit("2", "extension.install"),
-      audit("3", "extension.install"),
       counter("~dateRelativeZoned", "2026-11-27T16"),
       `INSERT INTO "core_meta" ("key", "value") VALUES ('shipped_install', 'x')`,
       "INSERT INTO sqlite_sequence (name, seq) VALUES ('core_audit', 5)",
@@ -1762,7 +1784,6 @@ test("an import keeps every table exactly, the host's own writes only as named (
   assert.deepEqual([...live], []);
   assert.deepEqual(live.allowed, [
     "core_settings: 1 changed (key embedding_backfill)",
-    "core_audit: +2 (operation extension.install ×2)",
     "core_automation_counters: +1 (automation_id ~dateRelativeZoned), −1 (automation_id ~dateRelative)",
     "core_meta: +1 (key shipped_install)",
   ]);
@@ -1770,7 +1791,10 @@ test("an import keeps every table exactly, the host's own writes only as named (
   // Not the host's: an extra person, an audit row of any other operation, another setting added
   // or changed, a counter that is no marker.
   for (const [extra, why] of [
-    [[person("p2", "Mallory")], "core_person: 1 rows in the import that were not in the export"],
+    [
+      [person("p2", "Mallory")],
+      "core_person: 1 rows in the import that were not in the export (id p2)",
+    ],
     [
       [audit("4", "person.create")],
       "core_audit: 1 rows in the import that were not in the export (operation person.create)",
@@ -1784,51 +1808,36 @@ test("an import keeps every table exactly, the host's own writes only as named (
       "core_automation_counters: 1 rows in the import that were not in the export (automation_id automation-1)",
     ],
   ]) {
-    assert.deepEqual([...compareExports(first, facts([...ALPHA, ...extra]))], [why]);
+    assert.deepEqual(problemsOf([...ALPHA, ...extra]), [why]);
   }
-  // A row changed or lost, a next id lowered, a schema statement missing: still fail.
+  // A changed row is named by its key and the columns that differ, never their values.
   const swap = (from, to) => ALPHA.map((s) => (s === from ? to : s));
   assert.deepEqual(
-    [
-      ...compareExports(
-        first,
-        facts(swap(setting("org_name", "Staging check"), setting("org_name", "Other"))),
-      ),
-    ],
-    [
-      "core_settings: 1 of the export's 2 rows not in the import as they were (key org_name)",
-      "core_settings: 1 rows in the import that were not in the export (key org_name)",
-    ],
+    problemsOf(swap(setting("org_name", "Staging check"), setting("org_name", "Other"))),
+    ["core_settings: 1 rows changed by key: org_name (columns value)"],
   );
-  assert.deepEqual(
-    [...compareExports(first, facts(ALPHA.filter((s) => !s.includes("Ada"))))],
-    ["core_person: 1 of the export's 1 rows not in the import as they were"],
-  );
+  assert.deepEqual(problemsOf(swap(person("p1", "Ada"), person("p1", "Eve"))), [
+    "core_person: 1 rows changed by id: p1 (columns name)",
+  ]);
+  assert.deepEqual(problemsOf(ALPHA.filter((s) => !s.includes("Ada"))), [
+    "core_person: 1 of the export's 1 rows not in the import (id p1)",
+  ]);
   // A cron key may change, never go.
+  assert.deepEqual(problemsOf(ALPHA.filter((s) => !s.includes("embedding_backfill"))), [
+    "core_settings: 1 of the export's 2 rows not in the import (key embedding_backfill)",
+  ]);
   assert.deepEqual(
-    [...compareExports(first, facts(ALPHA.filter((s) => !s.includes("embedding_backfill"))))],
-    [
-      "core_settings: 1 of the export's 2 rows not in the import as they were (key embedding_backfill)",
-    ],
-  );
-  assert.deepEqual(
-    [
-      ...compareExports(
-        first,
-        facts(
-          swap(
-            "INSERT INTO sqlite_sequence (name, seq) VALUES ('core_audit', 3)",
-            "INSERT INTO sqlite_sequence (name, seq) VALUES ('core_audit', 2)",
-          ),
-        ),
+    problemsOf(
+      swap(
+        "INSERT INTO sqlite_sequence (name, seq) VALUES ('core_audit', 3)",
+        "INSERT INTO sqlite_sequence (name, seq) VALUES ('core_audit', 2)",
       ),
-    ],
+    ),
     ["core_audit's next id went back: 3, then 2"],
   );
-  assert.deepEqual(
-    [...compareExports(first, facts(ALPHA.slice(1)))],
-    ["1 of the export's schema statements are not in the import as they were"],
-  );
+  assert.deepEqual(problemsOf(ALPHA.slice(1)), [
+    "1 of the export's schema statements are not in the import as they were",
+  ]);
 
   // The search index: each record of the export's core_embedding queued again, or embedded
   // again since; one in neither fails.
@@ -1841,36 +1850,92 @@ test("an import keeps every table exactly, the host's own writes only as named (
   assert.match(queued.allowed.join("; "), /core_embedding: 0 added, 1 gone/);
   assert.deepEqual(
     [...compareExports(indexed, facts(ALPHA))],
-    ["core_embedding: 1 of the export's 1 rows not in the import as they were"],
+    ["core_embedding: 1 of the export's 1 rows not in the import"],
   );
   assert.deepEqual(
     [...compareExports(indexed, facts([...ALPHA, embedding("core_embedding_queue", "p9")]))],
     [
-      "core_embedding: 1 of the export's 1 rows not in the import as they were",
+      "core_embedding: 1 of the export's 1 rows not in the import",
       "core_embedding_queue: 1 rows in the import that were not in the export",
     ],
   );
+});
 
-  // The step: passes, naming what the host wrote; fails on an extra person.
+test("a shipped pack installed again on this host passes with exactly its writes, and is noted (review of #562)", async () => {
+  const reinstalled = compareExports(first, facts(REINSTALLED));
+  assert.deepEqual([...reinstalled], []);
+  assert.match(reinstalled.allowed.join("; "), /shipped packs installed again on this host: deals/);
+  // Another column of its row changed: fails, naming the row and the column.
+  const versioned = REINSTALLED.map((s) =>
+    s.startsWith(`INSERT INTO "core_extensions"`)
+      ? extension("deals", "bbb", "2026-11-27T16:50", "2.0.0")
+      : s,
+  );
+  assert.deepEqual(problemsOf(versioned).sort(), [
+    "core_audit: 1 rows in the import that were not in the export (operation extension.install)",
+    "core_automations: 1 rows changed by id: deals.followUp (columns commit_oid, updated_at)",
+    "core_extension_versions: 1 rows in the import that were not in the export",
+    "core_extensions: 1 rows changed by id: deals (columns commit_oid, updated_at, version)",
+  ]);
+  // Without its audit row: fails.
+  const silent = REINSTALLED.filter((s) => !s.includes("extension.install"));
+  assert.ok(
+    problemsOf(silent).some((p) =>
+      p.startsWith("core_extensions: 1 rows changed by id: deals (columns commit_oid, updated_at)"),
+    ),
+  );
+  // Without its new version's row: fails too.
+  const unversioned = REINSTALLED.filter((s) => s !== extensionVersion("deals", "bbb"));
+  assert.ok(
+    problemsOf(unversioned).some((p) =>
+      p.startsWith("core_extensions: 1 rows changed by id: deals (columns commit_oid, updated_at)"),
+    ),
+  );
+  // An install audit row with no pack changed: fails, named.
+  assert.deepEqual(problemsOf([...ALPHA, install("9", "deals")]), [
+    "core_audit: 1 rows in the import that were not in the export (operation extension.install)",
+  ]);
+  // A pack the client was not given: fails.
+  assert.ok(
+    [...compareExports(facts(ALPHA), exportFacts(exportWithRows(REINSTALLED, "deals,leads")))]
+      .length === 0,
+  );
+  const notGiven = compareExports(
+    exportFacts(exportWithRows(ALPHA, "leads")),
+    exportFacts(exportWithRows(REINSTALLED, "leads")),
+  );
+  assert.ok(
+    [...notGiven].some((p) => p.startsWith("core_extensions: 1 rows changed by id: deals")),
+  );
+  // An automation of the pack changed otherwise: fails.
+  const relabelled = REINSTALLED.map((s) =>
+    s.startsWith(`INSERT INTO "core_automations"`)
+      ? automation("deals.followUp", "deals", "bbb", "2026-11-27T16:50", "Other")
+      : s,
+  );
+  assert.ok(
+    problemsOf(relabelled).some((p) =>
+      p.includes("deals.followUp (columns commit_oid, label, updated_at)"),
+    ),
+  );
+
+  // The step: passes, naming the reinstall; fails on an extra person.
   const ctx = (one, two) => ({
     ...stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }), zone: false }),
     exportDir: one,
     reexportDir: two,
   });
-  const passed = await step("export").run(
-    ctx(exportWithRows(ALPHA), exportWithRows([...ALPHA, audit("2", "extension.install")])),
-  );
+  const passed = await step("export").run(ctx(exportWithRows(ALPHA), exportWithRows(REINSTALLED)));
   assert.match(passed.note, /every row of the export in it as it was/);
   assert.match(
     passed.note,
-    /what the host wrote to charlie since: core_audit: \+1 \(operation extension\.install\)/,
+    /what the host wrote to charlie since: shipped packs installed again on this host: deals/,
   );
   await assert.rejects(
     step("export").run(ctx(exportWithRows(ALPHA), exportWithRows([...ALPHA, person("p2", "M")]))),
-    /core_person: 1 rows in the import that were not in the export/,
+    /core_person: 1 rows in the import that were not in the export \(id p2\)/,
   );
 });
-
 const unresolved = () => {
   throw new TypeError("fetch failed", {
     cause: Object.assign(new Error("getaddrinfo ENOTFOUND x"), { code: "ENOTFOUND" }),
