@@ -1247,6 +1247,33 @@ describe("blocks (criterion 10)", () => {
     expect((await cos("diff", "greeting")).output).toContain("No upstream change");
   });
 
+  it("cos add of a copied block leaves it, and --replace takes the release's copy, naming the edits it drops", async () => {
+    await publish("1.0.0");
+    await publish("1.1.0", (files) => {
+      files["blocks/greeting/greeting.tsx"] =
+        'export function Greeting({ name }: { name: string }) {\n  return <p className="greeting">Hello, {name}!</p>;\n}\n';
+    });
+    const dir = await created();
+    expect((await cos("add", "greeting")).code).toBe(0);
+    const file = join(dir, "apps", "web", "src", "blocks", "greeting", "greeting.tsx");
+    writeFileSync(file, readFileSync(file, "utf8").replace("<p>", '<p style={{ color: "teal" }}>'));
+    expect((await cos("upgrade", "--no-typecheck")).code).toBe(0);
+    // Without --replace the copy is the client's: nothing changes, and the way to replace it is said.
+    const again = await cos("add", "greeting");
+    expect(again.code, again.output).toBe(0);
+    expect(again.output).toContain("cos add greeting --replace");
+    expect(readFileSync(file, "utf8")).toContain("teal");
+    // With it, the release's file replaces the copy and the lock records this release.
+    const replaced = await cos("add", "greeting", "--replace");
+    expect(replaced.code, replaced.output).toBe(0);
+    expect(replaced.output).toContain("your edits to greeting.tsx are gone");
+    expect(readFileSync(file, "utf8")).toContain('className="greeting"');
+    expect(JSON.parse(read(dir, "blocks.lock.json")).greeting).toMatchObject({ version: "1.1.0" });
+    expect((await cos("diff", "greeting")).output).toContain("No upstream change");
+    // Replacing a copy with no edits names none.
+    expect((await cos("add", "greeting", "--replace")).output).not.toContain("your edits");
+  });
+
   it("prints the release's version of a pack and the install command the app takes (Expo)", async () => {
     await publish("1.0.0");
     const dir = join(scratch(), "gym");

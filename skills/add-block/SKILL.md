@@ -140,6 +140,10 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    `pnpm cos diff <name> --accept` shows the changes once more and records the block as merged up
    to the version the repo is on (in `blocks.lock.json`), so the next `cos diff` shows only what
    changes after it. It refuses `--version` of another release: upgrade first. Commit the lock.
+   `cos add <name>` on a block already copied leaves your copy alone. To start again from the
+   release's copy instead (your edits not worth merging), `pnpm cos add <name> --replace`: its
+   copied files are replaced, the lock records this release, and the files you had edited are
+   named (git still has them). The blocks it depends on are not touched; replace each by name.
    `cos upgrade` lists every copied block whose upstream files changed since it was copied (and a
    block it now depends on: `cos add <that block>`). A pack's section of My account whose copied
    block lacks the export the new release's section names is left out of

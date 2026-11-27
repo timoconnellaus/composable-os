@@ -16,7 +16,7 @@
 //   { "name", "pack": "deals" | null, "skin": "web" | "native", "operations": [...],
 //     "files": [...], "dependsOn": [...] }
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { PortalPackFile } from "@composable-os/core/http-contract";
 import type { ClientProductDefinition } from "@composable-os/product";
@@ -444,6 +444,25 @@ export function copyBlocks(
   return { added, needs, apps, ...written };
 }
 
+/**
+ * Takes a copied block out of the repo for `cos add --replace`: its recorded files are deleted
+ * (a file of its own added beside them stays) and its lock entry removed, so `copyBlocks` copies
+ * the release's again. Returns the files that differed from what was copied (the client's edits).
+ */
+function replaceCopy(root: string, lock: Lock, name: string): { edited: string[] } {
+  const entry = lock[name];
+  if (!entry) return { edited: [] };
+  const edited: string[] = [];
+  for (const [file, hash] of Object.entries(entry.files)) {
+    const path = join(root, blockDir(entry.app, name), file);
+    if (!existsSync(path)) continue;
+    if (sha(readFileSync(path)) !== hash) edited.push(file);
+    rmSync(path);
+  }
+  delete lock[name];
+  return { edited: edited.sort() };
+}
+
 /** Writes `blocks.lock.json` after `copyBlocks` (for `cos create`). */
 export const saveLock = writeLock;
 
@@ -463,8 +482,17 @@ export async function add(argv: string[], flags: Flags, deps: Deps): Promise<num
     return 0;
   }
   const lock = readLock(root);
+  // `--replace`: the copy is the client's, so a block already copied is left alone unless asked.
+  // Asked, its copied files are taken away and the release's copied in their place; the blocks it
+  // depends on stay as they are (each is replaced by name). Edits made to the copy are named.
+  const replaced = flags.replace ? replaceCopy(root, lock, name) : null;
   const { added, needs, apps, unwired } = copyBlocks(root, product, kit, version, [name], lock);
   writeLock(root, lock);
+  if (replaced?.edited.length) {
+    deps.io.out(
+      `Replaced your copy of ${name}: your edits to ${replaced.edited.join(", ")} are gone from the working tree (git still has them).`,
+    );
+  }
   if (needs.size) {
     const app = apps[0] as string;
     deps.io.out(
@@ -478,7 +506,7 @@ export async function add(argv: string[], flags: Flags, deps: Deps): Promise<num
   deps.io.out(
     added.length
       ? `Copied ${added.join(", ")} (${version}) into ${added.map((b) => blockDir(lock[b]?.app ?? "", b)).join(", ")}. The files are yours now; ${LOCK} records where they came from.`
-      : `${name} is already copied (${LOCK}).`,
+      : `${name} is already copied (${LOCK}). To take the release's copy in place of yours, run cos add ${name} --replace (your edits to it are lost; cos diff ${name} shows them first).`,
   );
   for (const shell of Object.values(ACCOUNT_SHELLS).filter((s) => lock[s])) {
     const app = lock[shell]?.app ?? "";

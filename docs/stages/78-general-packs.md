@@ -201,6 +201,11 @@ migration.
 - **Bookings' class type keeps Programs' shape**: `navigation: "settings"`, `signedIn` read of name
   and order, the `users` icon; the booking rules stay readable through the class by the host, not
   by members directly.
+- **`useClassTypes` stays in Programs' hooks.** Its only users are Programs' class-today blocks
+  (a member's client reads `bookings.classtype` with `my.list`, staff with `record.list`, ADR 0889);
+  Bookings' own blocks read class types through their tools (the timetable, the day). Moving it
+  would change an import in every client app for no new reader; Bookings gains one when one of its
+  blocks needs a list of class types.
 - **The tier field and its check wait for step 4**: step 2 did not need them, and the check would
   fail on Courses until step 6.
 - **The old fallbacks are gone**: tools no longer read `bookings.staffOnly` or
