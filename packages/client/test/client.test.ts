@@ -616,6 +616,40 @@ describe("token sessions (ADR 0419)", () => {
       expect(refreshes).toBe(2);
     });
 
+    it("gives up on a refresh whose answer's body never arrives, as on one with no answer (review of #554, F1)", async () => {
+      let refreshes = 0;
+      const fetch: FetchLike = async (url) => {
+        if (url.endsWith("/api/v1/auth/refresh")) {
+          refreshes += 1;
+          // The headers come back; the body never does.
+          return { status: 200, headers: { get: () => null }, text: () => new Promise(() => {}) };
+        }
+        return {
+          status: 200,
+          headers: { get: () => null },
+          text: async () => JSON.stringify({ data: { id: "a", n: 1 } }),
+        };
+      };
+      const store = memoryStore(tokens(1, 10_000, deviceNow));
+      const session = tokenSession({
+        baseUrl: "https://h",
+        store,
+        fetch,
+        now: () => deviceNow,
+        refreshTimeoutMs: 30,
+      });
+      const api = createClient<Ops>(specs, {
+        baseUrl: "https://h",
+        fetch: session.fetch,
+        retries: 0,
+        sleep: noWait,
+      });
+      await expect(api.call("thing.get", { id: "a" })).rejects.toBeInstanceOf(NetworkError);
+      expect(store.peek()?.refreshToken).toBe("rt-1");
+      await expect(api.call("thing.get", { id: "b" })).rejects.toBeInstanceOf(NetworkError);
+      expect(refreshes).toBe(2);
+    });
+
     it("two sessions over one store share one refresh (F-c)", async () => {
       let refreshes = 0;
       const fetch: FetchLike = async (url) => {

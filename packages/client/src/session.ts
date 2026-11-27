@@ -78,12 +78,25 @@ function withTimeout(fetcher: FetchLike, ms: number): FetchLike {
         reject(new Error(`No answer from the host within ${ms} ms`));
       }, ms);
     });
+    // Read by the caller or not, a timeout is never an unhandled rejection.
+    timedOut.catch(() => {});
+    const stop = () =>
+      (globalThis as unknown as { clearTimeout(t: unknown): void }).clearTimeout(timer);
     const sent = fetcher(url, {
       ...init,
       ...(controller ? { signal: controller.signal } : {}),
     } as RequestInitLike);
-    return Promise.race([sent, timedOut]).finally(() =>
-      (globalThis as unknown as { clearTimeout(t: unknown): void }).clearTimeout(timer),
+    // The same limit covers the answer's body, read after its headers (review of #554, F1).
+    return Promise.race([sent, timedOut]).then(
+      (response) => ({
+        status: response.status,
+        headers: response.headers,
+        text: () => Promise.race([response.text(), timedOut]).finally(stop),
+      }),
+      (error: unknown) => {
+        stop();
+        throw error;
+      },
     );
   };
 }
@@ -106,9 +119,16 @@ async function post<T = Tokens>(
   }
   // Something in front of the host (a proxy, a gateway) can answer with a page, not JSON: the
   // status still says what happened.
+  let text: string;
+  try {
+    text = await response.text();
+  } catch (error) {
+    // The answer started and never finished (or took too long): no answer, not a refusal.
+    throw new NetworkError("The host's answer did not arrive", error);
+  }
   let parsed: { data?: T; error?: { code: string; message: string; details?: unknown } } = {};
   try {
-    parsed = JSON.parse(await response.text()) as typeof parsed;
+    parsed = JSON.parse(text) as typeof parsed;
   } catch {}
   if (response.status === 200 && parsed.data) return parsed.data;
   throw new ApiError(
