@@ -232,6 +232,125 @@ describe("token sessions (ADR 0419)", () => {
     expect(await session.headers()).toEqual({});
   });
 
+  describe("an access token the host refuses as expired (issue #540: a clock behind the host's)", () => {
+    // The device's clock is 60 seconds behind the host's: at-1 looks good for 40 seconds more
+    // here, and has ended there.
+    const hostNow = 5_000_000;
+    const deviceNow = hostNow - 60_000;
+    const expired = {
+      status: 401,
+      body: {
+        error: {
+          code: "forbidden",
+          message: "This access token has expired: refresh it",
+          details: { reason: "token_expired" },
+        },
+      },
+    };
+    const ended = (reason: string) => ({
+      status: 401,
+      body: { error: { code: "forbidden", message: "Sign in again", details: { reason } } },
+    });
+    /** A host whose access tokens are good only once refreshed; `onRefresh` answers a refresh. */
+    function skewedHost(onRefresh: (n: number) => { status: number; body: unknown } | "drop") {
+      let refreshes = 0;
+      const h = host((s) => {
+        if (s.url.endsWith("/api/v1/auth/refresh")) {
+          refreshes += 1;
+          return onRefresh(refreshes);
+        }
+        const auth = s.init.headers.authorization;
+        return auth === "Bearer at-1"
+          ? expired
+          : { status: 200, body: { data: { id: "a", n: 7 } } };
+      });
+      return { ...h, refreshes: () => refreshes };
+    }
+    const setUp = (h: { fetch: FetchLike }) => {
+      const store = memoryStore(tokens(1, 40_000, deviceNow));
+      const session = tokenSession({
+        baseUrl: "https://h",
+        store,
+        fetch: h.fetch,
+        now: () => deviceNow,
+      });
+      const api = createClient<Ops>(specs, {
+        baseUrl: "https://h",
+        fetch: session.fetch,
+        retries: 0,
+        sleep: noWait,
+      });
+      return { store, session, api };
+    };
+
+    it("refreshes once and sends the call again", async () => {
+      const h = skewedHost(() => ({ status: 200, body: { data: tokens(2, 600_000, hostNow) } }));
+      const { store, api } = setUp(h);
+      expect(await api.call("thing.get", { id: "a" })).toEqual({ id: "a", n: 7 });
+      expect(
+        h.sent.map((s) => [s.url.replace("https://h", ""), s.init.headers.authorization]),
+      ).toEqual([
+        ["/api/v1/op/thing.get", "Bearer at-1"],
+        ["/api/v1/auth/refresh", undefined],
+        ["/api/v1/op/thing.get", "Bearer at-2"],
+      ]);
+      expect(store.peek()?.refreshToken).toBe("rt-2");
+    });
+
+    it("calls refused at once share one refresh", async () => {
+      const h = skewedHost(() => ({ status: 200, body: { data: tokens(2, 600_000, hostNow) } }));
+      const { api } = setUp(h);
+      const answers = await Promise.all([
+        api.call("thing.get", { id: "a" }),
+        api.call("thing.get", { id: "b" }),
+        api.call("thing.bump", { id: "c" }),
+      ]);
+      expect(answers).toHaveLength(3);
+      expect(h.refreshes()).toBe(1);
+    });
+
+    it("keeps the session when the refresh fails for a reason that is not a refusal", async () => {
+      for (const reply of [
+        { status: 503, body: { error: { code: "internal", message: "Down" } } },
+        { status: 429, body: { error: { code: "rate_limited", message: "Slow down" } } },
+        "drop" as const,
+      ]) {
+        const h = skewedHost(() => reply);
+        const { store, api } = setUp(h);
+        await expect(api.call("thing.get", { id: "a" })).rejects.toBeTruthy();
+        expect(store.peek()?.refreshToken, JSON.stringify(reply)).toBe("rt-1");
+      }
+    });
+
+    it("forgets the session when the refresh is refused, and the call says so", async () => {
+      const h = skewedHost(() => ended("session_ended"));
+      const { store, api } = setUp(h);
+      await expect(api.call("thing.get", { id: "a" })).rejects.toMatchObject({
+        status: 401,
+        details: { reason: "token_expired" },
+      });
+      expect(store.peek()).toBeNull();
+    });
+
+    it("passes any other refusal back as it came, with no refresh, and never loops", async () => {
+      const idle = host(() => ended("session_idle"));
+      const one = setUp(idle);
+      await expect(one.api.call("thing.get", { id: "a" })).rejects.toMatchObject({
+        details: { reason: "session_idle" },
+      });
+      expect(idle.sent).toHaveLength(1);
+      // Refreshed, and still refused as expired: one refresh, the call sent twice, then the answer.
+      const stubborn = host((s) =>
+        s.url.endsWith("/auth/refresh")
+          ? { status: 200, body: { data: tokens(2, 600_000, hostNow) } }
+          : expired,
+      );
+      const two = setUp(stubborn);
+      await expect(two.api.call("thing.get", { id: "a" })).rejects.toMatchObject({ status: 401 });
+      expect(stubborn.sent).toHaveLength(3);
+    });
+  });
+
   it("says why a sign-in failed: not switched on, too many tries, offline (no silent failure)", async () => {
     const failure = async (reply: { status: number; body: unknown } | "drop") => {
       const h = host(() => reply);

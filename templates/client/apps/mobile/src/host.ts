@@ -60,6 +60,8 @@ function fetcherOf(options: { fetch?: FetchLike }): FetchLike {
   );
 }
 
+const noHeaders = async (): Promise<Record<string, string>> => ({});
+
 /** A wrong, used or expired code: the one refusal a sign-in answers (ADR 0455). */
 const wrongCode = (error: unknown) =>
   error instanceof ApiError &&
@@ -72,8 +74,9 @@ export function hostSession(options: HostOptions) {
   const session = tokenSession({ baseUrl: base, store: options.store, fetch: fetcher });
   const api = createCustomerClient({
     baseUrl: base,
-    fetch: fetcher,
-    headers: session.headers,
+    // The session's fetch: the access token on every call, and one refresh and a second try when
+    // the host says it has expired (a phone's clock behind the host's).
+    fetch: session.fetch,
     randomKey: () => hex(random.bytes(16)),
   });
 
@@ -206,7 +209,8 @@ export function staffSession(options: StaffOptions) {
         randomKey: () => string;
       }) => T,
     ): T {
-      return create({ baseUrl: base, fetch: fetcher, headers: session.headers, randomKey });
+      // The session's fetch carries the token (and refreshes it); there are no other headers.
+      return create({ baseUrl: base, fetch: session.fetch, headers: noHeaders, randomKey });
     },
     /**
      * Ends this device's staff session on the host and forgets its tokens. No operation: a pack

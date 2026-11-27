@@ -54,7 +54,10 @@ export function isApiPath(pathname: string): boolean {
   return /^\/api\/v\d+(\/|$)/.test(pathname);
 }
 
-/** Origins as configured: a comma- or space-separated list, normalised. */
+/**
+ * Origins as configured: a comma- or space-separated list, normalised. Only http(s) origins: any
+ * other scheme (`views://`, `file:`) has the opaque origin "null", which is never let in.
+ */
 export function parseAllowedOrigins(value: string | undefined): string[] {
   return (value ?? "")
     .split(/[\s,]+/)
@@ -62,18 +65,29 @@ export function parseAllowedOrigins(value: string | undefined): string[] {
     .filter(Boolean)
     .flatMap((o) => {
       try {
-        return [new URL(o).origin];
+        const url = new URL(o);
+        return url.protocol === "https:" || url.protocol === "http:" ? [url.origin] : [];
       } catch {
         return [];
       }
     });
 }
 
-type OriginCheck = { ok: true; cors: Record<string, string> } | { ok: false };
+export type OriginCheck = { ok: true; cors: Record<string, string> } | { ok: false };
 
-function checkOrigin(request: Request, allowed: readonly string[]): OriginCheck {
+/**
+ * The surface's origin rule, also used beside it (the signed-agreement PDF): no `Origin`, or the
+ * request's own, passes with no CORS headers; one in `allowed` gets them; any other, and
+ * `Origin: null` always, is refused. `expose` names the answer's headers a page may read.
+ */
+export function apiOriginCheck(
+  request: Request,
+  allowed: readonly string[],
+  expose = "idempotent-replayed, retry-after",
+): OriginCheck {
   const origin = request.headers.get("origin");
   if (!origin) return { ok: true, cors: {} };
+  if (origin === "null") return { ok: false };
   if (origin === new URL(request.url).origin) return { ok: true, cors: {} };
   if (!allowed.includes(origin)) return { ok: false };
   return {
@@ -81,7 +95,7 @@ function checkOrigin(request: Request, allowed: readonly string[]): OriginCheck 
     cors: {
       "access-control-allow-origin": origin,
       "access-control-allow-credentials": "true",
-      "access-control-expose-headers": "idempotent-replayed, retry-after",
+      "access-control-expose-headers": expose,
       vary: "Origin",
     },
   };
@@ -279,7 +293,7 @@ export function createHttpSurface(options: HttpSurfaceOptions) {
       if (!match) return null;
       const version = match[1] as string;
       const route = match[2] ?? "/";
-      const origin = checkOrigin(request, allowed);
+      const origin = apiOriginCheck(request, allowed);
       if (!origin.ok) return refusal(403, "forbidden", "This origin may not call the API");
       if (request.method === "OPTIONS") {
         return new Response(null, {

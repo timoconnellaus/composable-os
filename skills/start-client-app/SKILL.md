@@ -96,9 +96,11 @@ a live host side by side in one account, `environments` in `product.ts`): each i
    - **The browser-only build** (stage 75): the template's same screens as static files,
      `COS_HOST_URL=https://<the host's address> pnpm --dir apps/web build:browser`, into
      `apps/web/dist/browser/` (an `index.html`, hashed assets and `build.json`: each file's SHA-256
-     and size and the API contract version). No server code: the screens call the host's
-     `/api/v1` with a customer device session (an emailed code; tokens kept in the tab's
-     `sessionStorage`, never a cookie) and route by hash (`#/account`). `pnpm --dir apps/web test`
+     and size and the API contract version, written only when the build succeeds). `COS_HOST_URL`
+     is required, an https origin (http on localhost only); the build stops without it. No
+     server code: the screens call the host's `/api/v1` with a customer device session (an
+     emailed code; tokens kept in the tab's `sessionStorage`, never a cookie; a duplicated tab
+     starts signed out) and route by hash (`#/account`). `pnpm --dir apps/web test`
      checks the output holds no server function, `HOST` binding or cookie code. A screen reaches
      the host only through the ScreenHost (`useScreenHost()` from `src/screen-host/`, or
      `context.screenHost` in a loader), never `fetch("/auth/...")`, the binding or a server

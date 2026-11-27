@@ -3369,16 +3369,23 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
 - **The browser-only build** (stage 75 step 2, [ADR 0960](adr/0960-screens-as-published-versions-and-one-desktop-app.md)):
   `apps/web`'s screens build twice from the same routes. `pnpm build` is the server build (the
   Worker, the default deploy); `pnpm build:browser` (`vite.browser.config.ts`) writes static files
-  to `dist/browser/` (an `index.html`, hashed assets, and `build.json`: the entry, each file's
-  SHA-256 and size, the API contract version, the host address) with no server code, which its
-  tests check. Screens reach the host through a **ScreenHost** from the router's context
-  (`src/screen-host/`): `cookieScreenHost` over the web app's routes and cookie, or
-  `tokenScreenHost` over `/api/v1` at `COS_HOST_URL` with a customer device session (emailed
-  code, ADR 0455), every request `credentials: "omit"`, the tokens in memory mirrored to the
-  tab's `sessionStorage` (one device session per tab, so two tabs never spend one refresh
-  token). The browser build routes by hash and shows a notice on `upgrade_required`. Served from
-  another address than the host's, that origin must be in the client's `API_ALLOWED_ORIGINS`.
-  Not yet served or stored anywhere: steps 3 to 5.
+  to `dist/browser/` (an `index.html`, hashed assets, and `build.json`: the entry, each file the
+  build wrote with its SHA-256 and size, the API contract version, the host address; written only
+  after a build succeeds) with no server code, which its tests check. `COS_HOST_URL` is required
+  (an https origin, or http on localhost): the screens never fall back to the page's own origin,
+  so customer screens are never served on the staff address. Screens reach the host through a
+  **ScreenHost** from the router's context (`src/screen-host/`): `cookieScreenHost` over the web
+  app's routes and cookie, or `tokenScreenHost` over `/api/v1` with a customer device session
+  (emailed code, ADR 0455), every request `credentials: "omit"`, the tokens in memory mirrored to
+  the tab's `sessionStorage`. One device session per tab: a tab whose storage was copied from a
+  live one (Duplicate Tab) starts signed out. Calls go through `tokenSession`'s `fetch`, which on
+  a `token_expired` refusal (a clock behind the host's) refreshes once, shared, and tries again; a
+  refresh forgets the session only when the host refuses it, never on a 5xx or no answer. The
+  browser build routes by hash and shows a notice on `upgrade_required`. Served from another
+  address than the host's, that origin must be in the client's `API_ALLOWED_ORIGINS`, which the
+  signed-agreement PDF route applies as the surface does (preflight answered, `content-disposition`
+  exposed); an origin that is not http(s) is never listed, so `Origin: null` is never let in. Not
+  yet served or stored anywhere: steps 3 to 5.
 - **App publishing** (stage 63, ADRs [0900](adr/0900-the-apps-identity-brand-and-listing-from-product-ts.md),
   [0901](adr/0901-publishing-from-the-clients-store-accounts-built-in-its-ci.md),
   [0905](adr/0905-the-purchase-scan-over-a-clients-own-app-code.md); runbook

@@ -5,6 +5,8 @@
 import { describe, expect, it } from "vitest";
 import { saveResponse } from "../src/screen-host/index.ts";
 import {
+  LIVE_KEY,
+  type PageLike,
   SESSION_KEY,
   type StorageLike,
   sessionTokenStore,
@@ -21,6 +23,18 @@ function memoryStorage(): StorageLike & { items: Map<string, string> } {
     getItem: (key) => items.get(key) ?? null,
     setItem: (key, value) => void items.set(key, value),
     removeItem: (key) => void items.delete(key),
+  };
+}
+
+/** A page's pagehide and pageshow, fired by the test. */
+function fakePage(): PageLike & { fire(type: "pagehide" | "pageshow"): void } {
+  const listeners = new Map<string, (() => void)[]>();
+  return {
+    addEventListener: (type, listener) =>
+      void listeners.set(type, [...(listeners.get(type) ?? []), listener]),
+    fire: (type) => {
+      for (const listener of listeners.get(type) ?? []) listener();
+    },
   };
 }
 
@@ -72,13 +86,47 @@ const me = {
 describe("the browser build's token store", () => {
   it("keeps the session in this tab's storage, so a reload is still signed in", async () => {
     const storage = memoryStorage();
+    const tab = fakePage();
     const session = tokens(1);
-    await sessionTokenStore(storage).save(session);
+    await sessionTokenStore(storage, tab).save(session);
     expect(JSON.parse(storage.items.get(SESSION_KEY) ?? "null")).toEqual(session);
-    // A reload: a new store over the same storage.
-    expect(await sessionTokenStore(storage).load()).toMatchObject({ accessToken: "access-1" });
-    await sessionTokenStore(storage).save(null);
+    // A reload: the page goes (pagehide), and a new page's store reads the same storage.
+    tab.fire("pagehide");
+    const reloaded = fakePage();
+    expect(await sessionTokenStore(storage, reloaded).load()).toMatchObject({
+      accessToken: "access-1",
+    });
+    reloaded.fire("pagehide");
+    await sessionTokenStore(storage, fakePage()).save(null);
     expect(storage.items.has(SESSION_KEY)).toBe(false);
+  });
+
+  it("starts a duplicated tab signed out, and leaves the tab it was copied from signed in (issue #540)", async () => {
+    const original = memoryStorage();
+    const store = sessionTokenStore(original, fakePage());
+    await store.save(tokens(1));
+    // Duplicate Tab (or a link opened with its opener): the browser copies the tab's storage,
+    // the live mark with it, while the first tab is still open.
+    const copy = memoryStorage();
+    for (const [key, value] of original.items) copy.setItem(key, value);
+    const copied = sessionTokenStore(copy, fakePage());
+    expect(await copied.load()).toBeNull();
+    expect(copy.items.has(SESSION_KEY)).toBe(false);
+    // The first tab keeps its session; the copy signs in with its own.
+    expect(await store.load()).toMatchObject({ refreshToken: "refresh-1" });
+    expect(original.items.has(SESSION_KEY)).toBe(true);
+    await copied.save(tokens(2));
+    expect(JSON.parse(original.items.get(SESSION_KEY) ?? "null").refreshToken).toBe("refresh-1");
+  });
+
+  it("marks the tab live again when the back-forward cache puts the page back", async () => {
+    const storage = memoryStorage();
+    const tab = fakePage();
+    await sessionTokenStore(storage, tab).save(tokens(1));
+    tab.fire("pagehide");
+    expect(storage.items.has(LIVE_KEY)).toBe(false);
+    tab.fire("pageshow");
+    expect(storage.items.get(LIVE_KEY)).toBe("1");
   });
 
   it("keeps it in memory only when the storage refuses, and ignores what is not a session", async () => {
@@ -151,10 +199,37 @@ describe("the browser build's ScreenHost", () => {
     expect(write?.url).toBe(`${HOST}/api/v1/op/me.update`);
     expect(write?.headers.authorization).toBe("Bearer access-1");
     expect(write?.headers["idempotency-key"]).toMatch(/\S{16,}/);
-    // No cookie is ever sent or asked for.
+    // No cookie is ever sent or asked for, even through a fetch a wrapper passes in.
     for (const request of host.sent) {
       expect(Object.keys(request.headers).map((h) => h.toLowerCase())).not.toContain("cookie");
+      expect(request.init.credentials).toBe("omit");
     }
+  });
+
+  it("refreshes once and tries again when the host says the token has expired (a clock behind)", async () => {
+    const host = fakeHost((path, sent) => {
+      if (path === "/api/v1/auth/refresh") return [200, { data: tokens(2) }];
+      if (sent.headers.authorization === "Bearer access-1") {
+        return [
+          401,
+          {
+            error: { code: "forbidden", message: "Expired", details: { reason: "token_expired" } },
+          },
+        ];
+      }
+      return [200, { data: me }];
+    });
+    const store = sessionTokenStore(memoryStorage());
+    // Good for ten minutes by this browser's clock, ended by the host's.
+    await store.save(tokens(1));
+    const screens = tokenScreenHost({ hostUrl: HOST, store, fetch: host.fetch });
+    expect(await screens.me()).toMatchObject({ displayName: "Ada Lovelace" });
+    expect(host.sent.map((s) => new URL(s.url).pathname)).toEqual([
+      "/api/v1/op/me.get",
+      "/api/v1/auth/refresh",
+      "/api/v1/op/me.get",
+    ]);
+    expect(await store.load()).toMatchObject({ refreshToken: "refresh-2" });
   });
 
   it("answers false for a wrong code and for a host that will not send one", async () => {
@@ -190,22 +265,29 @@ describe("the browser build's ScreenHost", () => {
     expect(await store.load()).toBeNull();
   });
 
-  it("forgets a session the host has ended, so the page is signed out", async () => {
-    const host = fakeHost(() => [
-      401,
-      {
-        error: {
-          code: "forbidden",
-          message: "Sign in again",
-          details: { reason: "session_ended" },
-        },
-      },
-    ]);
+  it("signs out on the host, and forgets, a session the host no longer takes", async () => {
+    const host = fakeHost((path) =>
+      path === "/api/v1/auth/sign-out"
+        ? [200, { data: { ok: true } }]
+        : [
+            401,
+            {
+              error: {
+                code: "forbidden",
+                message: "Sign in again",
+                details: { reason: "session_idle" },
+              },
+            },
+          ],
+    );
     const store = sessionTokenStore(memoryStorage());
     await store.save(tokens(5));
     const screens = tokenScreenHost({ hostUrl: HOST, store, fetch: host.fetch });
     expect(await screens.me()).toBeNull();
     expect(await store.load()).toBeNull();
+    // Ended on the host too, so it leaves the customer's list of devices.
+    const signOut = host.sent.find((s) => s.url.endsWith("/api/v1/auth/sign-out"));
+    expect(signOut?.body).toEqual({ refreshToken: "refresh-5" });
   });
 
   it("refreshes an access token about to end before the call, once", async () => {
