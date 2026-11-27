@@ -1058,6 +1058,184 @@ describe("cos fleet install", () => {
   });
 });
 
+describe("cos fleet install for the staging check (fleet-staging-check.yml)", () => {
+  it("takes a product from a file, with AI off and a location, chosen at the first install only", async () => {
+    const { buildFixtureRelease, FIXTURE_PRODUCT_DEFINITION } = await import(
+      "@composable-os/release/testing"
+    );
+    const { runIn, startWorld } = await import("./world.ts");
+    const world = await startWorld();
+    try {
+      await world.github.publish(await buildFixtureRelease({ version: "1.0.0", fleet: true }));
+      const dir = mkdtempSync(join(tmpdir(), "s66s7-product-"));
+      const productFile = join(dir, "product.json");
+      writeFileSync(productFile, JSON.stringify(FIXTURE_PRODUCT_DEFINITION));
+      const keysPath = join(dir, "staging.json");
+      const keys = await runIn(world, "fleet", "keys", "--env", "staging", "--out", keysPath);
+      expect(keys.code, keys.output).toBe(0);
+      const args = [
+        "fleet",
+        "install",
+        "--env",
+        "staging",
+        "--keys-file",
+        keysPath,
+        "--callback-hostname",
+        "callback.staging.example",
+        "--domain",
+        "staging.example",
+        "--product-file",
+        productFile,
+      ];
+      const { code, output } = await runIn(world, ...args, "--ai", "off", "--location", "oc");
+      expect(code, output).toBe(0);
+      expect([...world.cf.scripts.keys()].sort()).toEqual([
+        "demo-app-staging",
+        "demo-client-db-staging",
+        "demo-operator-staging",
+        "demo-runner-staging",
+      ]);
+      expect(world.cf.creates).toContainEqual({
+        type: "d1",
+        name: "demo-registry-staging",
+        locationHint: "oc",
+      });
+      // AI off: no search index made, and the operator's Worker binds none.
+      expect(world.cf.vectorize.size).toBe(0);
+      expect(world.cf.liveBinding("demo-operator-staging", "VECTORIZE")).toBeUndefined();
+      // A fleet that exists keeps what its first install chose.
+      const again = await runIn(world, ...args, "--location", "weur");
+      expect(again.code).toBe(1);
+      expect(again.output).toContain("chosen at the first install");
+      expect((await runIn(world, ...args)).code).toBe(0);
+      // One product, one way.
+      const both = await runIn(world, ...args, "--product", "demo");
+      expect(both.output).toContain("give one");
+      writeFileSync(productFile, JSON.stringify({ ...FIXTURE_PRODUCT_DEFINITION, id: "Bad Id" }));
+      const bad = await runIn(world, ...args);
+      expect(bad.code).toBe(1);
+      expect(bad.output).toContain("--product-file");
+    } finally {
+      world.server.close();
+    }
+  });
+});
+
+describe("the staging check's forced failure (COS_FLEET_FORCE_FAILURE)", () => {
+  const inCheck = {
+    GITHUB_ACTIONS: "true",
+    GITHUB_WORKFLOW_REF: "o/r/.github/workflows/fleet-staging-check.yml@refs/heads/main",
+  };
+  const where = { environment: "staging", productId: "cosstg-123" };
+
+  it("is refused anywhere but a staging fleet of the check's product, in that workflow's run", async () => {
+    const { forcedFailure } = await import("../src/fleet/forced-failure.ts");
+    expect(forcedFailure({ ...inCheck }, where)).toBeNull();
+    expect(forcedFailure({ ...inCheck, COS_FLEET_FORCE_FAILURE: "smoke" }, where)).toEqual({
+      kind: "smoke",
+    });
+    expect(
+      forcedFailure({ ...inCheck, COS_FLEET_FORCE_FAILURE: "migration:gym-b" }, where),
+    ).toEqual({ kind: "migration", client: "gym-b" });
+    const refused: [Record<string, string>, typeof where][] = [
+      [
+        { ...inCheck, COS_FLEET_FORCE_FAILURE: "smoke" },
+        { ...where, environment: "live" },
+      ],
+      [
+        { ...inCheck, COS_FLEET_FORCE_FAILURE: "smoke" },
+        { ...where, productId: "crm" },
+      ],
+      [{ COS_FLEET_FORCE_FAILURE: "smoke" }, where],
+      [
+        {
+          GITHUB_ACTIONS: "true",
+          GITHUB_WORKFLOW_REF: "o/r/.github/workflows/release.yml@refs/tags/v1.0.0",
+          COS_FLEET_FORCE_FAILURE: "smoke",
+        },
+        where,
+      ],
+      [{ ...inCheck, COS_FLEET_FORCE_FAILURE: "migration:../x" }, where],
+      [{ ...inCheck, COS_FLEET_FORCE_FAILURE: "upload" }, where],
+    ];
+    for (const [env, at] of refused) {
+      expect(() => forcedFailure(env, at), JSON.stringify([env, at])).toThrow(/refused here/);
+    }
+  });
+
+  it("fails the named client's migration only: every client migrated before it restored, nothing uploaded", async () => {
+    const { FORCED_MIGRATION, withForcedMigration } = await import(
+      "../src/fleet/forced-failure.ts"
+    );
+    for (const c of ["gym-a", "gym-b"]) await addClient(ctx(), { id: c });
+    // What each client's migrate call carried, seen beneath the forcing wrapper.
+    const carried: Record<string, string[]> = {};
+    const forced = withForcedMigration(
+      {
+        op: (action, body = {}) => {
+          if (action === "migrate") {
+            carried[body.client as string] = (body.migrations as Migration[]).map((m) => m.name);
+          }
+          return operator.op(action, body);
+        },
+        putFile: (client, key, bytes) => operator.putFile(client, key, bytes),
+        getExport: (p) => operator.getExport(p),
+      },
+      "gym-b",
+    );
+    operator.failOn = { client: "gym-b", migration: FORCED_MIGRATION.name };
+    const log: string[] = [];
+    const outcome = await fleetUpdate(ctx({ operator: forced, yes: true }), {
+      from: "1.0.0",
+      to: "1.1.0",
+      migrations: migrations(3),
+      supportedContracts: [1],
+      upload: async () => {
+        log.push("upload");
+      },
+      uploadPrevious: async () => {
+        log.push("upload-previous");
+      },
+      smoke: async () => {},
+      recordVersion: async () => {},
+    });
+    expect(outcome).toBe("undone");
+    expect(log).toEqual([]);
+    expect(carried["gym-a"]).not.toContain(FORCED_MIGRATION.name);
+    expect(carried["gym-b"]).toContain(FORCED_MIGRATION.name);
+    expect(out.lines.join("\n")).toMatch(/stopped before any upload: gym-a, gym-b restored/);
+    for (const c of ["gym-a", "gym-b"]) {
+      expect(await readClient(registry, id(c))).toMatchObject({
+        status: "active",
+        schemaVersion: 3,
+      });
+    }
+  });
+
+  it("is refused by cos fleet upgrade on a live fleet before anything is read", async () => {
+    const { runIn, startWorld } = await import("./world.ts");
+    const world = await startWorld();
+    try {
+      world.env = { ...world.env, ...inCheck, COS_FLEET_FORCE_FAILURE: "smoke" };
+      const { code, output } = await runIn(
+        world,
+        "fleet",
+        "upgrade",
+        "--env",
+        "live",
+        "--keys-file",
+        "/nonexistent/keys.json",
+        "--yes",
+      );
+      expect(code).toBe(1);
+      expect(output).toContain("refused here: this is not a staging fleet");
+      expect(world.cf.calls).toEqual([]);
+    } finally {
+      world.server.close();
+    }
+  });
+});
+
 describe("an export installed in another account (criterion 13)", () => {
   it("gives a single-client deployment with every row count and file hash the same, its staff secret kept", async () => {
     const { buildFixtureRelease, BASE_MIGRATIONS } = await import("@composable-os/release/testing");
