@@ -1013,24 +1013,39 @@ test("the requests step: B's password at A must be the wrong-password answer, no
   await assert.rejects(run(500), /answered 500, not 401/);
 
   // Staging run 45994923824: the staff session's operation got no answer at all (status 0). The
-  // result says what the fetch threw, and what a repeat 5 s later answered; the step still fails.
-  for (const [repeat, says] of [
-    [200, "a repeat 5 s later answered 200"],
+  // result says what the fetch threw, and what a repeat 5 s later answered (and how long it
+  // took); both clients' first operations are tried before the step fails, each answered one is
+  // followed by one more, and each sign-up and operation says its time (review of #557).
+  for (const [repeat, says, bravoFails] of [
+    [200, /a repeat 5 s later answered 200 in \d+\.\d s/, false],
     [
       0,
-      "a repeat 5 s later answered 0 (no answer: TypeError: fetch failed (cause ECONNRESET: socket hang up)",
+      /a repeat 5 s later answered 0 \(no answer: TypeError: fetch failed \(cause ECONNRESET: socket hang up\)/,
+      false,
     ],
+    [200, /a repeat 5 s later answered 200 in \d+\.\d s/, true],
   ]) {
-    let ops = 0;
+    const ops = { alpha: 0, bravo: 0 };
     const slept = [];
+    let cancelled = 0;
     const base = answerWith(401);
     const throwing = async (url, init = {}) => {
-      if (url.includes("/api/v1/op/") && url.startsWith("https://alpha-admin")) {
-        ops += 1;
-        if (ops === 1 || repeat === 0) {
+      const id = new URL(url).hostname.split("-admin.")[0];
+      if (url.includes("/api/v1/op/") && id in ops) {
+        ops[id] += 1;
+        if (id === "alpha" ? ops.alpha === 1 || repeat === 0 : bravoFails && ops.bravo === 1) {
           throw new TypeError("fetch failed", {
             cause: Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }),
           });
+        }
+        if (id === "alpha" && ops.alpha === 2) {
+          const answer = await base(url, init);
+          const cancel = answer.body.cancel.bind(answer.body);
+          answer.body.cancel = (reason) => {
+            cancelled += 1;
+            return cancel(reason);
+          };
+          return answer;
         }
       }
       return base(url, init);
@@ -1049,11 +1064,32 @@ test("the requests step: B's password at A must be the wrong-password answer, no
           error.message,
           /alpha's staff session at alpha answered 0 \(no answer: TypeError: fetch failed \(cause ECONNRESET: socket hang up\), after \d+\.\d s\)/,
         );
-        assert.ok(error.message.includes(says), error.message);
+        assert.match(error.message, says);
+        assert.match(error.message, /alpha's staff sign-up answered 200 in \d+\.\d s/);
+        assert.match(error.message, /bravo's staff sign-up answered 200 in \d+\.\d s/);
+        if (repeat === 200) {
+          assert.match(
+            error.message,
+            /alpha's first person\.list .*; the next answered 200 in \d+\.\d s/,
+          );
+        } else {
+          assert.doesNotMatch(error.message, /alpha's first person\.list [^;]*;[^;]*; the next/);
+        }
+        if (bravoFails) {
+          assert.match(error.message, /bravo's staff session at bravo answered 0 \(no answer: /);
+        } else {
+          assert.match(
+            error.message,
+            /bravo's first person\.list answered 200 in \d+\.\d s; the next answered 200 in \d+\.\d s/,
+          );
+          assert.doesNotMatch(error.message, /bravo's staff session at bravo answered/);
+        }
         return true;
       },
     );
-    assert.equal(ops, 2);
+    assert.equal(ops.alpha, repeat === 200 ? 3 : 2);
+    assert.equal(ops.bravo, bravoFails ? 3 : 2);
+    assert.equal(cancelled, repeat === 200 ? 1 : 0);
     assert.ok(slept.includes(5000));
   }
 });

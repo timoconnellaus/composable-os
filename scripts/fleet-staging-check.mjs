@@ -606,6 +606,13 @@ export function said(answer) {
   return answer.status === 0 ? `0 (no answer: ${answer.error})` : String(answer.status);
 }
 
+/** The same, with the time an answer took (a no-answer's time is in its error already). */
+export function saidTimed(answer) {
+  return answer.status === 0
+    ? said(answer)
+    : `${answer.status} in ${(answer.ms / 1000).toFixed(1)} s`;
+}
+
 /** Polls until `ok(answer)` or the time is up; returns the last answer. */
 export async function waitFor(
   fetchImpl,
@@ -737,7 +744,7 @@ async function signUp(ctx, hostname, email, password) {
   if (answer.status !== 200) {
     fail(`staff sign-up at ${hostname} answered ${said(answer)}`);
   }
-  return cookiesOf(answer.response);
+  return { cookie: cookiesOf(answer.response), took: saidTimed(answer) };
 }
 
 async function signIn(ctx, hostname, email, password) {
@@ -778,9 +785,11 @@ async function staffOp(ctx, hostname, cookie, name) {
   let repeat = null;
   if (answer.status === 0) {
     await ctx.sleep(5000);
-    repeat = said(await send());
+    const again = await send();
+    await again.response?.body?.cancel();
+    repeat = saidTimed(again);
   }
-  return { status: answer.status, code, said: said(answer), repeat };
+  return { status: answer.status, code, said: saidTimed(answer), repeat };
 }
 
 /** A staff operation's failure, in words: what it answered and what a repeat answered. */
@@ -1054,16 +1063,34 @@ export function checkSteps() {
           const email = `staff-${id}-${ctx.run}@staging-check.invalid`;
           const password = randomBytes(18).toString("base64url");
           ctx.addSecret(password);
-          ctx.staff[id] = {
-            email,
-            password,
-            cookie: await signUp(ctx, ctx.hosts.staff[id], email, password),
-          };
+          const signedUp = await signUp(ctx, ctx.hosts.staff[id], email, password);
+          ctx.staff[id] = { email, password, cookie: signedUp.cookie };
           ctx.addSecret(ctx.staff[id].cookie);
+          notes.push(`${id}'s staff sign-up answered ${signedUp.took}`);
         }
+        // Each client's first staff operation, then one more on the same client, timed: whether
+        // a slow or missing answer is the first call's alone (a fresh client's first call
+        // installs its shipped packs before it answers). Both clients are tried before the step
+        // fails, so a result shows whether the second fresh client fails too (review of #557).
+        const firsts = [];
         for (const id of [a, b]) {
           const own = await staffOp(ctx, ctx.hosts.staff[id], ctx.staff[id].cookie, "person.list");
-          if (own.status !== 200) fail(`${id}'s staff session at ${id} answered ${opFailed(own)}`);
+          const answered = own.status === 200 || own.repeat?.startsWith("200 ");
+          const next = answered
+            ? await staffOp(ctx, ctx.hosts.staff[id], ctx.staff[id].cookie, "person.list")
+            : null;
+          firsts.push({ id, own, next });
+          notes.push(
+            `${id}'s first person.list answered ${opFailed(own)}${next ? `; the next answered ${opFailed(next)}` : ""}`,
+          );
+        }
+        const failed = firsts.filter((f) => f.own.status !== 200);
+        if (failed.length) {
+          fail(
+            `${failed
+              .map((f) => `${f.id}'s staff session at ${f.id} answered ${opFailed(f.own)}`)
+              .join("; ")} (${notes.filter((n) => /sign-up|person\.list/.test(n)).join("; ")})`,
+          );
         }
         // A's cookie at B is answered as no cookie is: the same refusal (status and code; the
         // bodies may differ in a request id).
