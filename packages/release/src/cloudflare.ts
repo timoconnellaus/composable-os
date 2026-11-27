@@ -416,6 +416,52 @@ export class CloudflareClient {
     await this.request("DELETE", `/accounts/${accountId}/queues/${id}`);
   }
 
+  /** A queue's consumers: each a Worker that consumes it, with its dead-letter queue if any. */
+  async listQueueConsumers(accountId: string, queueId: string) {
+    return (
+      await this.request<
+        {
+          consumer_id: string;
+          script?: string;
+          script_name?: string;
+          dead_letter_queue?: string;
+        }[]
+      >("GET", `/accounts/${accountId}/queues/${queueId}/consumers`)
+    ).result;
+  }
+
+  /**
+   * Removes one consumer of a queue. Cloudflare deletes neither a Worker that consumes a queue
+   * (10064) nor a queue that is a consumer's dead-letter queue (11005) until this is done.
+   */
+  async deleteQueueConsumer(accountId: string, queueId: string, consumerId: string) {
+    await this.request(
+      "DELETE",
+      `/accounts/${accountId}/queues/${queueId}/consumers/${consumerId}`,
+    );
+  }
+
+  /**
+   * Before Workers and queues are deleted: removes every consumer of each named queue (the
+   * Workers consuming them, and the dead-letter links on those consumers). Returns what it
+   * removed; a queue that is gone already is skipped.
+   */
+  async unconsumeQueues(accountId: string, queueNames: Iterable<string>) {
+    const wanted = new Set(queueNames);
+    const removed: { queue: string; consumer: string }[] = [];
+    for (const queue of await this.listQueues(accountId)) {
+      if (!wanted.has(queue.queue_name)) continue;
+      for (const consumer of await this.listQueueConsumers(accountId, queue.queue_id)) {
+        await this.deleteQueueConsumer(accountId, queue.queue_id, consumer.consumer_id);
+        removed.push({
+          queue: queue.queue_name,
+          consumer: consumer.script_name ?? consumer.script ?? consumer.consumer_id,
+        });
+      }
+    }
+    return removed;
+  }
+
   async putQueueConsumer(
     accountId: string,
     queueId: string,

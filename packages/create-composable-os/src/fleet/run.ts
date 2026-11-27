@@ -74,7 +74,7 @@ import {
   readKeysFile,
   writeKeysFile,
 } from "./keys.ts";
-import { openOperator } from "./operator-client.ts";
+import { openOperator, STALE_NOTE } from "./operator-client.ts";
 import { lazyOperator } from "./session.ts";
 import { fleetUpdate } from "./update.ts";
 
@@ -439,6 +439,7 @@ async function withContext(
         origin,
         ...(deps.fetch ? { fetch: deps.fetch } : {}),
         redact: (v) => deps.redactor.add(v),
+        stale: { onStale: (what, n) => n === 1 && deps.io.err(`  ${what}: ${STALE_NOTE}`) },
       }),
     { command, ...(flags["take-over"] ? { takeOver: true } : {}) },
   );

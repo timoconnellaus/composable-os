@@ -407,7 +407,32 @@ export class FakeCloudflare {
     }
     m = new RegExp(`^${a}/queues/([^/]+)$`).exec(path);
     if (m && method === "DELETE") {
-      if (!this.queues.delete(m[1] as string)) return fail(404, 11000, "queue not found");
+      const queue = this.queues.get(m[1] as string);
+      if (!queue) return fail(404, 11000, "queue not found");
+      // As the real API (the staging check's first run): a queue a Worker still binds, or that
+      // is a consumer's dead-letter queue, or that still has a consumer, is not deleted.
+      if (this.queueProducers(queue.name).length) {
+        return fail(
+          400,
+          11005,
+          `Cannot delete queue '${queue.name}' that is still referenced by a binding in a Worker. Unbind queue '${queue.name}' from the Workers '${this.queueProducers(queue.name).join(", ")}' first.`,
+        );
+      }
+      if (
+        [...this.queues.values()].some((q) =>
+          q.consumers.some((c) => c.dead_letter_queue === queue.name),
+        )
+      ) {
+        return fail(
+          400,
+          11005,
+          `Cannot delete queue '${queue.name}' that serves as dead letter queue for consumers. Unbind queue '${queue.name}' from the consumers first.`,
+        );
+      }
+      if (queue.consumers.length) {
+        return fail(400, 11005, `Cannot delete queue '${queue.name}' that has consumers.`);
+      }
+      this.queues.delete(m[1] as string);
       return ok(null);
     }
     m = new RegExp(`^${a}/vectorize/v2/indexes/([^/]+)$`).exec(path);
@@ -420,6 +445,14 @@ export class FakeCloudflare {
     if (m) {
       const queue = this.queues.get(m[1] as string);
       if (!queue) return fail(404, 11000, "queue not found");
+      if (method === "GET" && !m[2])
+        return ok(queue.consumers.map((c) => ({ ...c, script: c.script_name })));
+      if (method === "DELETE" && m[2]) {
+        const at = queue.consumers.findIndex((c) => c.consumer_id === m?.[2]);
+        if (at === -1) return fail(404, 11000, "consumer not found");
+        queue.consumers.splice(at, 1);
+        return ok(null);
+      }
       const dlq = b.dead_letter_queue as string | undefined;
       if (dlq !== undefined && ![...this.queues.values()].some((q) => q.name === dlq)) {
         return fail(400, 11003, `dead letter queue ${dlq} does not exist`);
@@ -806,13 +839,19 @@ export class FakeCloudflare {
     }
     if (!script) return fail(404, 10007, `script ${name} not found`);
     if (rest === "" && method === "DELETE") {
-      store.delete(name);
-      // `?force=true`, as the client sends it: the Worker's queue consumers go with it.
-      if (!namespaced) {
-        for (const queue of this.queues.values()) {
-          queue.consumers = queue.consumers.filter((c) => c.script_name !== name);
-        }
+      // As the real API, even with `?force=true` (the staging check's first run): a Worker that
+      // consumes a queue is not deleted until its consumers are removed.
+      if (
+        !namespaced &&
+        [...this.queues.values()].some((q) => q.consumers.some((c) => c.script_name === name))
+      ) {
+        return fail(
+          403,
+          10064,
+          "Cannot delete this Worker as it is a consumer for a Queue. Remove it from the Queue's consumers first, then retry.",
+        );
       }
+      store.delete(name);
       return ok(null);
     }
     if (rest === "/versions" && method === "POST") {
@@ -860,6 +899,17 @@ export class FakeCloudflare {
       return ok({ bindings: (live?.metadata.bindings ?? []) as unknown[] });
     }
     return fail(404, 7003, `no route for ${method} /scripts/${name}${rest}`);
+  }
+
+  /** The account's Workers whose live version binds `queue` (to send to it). */
+  private queueProducers(queue: string): string[] {
+    return [...this.scripts.values()]
+      .filter((s) => {
+        const live = s.versions.find((v) => v.id === s.current);
+        const bindings = (live?.metadata.bindings ?? []) as { type: string; queue_name?: string }[];
+        return bindings.some((x) => x.type === "queue" && x.queue_name === queue);
+      })
+      .map((s) => s.name);
   }
 
   private needsMigration(metadata: Record<string, unknown>) {

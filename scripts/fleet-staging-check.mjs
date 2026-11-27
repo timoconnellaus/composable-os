@@ -428,6 +428,23 @@ export async function teardown(api, accountId, prefix, recorded = []) {
     }
   }
   const deleted = [];
+  // Cloudflare deletes neither a Worker that consumes a queue (10064) nor a queue that is a
+  // consumer's dead-letter queue (11005), even with `?force=true` (the first real run, 45966813610):
+  // each of the run's queues, as listed now, loses its consumers first.
+  for (const queue of now.items.filter((i) => i.kind === "queue")) {
+    try {
+      for (const consumer of await api.listQueueConsumers(accountId, queue.id)) {
+        await api.deleteQueueConsumer(accountId, queue.id, consumer.consumer_id);
+        deleted.push({
+          kind: "consumer",
+          name: `${queue.name} ← ${consumer.script_name ?? consumer.script ?? consumer.consumer_id}`,
+        });
+      }
+    } catch (error) {
+      failed.push({ kind: "consumer", name: `of ${queue.name}`, error: firstError(error.message) });
+    }
+  }
+  const gone = [];
   let todo = [...byKey.values()]
     .filter((item) => item.kind !== "durable_object") // goes with its Worker
     .sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind));
@@ -444,15 +461,25 @@ export async function teardown(api, accountId, prefix, recorded = []) {
           ...(typeof objects === "number" ? { objects } : {}),
         });
       } catch (error) {
-        failing.push({ item, kind: item.kind, name: item.name, error: firstError(error.message) });
+        // Not found: gone already (the run's callback domain went so). The listing below is
+        // what says so: one still listed is what is left, and fails the teardown.
+        const said = firstError(error.message);
+        // The first pass's answer, kept: the first real run showed only the last one's.
+        const before =
+          item.firstError && item.firstError !== said ? ` (first: ${item.firstError})` : "";
+        if (error.status === 404) gone.push({ kind: item.kind, name: item.name, before });
+        else failing.push({ item, kind: item.kind, name: item.name, error: `${said}${before}` });
+        item.firstError ??= said;
       }
     }
     todo = failing.map((f) => f.item);
   }
   failed.push(...failing.map(({ item: _item, ...f }) => f));
   const after = await inventory(api, accountId, prefix);
+  const left = new Set(after.items.map(key));
   return {
     deleted,
+    gone: gone.filter((g) => !left.has(key(g))),
     failed,
     remaining: after.items.map((i) => ({ kind: i.kind, name: i.name })),
     unlisted: after.unlisted,
@@ -478,6 +505,12 @@ export function teardownReport(result, prefix) {
       ? `Deleted (${result.deleted.length}): ${result.deleted.map((d) => `${d.kind} \`${d.name}\`${d.objects ? ` (${d.objects} objects)` : ""}`).join(", ")}`
       : "Deleted: nothing (nothing was there).",
   );
+  if (result.gone?.length) {
+    lines.push(
+      "",
+      `Gone before its delete (not found, and not listed after): ${result.gone.map((g) => `${g.kind} \`${g.name}\`${g.before ? md(g.before) : ""}`).join(", ")}`,
+    );
+  }
   if (result.failed.length) {
     lines.push("", `Could not delete (${result.failed.length}):`);
     for (const f of result.failed) lines.push(`- ${f.kind} \`${f.name}\`: ${md(f.error)}`);

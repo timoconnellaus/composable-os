@@ -482,6 +482,22 @@ describe("create-composable-os install: AI Gateway", () => {
     expect(world.cf.gateways.size).toBe(0);
     expect(world.cf.tokens.size).toBe(0);
   });
+
+  it("uninstall removes the queues' consumers first, then the Workers, then the queues (as Cloudflare requires)", async () => {
+    await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
+    expect((await cli("install", "--yes")).code).toBe(0);
+    const consumed = [...world.cf.queues.values()].filter((q) => q.consumers.length);
+    // The release's queues have consumers, and dead-letter queues on them: the real API's refusals
+    // (10064 for a consuming Worker, 11005 for a dead-letter queue) are the fake's too.
+    expect(consumed.length).toBeGreaterThan(0);
+    expect(consumed.some((q) => q.consumers.some((c) => c.dead_letter_queue))).toBe(true);
+    const gone = await cli("uninstall", "--yes");
+    expect(gone.code, gone.output).toBe(0);
+    expect(gone.output).not.toContain("could not delete");
+    expect(world.cf.scripts.size).toBe(0);
+    expect(world.cf.queues.size).toBe(0);
+    expect(world.cf.d1.size).toBe(0);
+  });
 });
 
 describe("create-composable-os install: --ai-gateway off after on", () => {
