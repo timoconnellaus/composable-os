@@ -19,7 +19,8 @@ This skill is the order to do it in.
 ## The steps
 
 1. **Check the host has what it needs:** the Programs pack in `product.ts`'s `packs` and
-   installed; you are staff, signed in as yourself.
+   installed, with Bookings, which it requires (`cos deploy` installs it with Programs); you are
+   staff, signed in as yourself.
 2. **Import the people first** with the people CSV import (Settings → Import). The programs import
    finds each training row's person by email and never creates one. A row whose address no person
    has is listed with its line and left out.
@@ -27,7 +28,9 @@ This skill is the order to do it in.
    - `exercises.csv`: one row per exercise of the bank, each with a `key` that stays the same
      between runs, its `measure`, and `easier` and `harder` as other rows' keys. Use the pack's
      options for `theme`, `equipment` and `body_areas`, or add the options on the host first.
-   - `classtypes.csv`: the kinds of class programs are assigned to.
+   - `classtypes.csv`: the kinds of class programs are assigned to. They are Bookings' class types
+     (`bookings.classtype`, ADR 0980), the same ones the timetable uses; the import writes their
+     name and order only, and their booking rules are set in Bookings afterwards.
    - `programs/<key>.txt`: one program per file, in the pack's shorthand (`packs/programs/
      authoring.ts` documents it, and `x.programs.importText` reads the same text). Say `Kind:`
      for a client's or a course's program. An item that has both an exercise for everyone and

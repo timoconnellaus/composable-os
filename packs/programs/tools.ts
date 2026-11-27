@@ -201,7 +201,7 @@ export const assign = defineTool({
       : text(
           (
             await ctx.ops.call<RecordShape>("record.get", {
-              object: "programs.classtype",
+              object: "bookings.classtype",
               id: input.classTypeId as string,
             })
           ).title,

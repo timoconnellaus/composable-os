@@ -39,5 +39,6 @@ The decisions this pack rests on, as recorded in the repository's ADRs.
 | [ADR 0763](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0763-the-customers-check-on-a-free-time.md) | The customer's check on a free time, and staff warnings |
 | [ADR 0764](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0764-appointments-in-the-bookings-pack.md) | Appointments in the Bookings pack, booked by staff |
 | [ADR 0765](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0765-occupies-the-claim-on-a-thing.md) | `occupies`, the claim on a thing |
+| [ADR 0980](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0980-general-and-domain-packs.md) | General and domain packs, and the class type in Bookings |
 
 The specification is stage 31's, [31-bookings.md](https://github.com/timoconnellaus/composable-os/blob/main/docs/stages/31-bookings.md).

@@ -40,6 +40,7 @@ import {
   type ImportHost,
   sessionHost,
 } from "../../../packages/create-composable-os/src/import-door/host.ts";
+import bookings from "../../../packs/bookings/index.ts";
 import courses from "../../../packs/courses/index.ts";
 import programs from "../../../packs/programs/index.ts";
 import { apiContext, handleApi } from "../src/server/http/api.ts";
@@ -251,7 +252,8 @@ beforeAll(async () => {
   setVideoHost(stream);
   const user = await signUp(hostEnv as never, "admin");
   admin = { id: user.id, email: user.email, name: "Admin", role: "admin" };
-  for (const m of [programs, courses]) {
+  // Bookings before Programs, which requires it (stage 78, ADR 0980).
+  for (const m of [bookings, programs, courses]) {
     const plan = await planReconcile(db.query, toManifest(m), { now: new Date().toISOString() });
     await applyPlan((statements) => db.batch(statements), plan);
     await refreshSchemaRegistry(db.query);

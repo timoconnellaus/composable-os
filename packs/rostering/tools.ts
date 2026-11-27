@@ -683,7 +683,7 @@ export const qualify = defineTool({
   input: z.object({
     account: z.string().min(1).max(64),
     kind: z.object({
-      object: z.string().min(1).max(81).describe("programs.classtype or rostering.duty"),
+      object: z.string().min(1).max(81).describe("bookings.classtype or rostering.duty"),
       id: z.string().min(1).max(64),
     }),
     qualified: z.boolean().default(true),

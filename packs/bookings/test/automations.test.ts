@@ -39,11 +39,10 @@ function host(
   },
 ) {
   return createTestHost(bookings, {
-    validate: { knownObjects: ["programs.classtype"] },
     ...(routineMail ? { routineMail } : {}),
     records: {
       "bookings.room": [{ id: "room_1", name: "Studio A" }],
-      "programs.classtype": [{ id: "ct_1", name: "Strength" }],
+      "bookings.classtype": [{ id: "ct_1", name: "Strength" }],
       ...records,
     } as never,
     operations: {
@@ -71,9 +70,7 @@ const booking = (values: Record<string, unknown>) => ({
 
 describe("the manifest", () => {
   it("passes the contract with its automations and routine mail, and declares each trigger", () => {
-    expect(
-      createTestHost(bookings, { validate: { knownObjects: ["programs.classtype"] } }).issues,
-    ).toEqual([]);
+    expect(createTestHost(bookings).issues).toEqual([]);
     const a = bookings.automations ?? {};
     expect(Object.keys(a).sort()).toEqual([
       "bookingConfirmed",

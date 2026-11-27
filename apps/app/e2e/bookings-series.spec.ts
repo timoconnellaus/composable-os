@@ -33,11 +33,11 @@ test("staff swap the coach on one class, then move the series: the class moves a
   page,
 }) => {
   test.setTimeout(180_000);
-  for (const id of ["programs", "bookings"]) {
+  for (const id of ["bookings"]) {
     await op(page.request, "extension.install", { id, shipped: true }, false);
   }
   const type = await op<{ id: string }>(page.request, "record.create", {
-    object: "programs.classtype",
+    object: "bookings.classtype",
     values: { name: unique("Strength ") },
   });
   const regular = await op<{ id: string }>(page.request, "record.create", {

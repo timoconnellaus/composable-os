@@ -37,12 +37,11 @@ const refusal = (rule: string, extra: Record<string, unknown> = {}) => {
 
 function host(operations: Record<string, (input: Record<string, unknown>) => unknown> = {}) {
   return createTestHost(bookings, {
-    validate: { knownObjects: ["programs.classtype"] },
     records: {
       "bookings.class": [CLASS],
       "bookings.coach": [{ id: "coach_1", name: "Robin", photo: null }],
       "bookings.room": [{ id: "room_1", name: "Main room" }],
-      "programs.classtype": [{ id: "ct_1", name: "Strength", "bookings.staffOnly": true }],
+      "bookings.classtype": [{ id: "ct_1", name: "Strength", staffOnly: true }],
       "bookings.booking": [
         { id: "bkg_1", class: "cls_1", person: "per_ann", state: "booked", paidOtherwise: true },
       ],
@@ -92,11 +91,14 @@ function host(operations: Record<string, (input: Record<string, unknown>) => unk
 }
 
 describe("bookings pack (test host)", () => {
-  it("passes the contract and formula checks and requires Programs", () => {
+  it("passes the contract and formula checks and requires no other pack", () => {
     const h = host();
     expect(h.issues).toEqual([]);
-    expect(h.manifest.requires).toEqual(["programs"]);
+    // A general pack (stage 78, ADR 0980): the class type is its own, so it needs no Programs.
+    expect(h.manifest.requires).toBeUndefined();
+    expect(h.manifest.fields).toEqual({});
     expect(Object.keys(h.manifest.objects)).toEqual([
+      "classtype",
       "room",
       "coach",
       "series",
@@ -107,8 +109,10 @@ describe("bookings pack (test host)", () => {
       "service",
       "appointment",
     ]);
-    // Bookings' rules sit on Programs' class type; empty means the organisation's setting.
-    expect(Object.keys(h.manifest.fields["programs.classtype"] ?? {})).toEqual([
+    // The class type's own rules; empty means the organisation's setting.
+    expect(Object.keys(h.manifest.objects.classtype?.fields ?? {})).toEqual([
+      "name",
+      "order",
       "colour",
       "opensDays",
       "closesMinutes",
@@ -139,7 +143,7 @@ describe("bookings pack (test host)", () => {
       ended: { field: "state", in: ["ended"] },
       closures: { object: "closure", from: "fromDate", until: "untilDate" },
       horizonDays: 57,
-      horizonAtLeast: { object: "programs.classtype", field: "opensDays" },
+      horizonAtLeast: { object: "classtype", field: "opensDays" },
     });
   });
 
@@ -255,7 +259,7 @@ describe("bookings pack (test host)", () => {
       "staffing.free",
       "staffing.week",
     ]);
-    const rules = m.fields["programs.classtype"] ?? {};
+    const rules = m.objects.classtype?.fields ?? {};
     for (const name of [
       "opensDays",
       "closesMinutes",
@@ -628,7 +632,7 @@ describe("bookings pack (test host)", () => {
     expect(m.settings?.dropInHoldPercent).toMatchObject({ default: 50, personApproves: true });
     // Only the host makes a booking held, and only the host moves it out of held.
     expect(m.objects.booking?.states?.create?.in?.pending).toEqual(["host"]);
-    expect(m.fields?.["programs.classtype"]?.dropInPrice?.personApproves).toBe(true);
+    expect(m.objects.classtype?.fields.dropInPrice?.personApproves).toBe(true);
     expect(m.settings?.dropInPrice?.personApproves).toBe(true);
     expect(m.permissions.operations).toContain("order.startHeld");
   });
@@ -965,7 +969,7 @@ describe("bookings pack (test host)", () => {
       evidence: { object: "booking", link: "class", by: "markedBy" },
     });
     // Set-up and pack-down minutes feed pay: a person's to change.
-    const classtype = m.fields["programs.classtype"] ?? {};
+    const classtype = m.objects.classtype?.fields ?? {};
     expect(classtype.rosterBeforeMinutes?.personApproves).toBe(true);
     expect(classtype.rosterAfterMinutes?.personApproves).toBe(true);
     expect(m.objects.coach?.unique).toEqual([{ fields: ["user"] }]);

@@ -1,6 +1,6 @@
 // Stage 59 step 3 (ADR 0862): the Equipment pack (packs/equipment) in the real host, its tools run
 // in the sandbox, installed the way a product that lists the pack installs it, with real D1.
-// Bookings (with Programs, which it requires) is installed beside it for a pack-role account: a
+// Bookings is installed beside it for a pack-role account: a
 // coach granted equipment:report.
 //
 // What it shows: a manager adds an item with a tag, supplier, cost and warranty, and a second item
@@ -145,7 +145,7 @@ async function newItem(name: string, extra: Record<string, unknown> = {}) {
 
 beforeAll(async () => {
   admin = await createAdmin();
-  for (const id of ["programs", "bookings", "equipment"]) {
+  for (const id of ["bookings", "equipment"]) {
     await run("extension.install", { id, shipped: true }, staff(admin));
   }
   await refreshSchemaRegistry(db.query);

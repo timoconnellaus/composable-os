@@ -291,7 +291,7 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships", "ticketing", "content", "courses"]) {
+  for (const id of ["bookings", "programs", "memberships", "ticketing", "content", "courses"]) {
     await run("extension.install", { id, shipped: true }, staff());
   }
   await refreshSchemaRegistry(db.query);
@@ -311,7 +311,7 @@ beforeAll(async () => {
     { id: payments.connection.id, url: "payments://merchant/fake" },
     staff(),
   );
-  yoga = await create("programs.classtype", { name: unique("Yoga"), "bookings.dropInPrice": 20 });
+  yoga = await create("bookings.classtype", { name: unique("Yoga"), dropInPrice: 20 });
   passType = await create(PASSTYPE, {
     title: unique("Ten classes "),
     price: 100,

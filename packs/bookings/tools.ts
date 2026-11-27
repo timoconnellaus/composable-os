@@ -9,7 +9,7 @@ const CLASS = "bookings.class";
 const BOOKING = "bookings.booking";
 const COACH = "bookings.coach";
 const ROOM = "bookings.room";
-const CLASS_TYPE = "programs.classtype";
+const CLASS_TYPE = "bookings.classtype";
 
 interface RecordShape {
   id: string;
@@ -1259,8 +1259,7 @@ async function staffClasses(ctx: Ctx, classes: RecordShape[]) {
       held: num(v.held) ?? 0,
       available: num(v.available),
       state: text(v.state),
-      // Bookings' own field on Programs' class type (registry name `bookings.staffOnly`).
-      staffOnly: flag(type?.["bookings.staffOnly"] ?? type?.staffOnly),
+      staffOnly: flag(type?.staffOnly),
     };
   });
 }

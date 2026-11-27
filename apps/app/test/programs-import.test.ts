@@ -38,6 +38,7 @@ import {
   type ProgramsFolder,
   readProgramsFolder,
 } from "../../../packages/create-composable-os/src/programs-import/format.ts";
+import bookings from "../../../packs/bookings/index.ts";
 import programs from "../../../packs/programs/index.ts";
 import { handleApi } from "../src/server/http/api.ts";
 import { boundTestEnv } from "./bound-env.ts";
@@ -160,11 +161,12 @@ const personKeys = async (object: string, person: string) =>
 beforeAll(async () => {
   const user = await signUp(hostEnv as never, "admin");
   admin = { id: user.id, email: user.email, name: "Admin", role: "admin" };
-  const plan = await planReconcile(db.query, toManifest(programs), {
-    now: new Date().toISOString(),
-  });
-  await applyPlan((statements) => db.batch(statements), plan);
-  await refreshSchemaRegistry(db.query);
+  // Bookings first: the class types are its own, and Programs requires it (stage 78, ADR 0980).
+  for (const m of [bookings, programs]) {
+    const plan = await planReconcile(db.query, toManifest(m), { now: new Date().toISOString() });
+    await applyPlan((statements) => db.batch(statements), plan);
+    await refreshSchemaRegistry(db.query);
+  }
   accessToken = (
     await issueDeviceSession(
       db,

@@ -216,6 +216,16 @@ specs are proposals: each stage is built only after its own interview.
 | 76 | The desktop app | One signed app on Electrobun for every client: it downloads a client's published screens, checks them, keeps them on disk and shows them offline; tokens and a fixed bridge in its main process; storage per client; macOS first ([spec](stages/76-desktop-app.md)) | spec agreed (owner interviewed 2026-11-27): for staff, macOS first |
 | 77 | An organisation's own admin screens | A screen as a saved record of which block fills each region; standard blocks updated by a release, declared fills with no code, and custom blocks written as JSX in an extension, run on the host in the organisation's sandbox and drawn by the admin from a tree of our components, a card in a long list included; edit mode beside the assistant; the admin without the server, as a published version the desktop app loads ([spec](stages/77-admin-screens.md)) | spec agreed (owner, 2026-11-27) |
 
+## Stage 78: general packs
+
+Packs in two tiers, general and domain: a general pack installs in any kind of business and never
+requires a domain pack; a gym is general packs, plus Programs, plus gym wording
+([ADR 0980](adr/0980-general-and-domain-packs.md), issue #545).
+
+| # | Stage | Scope | Status |
+| --- | --- | --- | --- |
+| 78 | General packs | The tiers and the dependency rule; the class type moved into Bookings so Bookings and Memberships install without Programs; later: identifiers, the tier checked, optional parts beyond automations, Courses without Programs, Offers' covered objects, per-client wording and neutral strings ([spec](stages/78-general-packs.md)) | steps 1 and 2 spec agreed (the owner's decisions of 2026-11-27); steps 3 to 12 proposed |
+
 ## Later, for the platform
 
 Named so they are not forgotten, not staged:

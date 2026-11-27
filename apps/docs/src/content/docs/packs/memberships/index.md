@@ -20,8 +20,8 @@ training sessions). What a member holds, a membership or a pass, pays for their 
 for them. The limits (how many uses, which class types or services, which days and times) are
 refused by the host for every writer, never by a screen.
 
-It requires [Programs](/packs/programs/) (the class types a plan names) and Bookings (the services
-it names, and what it pays for).
+It requires Bookings: the class types and services a plan names, and what it pays for, are
+Bookings'. It needs no Programs.
 
 ## Concepts
 

@@ -8,7 +8,7 @@ A company's own product lives in its own repository, made with `cos create` or a
 
 | Pack | What it is |
 | --- | --- |
-| [Bookings](/packs/bookings/) | A timetable of classes made from weekly series, rooms and coaches, and the bookings members make and cancel within the gym's rules. |
+| [Bookings](/packs/bookings/) | A timetable of classes made from weekly series, rooms and coaches, and the bookings members make and cancel within the gym's rules, by class type. |
 | [Content](/packs/content/) | Blog posts and their categories: staff write and schedule them, a person publishes them, and the public reads what was published, on the web and in the app. |
 | [Courses](/packs/courses/) | Video courses sold one at a time or in bundles, watched lesson by lesson, with progress. |
 | [Daily checklists](/packs/dailychecks/) | Checklists done on their own: opening, closing and cleaning, due on set days by a set time, ticked off by whoever may do them, with how each day went for those who manage them. |
