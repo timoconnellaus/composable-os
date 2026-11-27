@@ -685,6 +685,11 @@ export default defineExtension({
             "The membership or pass the booking spent a use of (its id). Left empty, the host " +
             "chooses the one whose use would lapse first.",
         },
+        // Read-only does a second thing: routine mail's tie to the run's record ignores a read-only
+        // relation (ADRs 0590 and 0980), so two bookings sharing only a class type never tie. The
+        // tie that matters is `class` (the place-free mail goes about another booking of the same
+        // class); marking `class` read-only would silently refuse that mail
+        // (apps/runner/test/routine-mail.test.ts).
         classType: {
           type: "relation",
           label: "Class type",
