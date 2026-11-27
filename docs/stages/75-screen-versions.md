@@ -48,6 +48,7 @@ app (stage 76) downloads.
 | 7 | An organisation can have its own admin screens. A screen is a saved record of which block fills each **slot**, not code. A block can fill a slot, and a block has slots of its own: something added to an appointment card, or another card in place of the default (the owner, 2026-11-27, reversing the same day's first answer, "a screen is code") |
 | 8 | What fills a slot is a standard block or a custom one. A standard block is ours and is named, never copied, so it is updated by a release. A custom block is the organisation's own code |
 | 9 | A custom block written inside the product is built by a build service of ours, in a sandbox. Arranging blocks needs no build |
+| 10 | The admin has an **edit mode** beside the assistant: a person turns it on, selects something on the screen (an appointment card, say) and asks for a change to it or an addition (the owner, 2026-11-27) |
 
 ## The design in one page
 
@@ -91,6 +92,14 @@ app (stage 76) downloads.
   copied, so every screen uses the release's current one. A custom block is the organisation's
   own code, in its version, written for one slot's contract. (A block copied into a client's
   website with `cos add` stays the client's, as today.)
+- **Edit mode.** With it on, the admin outlines what can be selected: each block and each
+  slot, which the page already knows by name (the screen, the slot's path, what fills it).
+  Selecting one hands that name to the assistant with the request. The assistant answers with
+  the smallest change that does it: a setting of the block, a fill added to a slot, or the
+  default replaced by a custom block it writes and the build service builds. The change is made
+  on a draft of the screen, shown at once, and published by someone who may. A part of a
+  standard block that is no slot cannot be changed: the assistant says so and offers to replace
+  the block around it, and the request is recorded, since it tells us which slot is missing.
 - **The build service** takes a custom block's source, written in the product by the assistant
   or an editor, or pushed from a repository, and makes a version from it: it bundles in a
   sandbox with no network and no secrets, against the release's slot contracts and typed
@@ -145,6 +154,8 @@ Block CE: migrations 1490–1509, ADRs 0960–0969 (ADR 0960 written).
 10. **An organisation's own admin screens:** the screen record and its operations, slots
     declared on the first standard blocks, add and replace, the check of saved screens at a
     release, custom blocks from the build service.
+11. **Edit mode:** selecting a block or a slot in the admin and asking the assistant for a
+    change to it, on a draft; the record of requests no slot could meet.
 
 ## Decided by this spec, open to override
 
@@ -166,6 +177,11 @@ Block CE: migrations 1490–1509, ADRs 0960–0969 (ADR 0960 written).
 - **A screen made only of standard blocks is shown in the desktop app** from the start: it
   holds none of the organisation's code. A custom block is not, until Electrobun's internal
   bridge can be closed for a view (ADR 0960).
+- **Edit mode selects blocks and slots, not any pixel,** and needs its own permission, apart
+  from the permission to publish. A change is for everyone who uses the screen, not one person.
+- **A request that is about the data, not the screen** (a new field on the appointment) is an
+  extension change and goes the way those go today: written by the assistant, approved as a
+  diff. Edit mode may start it, and the screen change that shows the field follows it.
 - **The word is "slot".** Appointments call theirs "free times", so the two do not meet.
 - **The store does not depend on Cloudflare's loader,** so a second target can serve the same
   versions.
@@ -198,3 +214,5 @@ here (CONTRIBUTING.md, Working in parallel).
 - **Step 9** — not built — needs: step 3 — The build service
 
 - **Step 10** — not built — needs: step 6, step 8, step 9 — An organisation's own admin screens
+
+- **Step 11** — not built — needs: step 10 — Edit mode
