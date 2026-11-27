@@ -33,7 +33,8 @@ What was known or found:
   distinct id and code is charged per day it is loaded.
 - **A desktop app with its screens inside it has no server and no binding.** It reaches the host
   as the mobile app does: `/api/v1`, the typed client, tokens from a sign-in in the system browser.
-- **The spike** (a throwaway Electrobun 2.0.6 app, macOS 26, the system webview) showed that one
+- **The spike** ([record](../spikes/0002-desktop-wrapper.md): a throwaway Electrobun 2.0.6 app,
+  macOS 26, the system webview; its code was not kept) showed that one
   wrapper can download a bundle, check an Ed25519-signed manifest and each file's SHA-256, keep it
   on disk and serve it to a webview with no network:
   - Serving from a folder per client (`viewsRoot`, the version in the path) works: its own origin

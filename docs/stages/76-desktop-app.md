@@ -2,11 +2,11 @@
 
 Read first: [`AGENTS.md`](../../AGENTS.md), [`CONTEXT.md`](../../CONTEXT.md) (Client app, Typed
 client, Device session, Pack role), ADRs
-[0960](../adr/0960-screens-as-published-versions-and-one-desktop-app.md) (its Context holds the
-spike's results), [0417](../adr/0417-the-api-contract-and-versions.md),
+[0960](../adr/0960-screens-as-published-versions-and-one-desktop-app.md), [0417](../adr/0417-the-api-contract-and-versions.md),
 [0451](../adr/0451-role-clients-staff-in-the-mobile-app-and-browser-calls.md) and
 [0455](../adr/0455-staff-invites-and-native-sign-in-by-tokens.md); stages
-[75](75-screen-versions.md) and [63](63-app-publishing.md); code:
+[75](75-screen-versions.md) and [63](63-app-publishing.md); the spike's record,
+[`docs/spikes/0002-desktop-wrapper.md`](../spikes/0002-desktop-wrapper.md); code:
 `templates/client/apps/mobile/src/host.ts` (token sessions and the browser sign-in),
 `packages/client/src/client.ts` (`onUpgradeRequired`).
 
