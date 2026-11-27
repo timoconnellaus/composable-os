@@ -50,6 +50,9 @@ on:
           - hostname-add
           - hostname-verify
           - hostname-remove
+          - client-setting-list
+          - client-setting-set
+          - client-setting-unset
           - fleet-install
           - fleet-upgrade
       dry_run:
@@ -57,7 +60,7 @@ on:
         type: boolean
         default: true
       confirm:
-        description: With dry_run off, for remove, export, verify, unverify, secret remove, a live pause or resume, and take_over, the client's id; for a live upgrade, the version; for install, the domain
+        description: With dry_run off, for remove, export, verify, unverify, secret remove, a setting, a live pause or resume, and take_over, the client's id (for an identity or approval setting, <client id>:<NAME>); for a live upgrade, the version; for install, the domain
         default: ""
       client:
         description: The client's id (lowercase letters, digits, single hyphens)
@@ -90,6 +93,12 @@ on:
         default: ""
       sender_domain:
         description: sender commands only, the domain
+        default: ""
+      setting_name:
+        description: client-setting commands only, the setting's name
+        default: ""
+      setting_value:
+        description: client-setting-set only, its value (shown in full by the dry run)
         default: ""
       secret_name:
         description: secret commands only, a given secret's name (its value is the environment secret CLIENT_<ID>_<NAME>)
@@ -133,6 +142,8 @@ jobs:
           OP_HOSTNAME: ${{ inputs.hostname }}
           OP_SENDER_DOMAIN: ${{ inputs.sender_domain }}
           OP_SECRET_NAME: ${{ inputs.secret_name }}
+          OP_SETTING_NAME: ${{ inputs.setting_name }}
+          OP_SETTING_VALUE: ${{ inputs.setting_value }}
           OP_TAKE_OVER: ${{ inputs.take_over }}
         run: node scripts/fleet-operate.mjs validate
 
@@ -177,12 +188,20 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      # No secret in these steps' environment: dependencies' install scripts run without them.
-      - run: pnpm install --frozen-lockfile
+      # No secret in these steps' environment. And no dependency's install script runs at all in
+      # this job, which holds the fleet's secrets: one could leave code (NODE_OPTIONS in
+      # GITHUB_ENV, a changed script) for the step that does (the re-review of #547). The one
+      # install step the build needs, the core schema version packages/db generates, runs by hand.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: The core schema version (packages/db's own postinstall)
+        run: node packages/db/scripts/schema-version.mjs
       - name: Build cos
         run: pnpm --filter create-composable-os build
       - name: Run
         env:
+          # Set here, it wins over anything an earlier step put in GITHUB_ENV: no code is preloaded
+          # into the process before it takes the keys out of its environment (the re-review of #547).
+          NODE_OPTIONS: ""
           OP_ENV: ${{ inputs.env }}
           OP_COMMAND: ${{ inputs.command }}
           OP_DRY_RUN: ${{ inputs.dry_run }}
@@ -198,6 +217,8 @@ jobs:
           OP_HOSTNAME: ${{ inputs.hostname }}
           OP_SENDER_DOMAIN: ${{ inputs.sender_domain }}
           OP_SECRET_NAME: ${{ inputs.secret_name }}
+          OP_SETTING_NAME: ${{ inputs.setting_name }}
+          OP_SETTING_VALUE: ${{ inputs.setting_value }}
           OP_TAKE_OVER: ${{ inputs.take_over }}
           FLEET_ENVIRONMENT: ${{ secrets.FLEET_ENVIRONMENT }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.FLEET_CLOUDFLARE_API_TOKEN }}

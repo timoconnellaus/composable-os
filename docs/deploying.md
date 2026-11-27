@@ -1635,6 +1635,7 @@ is no free-form command line:
 | `client-secret-remove` | `cos client secret remove <client> <NAME>` | `client`, `secret_name`, `confirm` |
 | `sender-add`, `sender-verify`, `sender-unverify`, `sender-remove` | `cos client sender <verb> <client> <domain>` | `client`, `sender_domain`; `confirm` for all but add |
 | `hostname-list`, `hostname-add`, `hostname-verify`, `hostname-remove` | `cos client hostname …` (they arrive with PR #543: until then they are refused, saying so) | `client`, `hostname`; `confirm` for verify and remove |
+| `client-setting-list`, `client-setting-set`, `client-setting-unset` | `cos client setting list <client>`, `set <client> <NAME> <value>`, `unset <client> <NAME>` (they arrive with `cos client setting`, branch `feat/stage-66-first-client-gaps`: until then they are refused, saying so) | `client`, `setting_name`, `setting_value` for set; `confirm` = the client's id, or **`<client id>:<NAME>`** for an identity or approval setting |
 | `fleet-install` | `cos fleet install --keys-file … --callback-hostname --domain --version [--ai] [--location] [--zone]` | `version`, `domain`, `callback_hostname`, `confirm` = the domain; `zone` after #543 |
 | `fleet-upgrade` | `cos fleet upgrade --keys-file … --version` | `version`; on live, `confirm` = the version |
 
@@ -1646,26 +1647,41 @@ command with neither.
 - **Every input is checked**: first by a job of its own with no secret, then again by the script before anything runs. The client id is checked against the registry's rule; a version is `x.y.z[-beta.n]` and a domain a hostname. A setting must be a client setting's name with a plain value, and a secret name a given secret's. An input meant for another command is refused. Inputs reach the script only through the environment, never a shell line.
 - **`dry_run` is on by default.** Where `cos` has a dry run, the run makes one. `fleet install` has none, so while `dry_run` is on it is only planned. Its plan says whether the fleet exists and what is recorded (version, domain, callback hostname), and whether `cos` would refuse, so a live reviewer never approves it blind. `cos fleet install` itself refuses a fleet that exists unless all three equal what is installed: a re-run, to finish an install that stopped. An upgrade is `fleet-upgrade`, which migrates every client.
 - **The confirm rule** (the table). Without the right `confirm`, the run stops before `cos`. `client-secret-set` without `confirm` stores a new value and never replaces a stored one. `--skip-staging` is never offered.
-- **The release.** Always the repository's product (the CRM, `cos`'s default; the script chooses it in one marked place, `chooseProduct`), from a published, attested release:
-  - `cos` downloads it, checks `SHA256SUMS` and its build attestation, and with `--require-gh` also runs `gh attestation verify`;
+- **The product.** The fleet is the hosted product, id `composable` (`HOSTED_PRODUCT` in `products/index.ts`, PR #553), never the CRM. Every `cos` call gets `--product composable`. The script chooses it in one marked place, `chooseProduct`, a fixed value that is never an input. Until this checkout has `HOSTED_PRODUCT` and the built `cos` takes `--product`, a dry run is planned only and a real run (a read like `client-list` too) is refused, saying so: nothing falls back to the CRM's fleet.
+- **The release**, from a published, attested release:
+  - `cos` downloads it, checks `SHA256SUMS` and its build attestation, and with `--require-gh` also runs `gh attestation verify`. That check pins both the tag's name and **the commit the tag names now** (`--source-digest`), so a release built from a commit off main whose tag was then moved onto main does not verify;
   - before an install or an upgrade, the script also checks that the tag `v<version>` is a commit on `main`, since an attestation proves which workflow built it, not that a reviewed commit did;
   - never `--bundle-dir`, `--unverified` or `--product-file`.
 - **The keys and secret values.** `FLEET_KEYS` and a secret value are taken out of the script's environment before it loads anything but Node's own modules. They are written only to 0600 files in a 0700 folder that is deleted at the end, on an error and on a signal, and never reach `cos`'s environment or the log.
-- **Identity and approval settings are never set here**: `APPROVAL_FLOOR`, `APPROVAL_EXPIRY_DAYS`, `IDENTITY_PROVIDER`, `AUTH_ALLOW_SIGNUP` and `NATIVE_REDIRECT_URIS`. Identity and policy are not AI-configurable, and loosening approval is a human admin's alone (AGENTS.md), while agents may dispatch this workflow.
-  - A client keeps the deployment's values.
-  - Within them, the client's own human admin chooses its approval preset in the app (Settings), and a preset never goes below the floor.
-  - Changing one of these settings for a client is the owner's decision, made by him: there is no `cos` command for a client's settings after `add` yet (G4). Until there is, he makes it as a change he reviews and runs himself on live, where he is the required reviewer.
+  - The job that holds them installs dependencies with `--ignore-scripts`, so no dependency's install script runs beside them. The one install step the build needs, `packages/db`'s schema version, is run by hand.
+  - The Run step sets its own `NODE_OPTIONS` to empty, so nothing an earlier step put in `GITHUB_ENV` is preloaded.
+  - **What remains is trust in the lockfile's dependencies.** Their code runs inside that job, in `cos` and in the modules the script imports, while the token and the keys are on the runner. A dependency that turned hostile could read them. That is why the lockfile is reviewed, versions are pinned, and every new dependency is a reviewed change.
+  - A next step would build `cos` in a job with no secrets and pass the built files, with a checksum, to the job that holds them. It is not done here: the script itself imports `packages/db` and its dependencies, so that job would still install them.
+- **Identity and approval settings** (`APPROVAL_FLOOR`, `APPROVAL_EXPIRY_DAYS`, `IDENTITY_PROVIDER`, `AUTH_ALLOW_SIGNUP`, `NATIVE_REDIRECT_URIS`, and `API_ALLOWED_ORIGINS`, which decides which browser origins may call the API with a session) are never set at `client-add`. Identity and policy are not AI-configurable, and loosening approval is a human admin's alone (AGENTS.md), while agents may dispatch this workflow.
+  - They are set only by `client-setting-set` (or removed by `client-setting-unset`), each **the owner's own reviewed change**. A run sets one only when `confirm` is `<client id>:<NAME>`, for example `ghetto:NATIVE_REDIRECT_URIS`; the client's id alone is not enough.
+  - Its dry run, which comes first, shows the exact value in the summary. The owner checks it there before he confirms the real run.
+  - Every other setting takes the ordinary confirm, the client's id.
+  - Within those values, the client's own human admin chooses its approval preset in the app (Settings), and a preset never goes below the floor.
+  - A client's mobile app needs `NATIVE_REDIRECT_URIS` (its `<scheme>://staff-sign-in`); this is how it gets one.
 - **One command at a time per fleet** (a concurrency group per environment), beside `cos`'s own one-session rule.
 - **Time.** A run has an hour; `fleet-upgrade` has six, a hosted runner's most, because it migrates every client in turn. An upgrade cut short (a timeout, a cancel) leaves an unfinished update recorded in the registry, with clients paused ("being updated"). `client-list` shows it as part-way. Running `fleet-upgrade` again with the same version finishes it or undoes it before anything else. The killed run's hold on the operator's Worker lapses after 30 minutes, or `take_over` with `confirm` takes it sooner.
 - **Output.** The job summary says who ran what, on which fleet and for which client, the `cos` command line and its outcome, and `cos`'s output. The token, the account id, its `workers.dev` subdomain, the keys and any secret value are masked and cut out. There are no artifacts. Third-party actions are pinned by commit.
 
 **The staging check and this never meet.**
 - The staging check runs in its own environment, `fleet-check` (marker `check`), and operates only `cosstg-<run id>`. That is a throwaway product `cos` takes from a file only when its id and every name start with `cosstg-`, and its teardown deletes only names with that exact prefix.
-- This workflow runs in `fleet` or `fleet-live` and passes no product, so it uses the CRM's names (`crm-…`, the `crm` and `crm-staging` databases). It refuses any input or product that names `cosstg`, and never passes the forced-failure switch (`COS_FLEET_FORCE_FAILURE`), which `cos` refuses outside the staging check anyway.
+- This workflow runs in `fleet` or `fleet-live` and passes `--product composable`, so it uses the hosted product's names (`composable-…`, and the `composable` and `composable-staging` databases). It refuses any input or product that names `cosstg`, and never passes the forced-failure switch (`COS_FLEET_FORCE_FAILURE`), which `cos` refuses outside the staging check anyway.
 
 **One account, one token: what that allows.** Staging and live are on the same Cloudflare account, and a Cloudflare token cannot be limited to one fleet's Workers or databases. So the token in `fleet`, and the one in `fleet-check`, can delete the live fleet. Anyone with write access may dispatch a workflow, and an agent may change a script on `main` and run it in `fleet` with no human approval. `main`-only branch policies do not stop that. The mitigations are the owner's to choose:
 - **a required reviewer on `fleet` (and `fleet-check`) as well as `fleet-live`**, so no run gets a token without his approval; or
 - **a separate Cloudflare account, and token, for live**, so nothing outside `fleet-live` can reach it.
+
+His decision, as of 2026-11-27: he approves live runs (`fleet-live` has him as required reviewer), and staging and test runs need no approval. So the risk above stands for now. A run in `fleet` or `fleet-check` holds a token that can reach live, and needs no one's approval.
+
+**What GitHub's protections cannot stop.** Environments, required reviewers, branch policies, environment secrets, the `FLEET_ENVIRONMENT` markers and the tag ruleset defend only against someone who is **not a repository admin**. An automation that acts with the owner's own GitHub sign-in (as every agent on the owner's machine does today: `gh` signed in as him, with admin rights) can change or delete each of them, approve a deployment as him, and edit or bypass the ruleset. Before more than one client is live, give automation **a separate identity**, a bot account or a fine-grained token, with:
+- no admin rights;
+- no rights over environments, secrets or rulesets;
+- no deployment approval;
+- no place on any ruleset's bypass list.
 
 **What the owner does once, in order** (the keys and the secrets never pass through anyone else):
 
@@ -1678,15 +1694,20 @@ command with neither.
 2. **The token**, account-owned, on the fleet's account (Cloudflare's own names):
    - account: Workers Scripts Edit, D1 Edit, Workers R2 Storage Edit, Workers KV Storage Edit, Queues Edit, Vectorize Edit, and Account Settings Read (what `cos`'s `--help` asks for; with the account id given it may not be needed);
    - zone `composableos.app`: Zone Read, Workers Routes Edit, DNS Write ("DNS Edit" in the dashboard), and SSL and Certificates Edit (Workers Custom Domains for the staff and callback hostnames; Cloudflare for SaaS custom hostnames for a client's own web domain, PR #543);
-   - with AI on (the workflow's `ai=on`): also AI Gateway Edit, and API Tokens Edit to make the gateway's token. That one is a user-level permission, so an account-owned token cannot hold it: install with `ai=off`, or make the gateway's token by hand;
+   - with AI on (the workflow's `ai=on`): also AI Gateway Edit, and a permission to make the gateway's own token through the account's tokens endpoint. Cloudflare's docs do not say clearly which permission that is for an account-owned token, or whether one can hold it, so this is unconfirmed. Install with `ai=off` until it is;
    - Stream Edit, only if an import must re-stamp a client's videos.
 3. **The zone.** Turn on Cloudflare for SaaS on `composableos.app` (SSL/TLS → Custom Hostnames) before the first client's own domain is added. Its fallback origin must be a proxied DNS record and show Active; PR #543's `cos fleet install` makes `clients.<domain>` for it.
-4. **The environments.** In Settings → Environments, three:
-   - **`fleet-check`** (the staging check and the client database proof): `FLEET_ENVIRONMENT` = `check`, `FLEET_CLOUDFLARE_API_TOKEN`, `FLEET_CLOUDFLARE_ACCOUNT_ID`; deployment branch policy `main`; a required reviewer (see above).
-   - **`fleet`** (the real staging fleet): `FLEET_ENVIRONMENT` = `staging`, the two Cloudflare secrets, `FLEET_KEYS` = `base64 -w0 ~/fleet-keys/staging.json` (on macOS, `base64 -i … | tr -d '\n'`) on one line, so GitHub masks it whole; deployment branch policy `main`; **required reviewer: the owner** (see above).
+4. **The environments** (done, 2026-11-27: the three exist with their markers and `main`-only branch policies; the owner is the required reviewer on `fleet-live` only, his decision above). In Settings → Environments, three:
+   - **`fleet-check`** (the staging check and the client database proof): `FLEET_ENVIRONMENT` = `check`, `FLEET_CLOUDFLARE_API_TOKEN`, `FLEET_CLOUDFLARE_ACCOUNT_ID`; deployment branch policy `main`.
+   - **`fleet`** (the real staging fleet): `FLEET_ENVIRONMENT` = `staging`, the two Cloudflare secrets, `FLEET_KEYS` = `base64 -w0 ~/fleet-keys/staging.json` (on macOS, `base64 -i … | tr -d '\n'`) on one line, so GitHub masks it whole; deployment branch policy `main`.
    - **`fleet-live`** (live): `FLEET_ENVIRONMENT` = `live`, the two Cloudflare secrets (or a live account's own), `FLEET_KEYS` from `live.json`; deployment branch policy `main` only; **required reviewer: the owner**.
 5. **Delete the repository-level `FLEET_CLOUDFLARE_API_TOKEN` and `FLEET_CLOUDFLARE_ACCOUNT_ID`** (Settings → Secrets and variables → Actions), once the three environments hold their own: kept only in environments, no other workflow or branch can read them. Every workflow that uses them runs in one of the three.
-6. **A tag ruleset** (Settings → Rules → Rulesets, target tags `v*`): only the owner may create, update or delete a release tag. A release is built and attested from whatever commit a tag names; the script refuses a tag that is not on `main`, and the ruleset keeps anyone else from making one at all.
+6. **A tag ruleset** (Settings → Rules → Rulesets, target tags `v*`; active since 2026-11-27):
+   - only the owner may create a release tag;
+   - **updating and deleting one are blocked** for everyone (a moved tag is how a release built from off main would look on main);
+   - the automation's identity is on no bypass list.
+
+   A release is built and attested from whatever commit its tag names. The script refuses a tag that is not on `main`, `gh attestation verify` pins the commit the tag names now, and the ruleset keeps anyone else from making or moving one.
 7. **A client's secret values** (Stripe keys and the like), as secrets of the environment of the fleet they are for, named `CLIENT_<ID>_<NAME>`, for example `CLIENT_GHETTO_STRIPE_SECRET_KEY`. A client id with a hyphen cannot be named so: set its secrets another way, or use an id without one.
 8. **A release** to install: a `vX.Y.Z` or `vX.Y.Z-beta.N` tag on `main`, which the release workflow builds, attests and publishes, with the fleet's Workers in it.
 
@@ -1709,8 +1730,14 @@ gh workflow run fleet-operate.yml --ref main -f env=staging -f command=client-ad
 gh workflow run fleet-operate.yml --ref main -f env=staging -f command=client-add \
   -f client=ghetto -f location=oc -f settings=COS_PACKS=ticketing -f dry_run=false
 gh workflow run fleet-operate.yml --ref main -f env=staging -f command=client-list
+# The mobile app's sign-in redirect: an identity setting, the owner's own reviewed change. Its
+# dry run shows the exact value; the real run is confirmed by <client id>:<NAME>.
+gh workflow run fleet-operate.yml --ref main -f env=staging -f command=client-setting-set \
+  -f client=ghetto -f setting_name=NATIVE_REDIRECT_URIS -f setting_value=<scheme>://staff-sign-in
+gh workflow run fleet-operate.yml --ref main -f env=staging -f command=client-setting-set \
+  -f client=ghetto -f setting_name=NATIVE_REDIRECT_URIS -f setting_value=<scheme>://staff-sign-in \
+  -f dry_run=false -f confirm=ghetto:NATIVE_REDIRECT_URIS
 ```
-
 
 ## Manual end-to-end run (needs a human)
 

@@ -42,6 +42,18 @@ const rules = {
   isSecretName: isGivenSecretName,
   clientIdProblem,
 };
+/** A stand-in for the hosted product (PR #553's `composable`). */
+const HOSTED = {
+  ...products.crm,
+  id: "composable",
+  names: {
+    app: "composable-app",
+    runner: "composable-runner",
+    gatekeeperPrefix: "composable-gatekeeper-",
+    database: "composable",
+    resourcePrefix: "composable-",
+  },
+};
 const KEYS = {
   environment: "staging",
   rootKey: "root-key-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
@@ -55,7 +67,7 @@ const keys64 = (k = KEYS) => Buffer.from(JSON.stringify(k)).toString("base64");
 /** A run of the script: cos recorded, the summary and log kept, the fake API for the subdomain. */
 function harness({
   cosAnswer,
-  help = "cos client hostname add|verify --zone",
+  help = "cos client hostname add|verify --zone cos client setting list",
   proc,
   recorded = async () => null,
   tagOnMain = async () => ({ ok: true, why: "on main" }),
@@ -76,7 +88,8 @@ function harness({
   const tmp = mkdtempSync(join(tmpdir(), "s66-operate-"));
   const deps = {
     rules,
-    product: products.crm,
+    product: HOSTED,
+    productReady: true,
     cos: async (argv, env) => {
       const seen = { argv, env, files: {} };
       for (const a of argv) {
@@ -106,7 +119,8 @@ function harness({
     },
     process: proc ?? new EventEmitter(),
   };
-  const run = (inputs, secrets = {}) =>
+  const h = { calls, written, tmp, deps };
+  h.run = (inputs, secrets = {}) =>
     operate(
       {
         CLOUDFLARE_API_TOKEN: TOKEN,
@@ -117,9 +131,9 @@ function harness({
         ...secrets,
         ...Object.fromEntries(Object.entries(inputs).map(([k, v]) => [`OP_${k}`, v])),
       },
-      deps,
+      h.deps,
     );
-  return { run, calls, written, tmp };
+  return h;
 }
 
 test("every input is checked before anything runs; a refusal never reaches cos", async () => {
@@ -207,7 +221,8 @@ test("a product of the staging check's throwaway kind is refused", async () => {
 function harnessDeps(h) {
   return {
     rules,
-    product: products.crm,
+    product: HOSTED,
+    productReady: true,
     cos: async () => {
       h.calls.push({});
       return { code: 0, out: "" };
@@ -653,13 +668,15 @@ test("a live resume, and take_over on any command, need confirm too (S3)", async
   assert.equal(await list.run({ ENV: "staging", COMMAND: "client-list", TAKE_OVER: "true" }), 0);
 });
 
-test("identity and approval settings are never set by this workflow (S4)", async () => {
+test("identity and approval settings are never set at client-add (S4)", async () => {
   for (const setting of [
     "APPROVAL_FLOOR=autonomous",
     "APPROVAL_EXPIRY_DAYS=30",
     "IDENTITY_PROVIDER=cloudflare-access",
     "AUTH_ALLOW_SIGNUP=true",
     "NATIVE_REDIRECT_URIS=gym://x",
+    // The re-review of #547: which browser origins may call the API with a session.
+    "API_ALLOWED_ORIGINS=https://evil.example",
   ]) {
     const h = harness();
     const code = await h.run({
@@ -710,10 +727,184 @@ test("the keys and a secret value leave the environment before any import, and n
   }
 });
 
-test("the product is chosen in one place, today cos's default with no flag", () => {
-  const chosen = chooseProduct({ products, defaultProduct: "crm" });
-  assert.equal(chosen.product.id, "crm");
-  assert.deepEqual(chosen.extraArgs, []);
+test("the product is chosen in one place: the hosted one, passed as --product, never the CRM", () => {
   const source = readFileSync(new URL("./fleet-operate.mjs", import.meta.url), "utf8");
   assert.equal(source.match(/THE PRODUCT IS CHOSEN HERE/g)?.length, 1);
+  const withHosted = {
+    HOSTED_PRODUCT: "composable",
+    products: { composable: HOSTED, crm: products.crm },
+  };
+  const ready = chooseProduct({
+    productsModule: withHosted,
+    cosHelp: "  --product <id>  the product",
+  });
+  assert.equal(ready.ready, true);
+  assert.equal(ready.product.id, "composable");
+  assert.deepEqual(ready.extraArgs, ["--product", "composable"]);
+  // This checkout without it (PR #553 not merged): no product, never the CRM.
+  const before = chooseProduct({
+    productsModule: { DEFAULT_PRODUCT: "crm", products },
+    cosHelp: "--product <id>",
+  });
+  assert.equal(before.ready, false);
+  assert.equal(before.product, null);
+  assert.match(before.why, /HOSTED_PRODUCT/);
+  // A cos that takes no --product: not ready either.
+  assert.equal(chooseProduct({ productsModule: withHosted, cosHelp: "cos install" }).ready, false);
+});
+
+test("without the hosted product a dry run is planned only and a real run refused, nothing reaching cos", async () => {
+  const notReady = (h) => ({
+    ...h.deps,
+    product: null,
+    productReady: false,
+    productWhy:
+      "the hosted product (HOSTED_PRODUCT in products/index.ts, PR #553) is not in this checkout yet",
+  });
+  for (const [inputs, code] of [
+    [{ ENV: "staging", COMMAND: "client-add", CLIENT: "ghetto" }, 0],
+    [{ ENV: "staging", COMMAND: "client-add", CLIENT: "ghetto", DRY_RUN: "false" }, 2],
+    [{ ENV: "staging", COMMAND: "client-list" }, 2],
+  ]) {
+    const h = harness();
+    h.deps = notReady(h);
+    assert.equal(await h.run(inputs), code, JSON.stringify(inputs));
+    assert.equal(h.calls.length, 0, JSON.stringify(inputs));
+    assert.match(h.written.summary, /HOSTED_PRODUCT/);
+  }
+});
+
+// --- the re-review of #547 -----------------------------------------------------------------------
+
+test("client-setting: an identity or approval setting runs only with confirm <client id>:<NAME>, its value shown in full first", async () => {
+  const redirect = {
+    ENV: "live",
+    COMMAND: "client-setting-set",
+    CLIENT: "ghetto",
+    SETTING_NAME: "NATIVE_REDIRECT_URIS",
+    SETTING_VALUE: "ghetto://staff-sign-in",
+  };
+  // The dry run: cos gets --dry-run, and the summary has the exact value and the confirm needed.
+  const dry = harness();
+  assert.equal(await dry.run(redirect), 0);
+  assert.ok(dry.calls[0].argv.includes("--dry-run"));
+  assert.deepEqual(dry.calls[0].argv.slice(0, 6), [
+    "client",
+    "setting",
+    "set",
+    "ghetto",
+    "NATIVE_REDIRECT_URIS",
+    "ghetto://staff-sign-in",
+  ]);
+  assert.match(
+    dry.written.summary,
+    /set NATIVE_REDIRECT_URIS for ghetto to "ghetto:\/\/staff-sign-in"/,
+  );
+  assert.match(dry.written.summary, /confirm ghetto:NATIVE_REDIRECT_URIS/);
+  // For real: the client's id alone is not enough, nor another setting's name.
+  for (const confirm of [undefined, "ghetto", "ghetto:API_ALLOWED_ORIGINS"]) {
+    const h = harness();
+    const code = await h.run({
+      ...redirect,
+      DRY_RUN: "false",
+      ...(confirm ? { CONFIRM: confirm } : {}),
+    });
+    assert.equal(code, 2, String(confirm));
+    assert.equal(h.calls.length, 0, String(confirm));
+  }
+  const ok = harness();
+  assert.equal(
+    await ok.run({ ...redirect, DRY_RUN: "false", CONFIRM: "ghetto:NATIVE_REDIRECT_URIS" }),
+    0,
+  );
+  assert.equal(ok.calls[0].argv.at(-1), "--yes");
+  // Unsetting one is confirmed the same way.
+  const unset = harness();
+  const unsetInputs = {
+    ENV: "live",
+    COMMAND: "client-setting-unset",
+    CLIENT: "ghetto",
+    SETTING_NAME: "APPROVAL_FLOOR",
+    DRY_RUN: "false",
+  };
+  assert.equal(await unset.run({ ...unsetInputs, CONFIRM: "ghetto" }), 2);
+  assert.equal(await unset.run({ ...unsetInputs, CONFIRM: "ghetto:APPROVAL_FLOOR" }), 0);
+  // Any other setting: the ordinary confirm, the client's id.
+  const packs = harness();
+  const packsInputs = {
+    ENV: "staging",
+    COMMAND: "client-setting-set",
+    CLIENT: "ghetto",
+    SETTING_NAME: "COS_PACKS",
+    SETTING_VALUE: "ticketing,courses",
+    DRY_RUN: "false",
+  };
+  assert.equal(await packs.run(packsInputs), 2);
+  assert.equal(await packs.run({ ...packsInputs, CONFIRM: "ghetto" }), 0);
+});
+
+test("client-setting: a value is one argument and never a flag; the name is a client setting's; cos must have the command", async () => {
+  for (const extra of [
+    { SETTING_NAME: "COS_PACKS", SETTING_VALUE: "--take-over" },
+    { SETTING_NAME: "COS_PACKS", SETTING_VALUE: "" },
+    { SETTING_NAME: "COS_PACKS", SETTING_VALUE: "a\nb" },
+    { SETTING_NAME: "SOMETHING_ELSE", SETTING_VALUE: "x" },
+  ]) {
+    const h = harness();
+    const code = await h.run({
+      ENV: "staging",
+      COMMAND: "client-setting-set",
+      CLIENT: "ghetto",
+      ...extra,
+    });
+    assert.equal(code, 2, JSON.stringify(extra));
+    assert.equal(h.calls.length, 0);
+  }
+  const old = harness({ help: "cos client add|list" });
+  assert.equal(
+    await old.run({ ENV: "staging", COMMAND: "client-setting-list", CLIENT: "ghetto" }),
+    2,
+  );
+  assert.match(old.written.summary, /no "cos client setting" yet/);
+});
+
+test("confirm takes a domain as long as a hostname can be", async () => {
+  const label = "a".repeat(60);
+  const domain = `${label}.${label}.${label}.composableos.app`;
+  assert.ok(domain.length > 64);
+  const h = harness();
+  const code = await h.run(
+    {
+      ENV: "staging",
+      COMMAND: "fleet-install",
+      VERSION: "0.1.0-beta.16",
+      DOMAIN: domain,
+      CALLBACK_HOSTNAME: `callback.${label}.composableos.app`,
+      DRY_RUN: "false",
+      CONFIRM: domain,
+    },
+    { FLEET_KEYS: keys64() },
+  );
+  assert.equal(code, 0, h.written.summary);
+  assert.equal(h.calls.length, 1);
+});
+
+test("the workflows: actions pinned by commit, no install script or preloaded code beside the fleet's secrets, the teardown only behind the marker", () => {
+  const read = (name) =>
+    readFileSync(new URL(`../.github/workflows/${name}`, import.meta.url), "utf8");
+  for (const name of ["fleet-operate.yml", "fleet-staging-check.yml", "client-db-proof.yml"]) {
+    for (const m of read(name).matchAll(/uses:\s*(\S+)/g)) {
+      assert.match(m[1], /@[0-9a-f]{40}$/, `${name}: ${m[1]}`);
+    }
+  }
+  const operateJob = read("fleet-operate.yml").split(/^ {2}operate:$/m)[1];
+  assert.ok(operateJob, "the operate job");
+  assert.match(operateJob, /pnpm install --frozen-lockfile --ignore-scripts/);
+  assert.doesNotMatch(operateJob, /pnpm install --frozen-lockfile\s*$/m);
+  assert.match(operateJob, /node packages\/db\/scripts\/schema-version\.mjs/);
+  // The Run step's own NODE_OPTIONS, which wins over anything put in GITHUB_ENV before it.
+  const runStep = operateJob.split("- name: Run\n")[1];
+  assert.match(runStep, /^\s+NODE_OPTIONS: ""$/m);
+  const teardown = read("fleet-staging-check.yml").split("- name: Teardown\n")[1].split("\n")[1];
+  assert.match(teardown, /if: always\(\) && steps\.marker\.outcome == 'success'/);
 });

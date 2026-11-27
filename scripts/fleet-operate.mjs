@@ -20,8 +20,10 @@
 // with `--value-file`. Nothing here prints either; the job summary and the log have the token, the
 // account id, its workers.dev subdomain, the keys and the value cut out.
 //
-// It operates the product chosen in one place (`chooseProduct`: today cos's default, never
-// `--product-file`), always from a published, attested release whose tag is on main (never
+// It operates the product chosen in one place (`chooseProduct`: the hosted product,
+// `HOSTED_PRODUCT` in products/index.ts, passed to cos as `--product composable`; never the CRM,
+// never `--product-file`; without it in the checkout, a run is planned only, a real one refused),
+// always from a published, attested release whose tag is on main (never
 // `--bundle-dir` or `--unverified`), and refuses anything that names the staging check's throwaway
 // prefix (`cosstg-`): the staging check and this never meet. Before anything, it refuses a run
 // whose FLEET_ENVIRONMENT secret does not name the fleet asked for: the secrets are not that
@@ -57,7 +59,12 @@ export const POLICY_SETTINGS = Object.freeze([
   "IDENTITY_PROVIDER",
   "AUTH_ALLOW_SIGNUP",
   "NATIVE_REDIRECT_URIS",
+  // Which browser origins may call the API with a session (the re-review of #547).
+  "API_ALLOWED_ORIGINS",
 ]);
+
+/** A setting's value for client-setting-set: one argument to cos, never a flag (no leading -). */
+const SETTING_ARGUMENT = /^(?!-)[\p{L}\p{N} ,._:/@+'&()!?#-]{1,512}$/u;
 
 /**
  * Every command offered, and how it maps to cos. `dry`: `flag` (cos takes `--dry-run`), `read`
@@ -132,7 +139,30 @@ export const COMMANDS = Object.freeze({
     needs: "cos client hostname",
   },
   "hostname-list": { dry: "read", fields: ["client"], needs: "cos client hostname" },
+  // A running client's settings (cos client setting, arriving with feat/stage-66-first-client-gaps).
+  // An identity or approval setting is the owner's own reviewed change: confirmed by the client's
+  // id and the setting's name together, its value shown in full first (the re-review of #547).
+  "client-setting-list": { dry: "read", fields: ["client"], needs: "cos client setting" },
+  "client-setting-set": {
+    dry: "flag",
+    fields: ["client", "settingName", "settingValue"],
+    confirm: settingConfirm,
+    confirmWhat: "the client's id, or for an identity or approval setting <client id>:<NAME>",
+    needs: "cos client setting",
+  },
+  "client-setting-unset": {
+    dry: "flag",
+    fields: ["client", "settingName"],
+    confirm: settingConfirm,
+    confirmWhat: "the client's id, or for an identity or approval setting <client id>:<NAME>",
+    needs: "cos client setting",
+  },
 });
+
+/** A setting's confirm: `<client id>:<NAME>` for an identity or approval one, else the id. */
+function settingConfirm(i) {
+  return POLICY_SETTINGS.includes(i.settingName) ? `${i.client}:${i.settingName}` : i.client;
+}
 
 function upgradeConfirm(i) {
   return i.env === "live" ? i.version : null;
@@ -169,6 +199,8 @@ export function readInputs(env, { knownSettings, isSecretName, clientIdProblem }
     hostname: words(env.OP_HOSTNAME).toLowerCase(),
     senderDomain: words(env.OP_SENDER_DOMAIN).toLowerCase(),
     secretName: words(env.OP_SECRET_NAME),
+    settingName: words(env.OP_SETTING_NAME),
+    settingValue: String(env.OP_SETTING_VALUE ?? ""),
     confirm: words(env.OP_CONFIRM),
     dryRun: true,
     takeOver: false,
@@ -198,6 +230,8 @@ export function readInputs(env, { knownSettings, isSecretName, clientIdProblem }
   check("hostname", (v) => HOSTNAME.test(v), "hostname");
   check("senderDomain", (v) => HOSTNAME.test(v), "sender_domain");
   check("secretName", (v) => isSecretName(v), "secret_name (a given secret's name)");
+  check("settingName", (v) => knownSettings.includes(v), "setting_name (a client setting's name)");
+  check("settingValue", (v) => SETTING_ARGUMENT.test(v), "setting_value");
   if (i.zone && !HOSTNAME.test(i.zone)) fail("zone is not valid");
   if (i.zone && i.command !== "fleet-install") fail(`zone is not taken by ${i.command}`);
   if (i.location && !LOCATIONS.includes(i.location))
@@ -206,12 +240,13 @@ export function readInputs(env, { knownSettings, isSecretName, clientIdProblem }
     fail(`location is not taken by ${i.command}`);
   }
   if (!["on", "off", "as-installed"].includes(i.ai)) fail("ai is on, off or as-installed");
-  if (i.confirm && !/^[a-z0-9.-]{1,64}$/.test(i.confirm)) fail("confirm is not valid");
+  // As long as a hostname can be, or a client's id and a setting's name.
+  if (i.confirm && !/^[A-Za-z0-9._:-]{1,300}$/.test(i.confirm)) fail("confirm is not valid");
   for (const pair of words(env.OP_SETTINGS).split(/\s+/).filter(Boolean)) {
     const m = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(pair);
     if (m && POLICY_SETTINGS.includes(m[1])) {
       fail(
-        `setting ${m[1]} is identity or approval policy: never set by this workflow (AGENTS.md; docs/deploying.md says how a human sets it)`,
+        `setting ${m[1]} is identity or approval policy: never set at client-add; it is the owner's own change, by client-setting-set with confirm <client id>:${m[1]} (docs/deploying.md)`,
       );
     } else if (!m || !knownSettings.includes(m[1]) || !SETTING_VALUE.test(m[2])) {
       fail(
@@ -241,6 +276,8 @@ export function readInputs(env, { knownSettings, isSecretName, clientIdProblem }
 
 /** Refuses a product that is, or names, the staging check's throwaway one. */
 export function checkProduct(product) {
+  // None chosen (the hosted product not in this checkout): `operate` plans only, or refuses.
+  if (!product) return;
   const names = [product.id, ...Object.values(product.names ?? {})];
   if (names.some((n) => String(n).toLowerCase().startsWith(THROWAWAY))) {
     throw new InputError(
@@ -298,6 +335,9 @@ export function plan(i) {
     "hostname-verify": () => ["client", "hostname", "verify", id, i.hostname],
     "hostname-remove": () => ["client", "hostname", "remove", id, i.hostname],
     "hostname-list": () => ["client", "hostname", "list", id],
+    "client-setting-list": () => ["client", "setting", "list", id],
+    "client-setting-set": () => ["client", "setting", "set", id, i.settingName, i.settingValue],
+    "client-setting-unset": () => ["client", "setting", "unset", id, i.settingName],
   }[i.command]();
   const argv = [...base, "--env", i.env, ...(i.takeOver ? ["--take-over"] : [])];
   if (c.dry === "read") return { argv, run: true, why: "changes nothing" };
@@ -309,7 +349,12 @@ export function plan(i) {
         why: `${i.command} has no dry run: planned only; run it with dry_run false`,
       };
     }
-    return { argv: [...argv, "--dry-run"], run: true, why: "dry run: cos changes nothing" };
+    // The value in full, for whoever approves the real run.
+    const what =
+      i.command === "client-setting-set"
+        ? `; it would set ${i.settingName} for ${id} to "${i.settingValue}"${POLICY_SETTINGS.includes(i.settingName) ? `, an identity or approval setting: confirm ${id}:${i.settingName} to run it` : ""}`
+        : "";
+    return { argv: [...argv, "--dry-run"], run: true, why: `dry run: cos changes nothing${what}` };
   }
   const wanted = c.confirm ? c.confirm(i) : null;
   // Taking the session from another command is confirmed too, by the command's own confirm, or
@@ -464,6 +509,16 @@ export async function operate(env, deps) {
     return finish(2, i, null, `refused before cos: ${error.message}`);
   }
   const shown = p.argv.join(" ");
+  // The fleet is the hosted product's, never the CRM's: without it in this checkout (and a cos
+  // that takes --product), nothing reaches cos. A dry run is planned only; a real run refused.
+  if (!deps.productReady) {
+    const why = `${deps.productWhy ?? "the fleet's product is not chosen"}: cos would look for the CRM's fleet, which is never installed`;
+    say(why);
+    if (i.dryRun && COMMANDS[i.command].dry !== "read") {
+      return finish(0, i, shown, `planned only: ${why}`, `Plan: ${p.why}`);
+    }
+    return finish(2, i, shown, `refused: ${why}`);
+  }
   if (!env.CLOUDFLARE_API_TOKEN || !env.CLOUDFLARE_ACCOUNT_ID) {
     return finish(2, i, shown, "refused: the fleet environment's Cloudflare secrets are not set");
   }
@@ -482,7 +537,8 @@ export async function operate(env, deps) {
     }
   }
   // What an install would meet: said before anything, so a reviewer never approves it blind.
-  const notes = [];
+  // What the run does, in the summary too (a setting's exact value, for whoever approves it).
+  const notes = [`Plan: ${p.why}`];
   if (i.command === "fleet-install") {
     let recorded;
     try {
@@ -493,8 +549,9 @@ export async function operate(env, deps) {
       if (p.run) return finish(2, i, shown, `refused: ${why}`);
       return finish(0, i, shown, `planned only: ${p.why}; ${why}`);
     }
-    notes.push(describeRecorded(recorded, i));
-    say(notes[0]);
+    const found = describeRecorded(recorded, i);
+    notes.push(found);
+    say(found);
   }
   if (!p.run) {
     say(`Planned, not run (${p.why}): cos ${shown}`);
@@ -625,14 +682,26 @@ export function takeSecrets(env) {
 }
 
 // === THE PRODUCT IS CHOSEN HERE, and nowhere else ==============================================
-// Which product the real fleet is a release of. Today: cos's default (the repository's own, the
-// CRM), so cos is given no product flag. The owner has decided the real fleet is a neutral hosted
-// product (branch feat/hosted-product): set its id here, and the flag that branch gives cos, once
-// it merges. `extraArgs` go to every cos command; `product` names what the script checks and looks
-// up (its database name, and that it is not the staging check's throwaway kind).
-export function chooseProduct({ products, defaultProduct }) {
-  const id = defaultProduct;
-  return { product: products[id], extraArgs: [] };
+// Which product the real fleet is a release of: the hosted product, fixed (never a workflow
+// input), as products/index.ts exports it, `HOSTED_PRODUCT` (id `composable`, PR #553). The owner
+// decided the fleet is never installed as the CRM, so there is no fallback: until this checkout
+// has the hosted product and the built cos takes `--product`, a run is planned only, and a real
+// one refused. `extraArgs` go to every cos command; `product` names what the script checks and
+// looks up (its database name, and that it is not the staging check's throwaway kind).
+export function chooseProduct({ productsModule, cosHelp }) {
+  const id = productsModule.HOSTED_PRODUCT;
+  const product = typeof id === "string" ? productsModule.products?.[id] : undefined;
+  if (product && /--product\b/.test(cosHelp)) {
+    return { product, extraArgs: ["--product", product.id], ready: true };
+  }
+  return {
+    product: null,
+    extraArgs: [],
+    ready: false,
+    why: product
+      ? "the built cos takes no --product"
+      : "the hosted product (HOSTED_PRODUCT in products/index.ts, PR #553) is not in this checkout yet",
+  };
 }
 // ================================================================================================
 
@@ -676,10 +745,9 @@ async function main(argv) {
     );
     return 2;
   }
-  const { DEFAULT_PRODUCT, products } = await import("../products/index.ts");
+  const productsModule = await import("../products/index.ts");
   const { CloudflareClient } = await import("../packages/release/src/cloudflare.ts");
   const { locateDeployment } = await import("../packages/release/src/operator.ts");
-  const { product, extraArgs } = chooseProduct({ products, defaultProduct: DEFAULT_PRODUCT });
   const cli = join(ROOT, "packages/create-composable-os/dist/cli.js");
   const runCos = (args, env) =>
     new Promise((done) => {
@@ -697,11 +765,18 @@ async function main(argv) {
       child.on("close", (code) => done({ code: code ?? 1, out }));
     });
   const api = () => new CloudflareClient({ token: ENV.CLOUDFLARE_API_TOKEN });
+  const chosen = chooseProduct({
+    productsModule,
+    cosHelp: (await runCos(["--help"], childEnv(ENV))).out,
+  });
+  const { product, extraArgs } = chosen;
   return operate(
     { ...ENV, ...taken },
     {
       rules,
       product,
+      productReady: chosen.ready,
+      productWhy: chosen.why,
       cos: (args, env) => runCos([...args, ...extraArgs, ...ALWAYS], env),
       help: async () => {
         const a = await runCos(["fleet", "--help"], childEnv(ENV));
