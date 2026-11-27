@@ -57,6 +57,7 @@ import {
   FleetError,
   importClient,
   listClientsCommand,
+  packCatalogue,
   pauseClient,
   removeClient,
   removeSecret,
@@ -103,6 +104,7 @@ cos client: the clients of a host of many clients (each takes --env <live|stagin
   cos client secret set <id> <NAME> [--value-file <f>] | secret remove <id> <NAME>
   cos client export <id> [--out <dir>] [--leaving]
   cos client import <id> --from <dir> [--without-secrets] [--staff-hostname h] [--web-hostname h]
+                 [--setting COS_PACKS=…] (needed for an export that does not carry its packs)
   cos client remove <id>
   cos client sender add|verify|unverify|remove <id> <domain>
                  a client's sender domains; verify is your confirmation that the domain is
@@ -168,7 +170,7 @@ async function locateFleet(s: Session, environment: FleetEnvironment, deps: Deps
       `The ${databaseName(s, environment)} deployment is ${state.fleet.environment}'s`,
     );
   }
-  refuseOtherProduct(state, s.product, deps);
+  refuseOtherProduct(state, s.product, deps, databaseName(s, environment));
   return { databaseId: located.databaseId, state };
 }
 
@@ -225,7 +227,7 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
       "That deployment is a single-client one: a fleet is installed apart from it",
     );
   }
-  refuseOtherProduct(existing?.state, s.product, deps);
+  refuseOtherProduct(existing?.state, s.product, deps, databaseName(s, environment));
   const version =
     str(flags, "version") ?? existing?.state?.version ?? (await latestVersion(s, "stable"));
   const { bundle, digest } = await verified(s, version, deps);
@@ -460,6 +462,7 @@ async function withContext(
       operator,
       fleet,
       migrations: bundleMigrations(installed.bundle),
+      packs: packCatalogue(installed.bundle.clientFiles),
       io: deps.io,
       yes: Boolean(flags.yes),
       dryRun: Boolean(flags["dry-run"]),
@@ -567,6 +570,7 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
             id: positional[0] as string,
             from,
             withoutSecrets: Boolean(flags["without-secrets"]),
+            settings: settingsOf(flags),
             ...(str(flags, "staff-hostname")
               ? { staffHostname: str(flags, "staff-hostname") as string }
               : {}),

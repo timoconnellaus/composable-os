@@ -345,15 +345,20 @@ plane, `products/crm/apps/control`, stays the CRM's).
   requires `--setting COS_PACKS=<packs>` (empty for base records only) and refuses `*`, the
   product's catalogue, whose non-optional packs (Deals, Leads, Ticketing) are installed at boot.
   On the host a client with no `COS_PACKS` row gets an empty value, so nothing is installed
-  (registry `CLIENT_SETTINGS`, `blank`), never the deployment's `*`.
+  (registry `CLIENT_SETTINGS`, `blank`), never the deployment's `*`. Each named pack must be one the
+  installed release carries, and the packs they require must be named too (both from the
+  release's client kit: `packs.json`, `contract/roles.json`), never added silently. An export
+  carries the client's `COS_PACKS` and an import restores it; an export made before needs
+  `--setting COS_PACKS=…` (re-review of #553).
 - **A deployment records its product** (review of #553). `DeploymentState.product` is the
   manifest's `product`, written by every install and update; the engine (`installRelease`,
   `runUpdate`, `runRollback`) refuses another product's release for it before anything is made,
   and `cos` refuses any command whose `--product` is not the recorded one (install, upgrade,
   rollback, status, uninstall, every `cos fleet` and `cos client` command), so `--database` can no
   longer point one product's release at another's deployment. A state written before has no
-  product: `cos` reads it as the default product's, and it gains the field at its next install
-  re-run or upgrade.
+  product: `cos` reads it as the product whose database it was found in (its `names.database`,
+  or that with `-staging`), else the default product's (re-review of #553), and it gains the
+  field at its next install re-run or upgrade.
 - Tests: `scripts/release/test/hosted-product.test.ts` (the definition, its packs, its manifest
   with the fleet's Workers, the merged release) and `packages/create-composable-os/test/
   hosted-product.test.ts` (a fleet installed as it from a release carrying both products, against

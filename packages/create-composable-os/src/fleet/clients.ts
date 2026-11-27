@@ -65,6 +65,11 @@ export interface FleetContext {
   fleet: FleetState;
   /** The installed release's core migrations: what a client's database is migrated with. */
   migrations: Migration[];
+  /**
+   * The installed release's packs and what each requires (its client kit): a new client's
+   * `COS_PACKS` is checked against it. Absent or null: only presence and `*` are checked.
+   */
+  packs?: PackCatalogue | null;
   io: Io;
   yes: boolean;
   dryRun: boolean;
@@ -217,22 +222,83 @@ export function fleetHostnameProblems(ctx: FleetContext, client: NewClient): str
 }
 
 /**
+ * The packs the fleet's installed release carries and what each requires, from its client kit
+ * (`packs.json`, and `contract/roles.json`'s `requires`, as `cos deploy` reads them).
+ */
+export interface PackCatalogue {
+  carried: readonly string[];
+  requires: Readonly<Record<string, readonly string[]>>;
+}
+
+/** A release's catalogue from its client kit, or null when the kit has no `packs.json`. */
+export function packCatalogue(kit: ReadonlyMap<string, Uint8Array>): PackCatalogue | null {
+  const listed = kit.get("packs.json");
+  if (!listed) return null;
+  const roles = kit.get("contract/roles.json");
+  const parse = (bytes: Uint8Array) => JSON.parse(new TextDecoder().decode(bytes));
+  return {
+    carried: parse(listed) as string[],
+    requires: roles
+      ? ((parse(roles) as { requires?: PackCatalogue["requires"] }).requires ?? {})
+      : {},
+  };
+}
+
+/** The pack ids a `COS_PACKS` value lists. */
+export function listedPackIds(value: string): string[] {
+  return [
+    ...new Set(
+      value
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+/**
  * What is wrong with a new client's packs (review of #553): a client of a fleet has exactly the
  * packs it is given, so `COS_PACKS` is required, as a list of pack ids (empty for base records
  * only). `"*"`, the product's whole catalogue with its non-optional packs installed at boot, is
- * never a client's. Which ids the release carries is checked by the host (`UnknownPackError`).
+ * never a client's. With the release's catalogue, every id must be a pack it carries, and every
+ * pack a listed one requires must be listed too: never added silently, since the client would
+ * then have packs it was not given.
  */
-export function packsProblems(client: Pick<NewClient, "settings">): string[] {
+export function packsProblems(
+  client: Pick<NewClient, "settings">,
+  catalogue?: PackCatalogue | null,
+): string[] {
   const packs = client.settings?.COS_PACKS;
   if (packs === undefined) {
     return [
       "--setting COS_PACKS=<pack,pack…> is required: a client has exactly the packs it is given (COS_PACKS= for base records only)",
     ];
   }
-  if (packs.split(",").some((id) => id.trim() === "*")) {
+  const ids = listedPackIds(packs);
+  if (ids.includes("*")) {
     return ["COS_PACKS=* is the product's whole catalogue, never a client's: list its packs"];
   }
-  return [];
+  if (!catalogue) return [];
+  const unknown = ids.filter((id) => !catalogue.carried.includes(id));
+  if (unknown.length) {
+    return [
+      `COS_PACKS names ${unknown.join(", ")}, which this release does not carry (it carries ${[...catalogue.carried].sort().join(", ")})`,
+    ];
+  }
+  const missing: string[] = [];
+  const visit = (id: string) => {
+    for (const needed of catalogue.requires[id] ?? []) {
+      if (ids.includes(needed) || missing.includes(needed)) continue;
+      missing.push(needed);
+      visit(needed);
+    }
+  };
+  for (const id of ids) visit(id);
+  if (!missing.length) return [];
+  const one = missing.length === 1;
+  return [
+    `COS_PACKS lacks ${missing.join(", ")}, which the packs it lists require: add ${one ? "it" : "them"} (COS_PACKS=${[...ids, ...missing].join(",")})`,
+  ];
 }
 
 export function plannedClient(ctx: FleetContext, input: AddInput): NewClient {
@@ -276,7 +342,7 @@ export async function addClient(ctx: FleetContext, input: AddInput): Promise<num
   const problems = [
     ...newClientProblems(client, { callbackHostname: ctx.fleet.callbackHostname }),
     ...fleetHostnameProblems(ctx, client),
-    ...packsProblems(client),
+    ...packsProblems(client, ctx.packs),
   ];
   if (problems.length) throw new FleetError(`Cannot add ${id}: ${problems.join("; ")}`);
   await refuseDuringUpdate(ctx, `add ${id}`);
@@ -553,6 +619,11 @@ export interface ExportManifest {
    * verify again where the client now sends from. Absent in an export made before.
    */
   senderDomains?: string[];
+  /**
+   * The client's `COS_PACKS` (review of #553): an import gives the new client the same packs.
+   * Absent in an export made before: the import then needs `--setting COS_PACKS=…`.
+   */
+  packs?: string;
 }
 
 interface ExportState {
@@ -718,6 +789,7 @@ export async function exportClient(ctx: FleetContext, input: ExportInput): Promi
     files: [...state.files].sort((a, b) => a.key.localeCompare(b.key)),
     videos: "not exported",
     senderDomains: (await listSenderDomains(ctx.registry, id)).map((d) => d.domain),
+    packs: await clientPacks(ctx.registry, id),
   };
   await ctx.operator.op("export-manifest", { client: id, exportKey: state.exportKey, manifest });
   if (input.out) await downloadExport(ctx, id, state.exportKey, manifest, input.out);
@@ -785,6 +857,15 @@ async function downloadExport(
   );
 }
 
+/** A client's `COS_PACKS` row, or "" with none (none is no pack: registry `CLIENT_SETTINGS`). */
+async function clientPacks(registry: FleetContext["registry"], id: ClientId): Promise<string> {
+  const row = await registry
+    .prepare("SELECT value FROM registry_settings WHERE client = ? AND name = ?")
+    .bind(id, "COS_PACKS")
+    .first<{ value: string }>();
+  return row?.value ?? "";
+}
+
 // --- import ----------------------------------------------------------------------------------------
 
 /** An export folder as `cos client import` and `cos install --import` read it: checked whole first. */
@@ -797,6 +878,9 @@ export function readExportFolder(dir: string): {
   const manifestPath = join(dir, "manifest.json");
   if (!existsSync(manifestPath)) throw new FleetError(`${dir} holds no manifest.json`);
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as ExportManifest;
+  if (manifest.packs !== undefined && typeof manifest.packs !== "string") {
+    throw new FleetError(`${dir}/manifest.json: packs is not a COS_PACKS value`);
+  }
   if (manifest.format !== EXPORT_FORMAT) {
     throw new FleetError(`${dir} is not a ${EXPORT_FORMAT} export`);
   }
@@ -855,10 +939,23 @@ export async function importClient(ctx: FleetContext, input: ImportInput): Promi
   const id = idOf(input.id);
   if (!ctx.dryRun) await ctx.operator.claim?.();
   const folder = readExportFolder(input.from);
-  const client = plannedClient(ctx, { ...input, id, imported: true });
+  // Its packs: what the export carries, unless the operator names them (review of #553). An
+  // export made before it carried them needs `--setting COS_PACKS=…` (packsProblems refuses one
+  // without): with none the client would have no packs.
+  const carried = folder.manifest.packs;
+  const settings = {
+    ...(carried !== undefined ? { COS_PACKS: carried } : {}),
+    ...(input.settings ?? {}),
+  };
+  const client = plannedClient(ctx, { ...input, id, imported: true, settings });
   const problems = [
     ...newClientProblems(client, { callbackHostname: ctx.fleet.callbackHostname }),
     ...fleetHostnameProblems(ctx, client),
+    ...packsProblems(client, ctx.packs).map((p) =>
+      carried === undefined && client.settings?.COS_PACKS === undefined
+        ? `${p} (this export was made before an export carried its packs: name them)`
+        : p,
+    ),
   ];
   if (problems.length) throw new FleetError(`Cannot import ${id}: ${problems.join("; ")}`);
   await refuseDuringUpdate(ctx, `import ${id}`);

@@ -1576,3 +1576,83 @@ describe("an export installed in another account (criterion 13)", () => {
     }
   });
 });
+
+describe("a client's packs, checked and carried (re-review of #553)", () => {
+  /** The release's catalogue as its client kit gives it: Programs and Memberships need Bookings. */
+  const packs = {
+    carried: ["bookings", "content", "courses", "memberships", "programs", "ticketing"],
+    requires: {
+      programs: ["bookings"],
+      memberships: ["bookings"],
+      courses: ["programs", "content"],
+    },
+  };
+  const settingOf = async (client: string) =>
+    (
+      await registry
+        .prepare("SELECT value FROM registry_settings WHERE client = ? AND name = 'COS_PACKS'")
+        .bind(client)
+        .first<{ value: string }>()
+    )?.value;
+
+  it("refuses a pack the release does not carry, naming those it does, and a list without the packs its packs require", async () => {
+    const typo = addClientCommand(ctx({ packs }), {
+      id: "gym-a",
+      settings: { COS_PACKS: "ticketting" },
+    });
+    await expect(typo).rejects.toThrow(
+      /COS_PACKS names ticketting, which this release does not carry \(it carries bookings, content, courses, memberships, programs, ticketing\)/,
+    );
+    const lacking = addClientCommand(ctx({ packs }), {
+      id: "gym-a",
+      settings: { COS_PACKS: "courses" },
+    });
+    await expect(lacking).rejects.toThrow(
+      /COS_PACKS lacks programs, bookings, content, which the packs it lists require/,
+    );
+    expect(await readClient(registry, id("gym-a"))).toBeNull();
+    expect(
+      await addClientCommand(ctx({ packs }), {
+        id: "gym-a",
+        settings: { COS_PACKS: "bookings,content,courses,programs" },
+      }),
+    ).toBe(0);
+    expect(await settingOf("gym-a")).toBe("bookings,content,courses,programs");
+  });
+
+  it("goes with an export and comes in with an import; an older export needs them named", async () => {
+    await addClientCommand(ctx({ packs }), {
+      id: "gym-a",
+      settings: { COS_PACKS: "bookings,programs" },
+    });
+    const dir = join(mkdtempSync(join(tmpdir(), "s66s7-")), "export");
+    await exportClient(ctx(), { id: "gym-a", out: dir });
+    const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
+    expect(manifest.packs).toBe("bookings,programs");
+    expect(await importClient(ctx({ packs }), { id: "gym-b", from: dir })).toBe(0);
+    expect(await settingOf("gym-b")).toBe("bookings,programs");
+    // An import checks them as an add does.
+    const lacking = importClient(ctx({ packs }), {
+      id: "gym-c",
+      from: dir,
+      settings: { COS_PACKS: "programs" },
+    });
+    await expect(lacking).rejects.toThrow(/COS_PACKS lacks bookings/);
+    expect(await readClient(registry, id("gym-c"))).toBeNull();
+    // An export made before exports carried them: refused unless they are named.
+    const { packs: _packs, ...older } = manifest;
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify(older));
+    await expect(importClient(ctx({ packs }), { id: "gym-c", from: dir })).rejects.toThrow(
+      /COS_PACKS=<pack,pack…> is required.*made before an export carried its packs/,
+    );
+    expect(await readClient(registry, id("gym-c"))).toBeNull();
+    expect(
+      await importClient(ctx({ packs }), {
+        id: "gym-c",
+        from: dir,
+        settings: { COS_PACKS: "ticketing" },
+      }),
+    ).toBe(0);
+    expect(await settingOf("gym-c")).toBe("ticketing");
+  });
+});

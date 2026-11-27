@@ -1239,12 +1239,19 @@ cos client remove gym-a $P                   # export kept 90 days, then erased;
 - **A client's packs.** The hosted product offers every built pack, and a client has exactly the
   ones its `COS_PACKS` lists: `cos client add` requires it (`--setting
   COS_PACKS=bookings,content,courses,programs,ticketing`, or `COS_PACKS=` for base records only)
-  and refuses `*`, the whole catalogue, which would install Deals, Leads and Ticketing at boot. A
-  client whose setting is missing gets none.
+  and refuses `*`, the whole catalogue, which would install Deals, Leads and Ticketing at boot.
+  Every pack named must be one the installed release carries (a typo is refused, naming the
+  packs it does carry), and every pack a named one requires must be named too (`programs` needs
+  `bookings`; `courses` needs `programs`, `bookings` and `content`): `cos` says what is missing
+  and adds nothing itself. An export carries the client's `COS_PACKS` and an import gives the new
+  client the same, checked the same way; an export made before exports carried them needs
+  `--setting COS_PACKS=…` on the import. A client whose setting is missing gets none. A pack
+  taken off a client's list later stays installed with its data: nothing is deleted.
 - **Its product.** A deployment's state records the product whose release it runs: a command
   given another `--product` (with `--database` or not) is refused before anything is made or
-  deleted. A deployment installed before this was recorded is the CRM's until its next upgrade
-  records it.
+  deleted. A deployment installed before this was recorded is the product whose database it is in
+  (`composable`, `composable-staging`: the hosted product), else the CRM's, until its next
+  upgrade records it.
 - **What a client sees.** Every client of the fleet sees the label "Composable OS": the label is
   one for the whole host until a client's own label is held in the registry (PR #552). The app's
   screens, the host's mail, the messages of its errors and its dashboards' descriptions do not say
@@ -1563,7 +1570,8 @@ no zone says first which steps are not proved.
      `0.1.1`.
 6. `cos client export alpha --out`, `cos client import charlie` from it, and an export of charlie.
    Each export's part and file hashes are recomputed from its bytes on disk; the two exports'
-   row counts and file hashes must be alike, the export must count rows, carry the picture of
+   row counts and file hashes must be alike, the export must carry alpha's packs and the
+   import charlie the same (`COS_PACKS`), the export must count rows, carry the picture of
    step 3 and, after a successful upgrade, the migration's row.
 7. `cos client add delta`, and `cos client export bravo` started while the add holds the
    operator's Worker: the second is refused ("Another operator's command"), the first finishes. If

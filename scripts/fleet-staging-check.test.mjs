@@ -1013,7 +1013,7 @@ test("the requests step: B's password at A must be the wrong-password answer, no
 });
 
 /** An export folder as cos writes one, with one file. */
-function exportDir(counts, file = new Uint8Array([9, 9])) {
+function exportDir(counts, file = new Uint8Array([9, 9]), packs = "deals,leads") {
   const dir = mkdtempSync(join(tmpdir(), "s66s7-exp-"));
   mkdirSync(join(dir, "database"));
   mkdirSync(join(dir, "files", "media"), { recursive: true });
@@ -1026,6 +1026,7 @@ function exportDir(counts, file = new Uint8Array([9, 9])) {
     JSON.stringify({
       database: { parts: [{ path: "database/000000.json", sha256: sha(part) }], counts },
       files: [{ key: "media/probe.png", sha256: sha(new Uint8Array([9, 9])) }],
+      ...(packs === null ? {} : { packs }),
     }),
   );
   return dir;
@@ -1044,6 +1045,11 @@ test("an export's hashes are recomputed from its bytes, and an empty one is no p
   });
   await assert.rejects(step("export").run(ctx(exportDir({}), exportDir({}))), /counts no rows/);
   await assert.rejects(step("export").run(ctx(good, damaged)), /differs/);
+  // The packs: the ones the client was given, and the same after the import (re-review of #553).
+  const none = exportDir({ core_settings: 3 }, undefined, "");
+  await assert.rejects(step("export").run(ctx(good, none)), /packs: COS_PACKS=deals,leads, then/);
+  const older = exportDir({ core_settings: 3 }, undefined, null);
+  await assert.rejects(step("export").run(ctx(older, older)), /carries COS_PACKS=undefined/);
   const partial = await step("export").run(ctx(good, exportDir({ core_settings: 3 })));
   assert.equal(partial.status, "partial");
 });
@@ -1119,5 +1125,11 @@ test("what a failure needed, said plainly; secrets cut out; cos's list and expor
   assert.deepEqual(compareExports(a, { counts: { core_settings: 2, core_user: 1 }, files: [] }), [
     "core_settings: 3 rows, then 2",
     "file media/x not imported as it was",
+  ]);
+  // The packs go with an export and must come in with the import (re-review of #553).
+  const given = { ...a, packs: "deals,leads" };
+  assert.deepEqual(compareExports(given, given), []);
+  assert.deepEqual(compareExports(given, { ...a, packs: "" }), [
+    "packs: COS_PACKS=deals,leads, then ",
   ]);
 });

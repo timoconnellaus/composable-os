@@ -37,6 +37,11 @@ async function publish(world: World, demo: FixtureRelease, alone = false) {
           fleet: true,
           clientGatekeepers: true,
           product: HOSTED,
+          // Its kit's catalogue: what a new client's COS_PACKS is checked against.
+          client: {
+            "packs.json": JSON.stringify(["bookings", "programs", "ticketing"]),
+            "contract/roles.json": JSON.stringify({ requires: { programs: ["bookings"] } }),
+          },
         }),
         demo,
       ];
@@ -130,6 +135,13 @@ describe("cos fleet install --product composable", () => {
       const given = await add("--setting", "COS_PACKS=ticketing");
       expect(given.code, given.output).toBe(0);
       expect(given.output).toContain("Would add gym-a");
+      // Checked against the installed release's packs (re-review of #553).
+      const typo = await add("--setting", "COS_PACKS=ticketting");
+      expect(typo.code).not.toBe(0);
+      expect(typo.output).toContain("does not carry (it carries bookings, programs, ticketing)");
+      const lacking = await add("--setting", "COS_PACKS=programs");
+      expect(lacking.code).not.toBe(0);
+      expect(lacking.output).toContain("COS_PACKS lacks bookings");
     } finally {
       world.server.close();
     }
@@ -248,6 +260,50 @@ describe("a command for another product than the deployment runs (review of #553
       const upgrade = await runIn(world, "upgrade", "--yes", "--version", "1.1.0");
       expect(upgrade.code, upgrade.output).toBe(0);
       expect((await stateOf(world)).product).toBe(DEMO.id);
+    } finally {
+      world.server.close();
+    }
+  });
+
+  it("reads a state that records no product as the product whose database it is in, else the default (re-review of #553)", async () => {
+    const world = await startWorld();
+    world.products = PRODUCTS;
+    try {
+      await twoReleases(world);
+      const keysPath = join(mkdtempSync(join(tmpdir(), "hosted-keys-")), "live.json");
+      expect((await runIn(world, "fleet", "keys", "--env", "live", "--out", keysPath)).code).toBe(
+        0,
+      );
+      const install = await runIn(
+        world,
+        "fleet",
+        "install",
+        "--product",
+        HOSTED.id,
+        "--env",
+        "live",
+        "--keys-file",
+        keysPath,
+        "--callback-hostname",
+        "callback.fleet.example",
+        "--domain",
+        "fleet.example",
+        "--version",
+        "1.0.0",
+      );
+      expect(install.code, install.output).toBe(0);
+      // A composable fleet whose state predates the field is still the hosted product's.
+      const { product: _product, ...legacy } = await stateOf(world, "composable");
+      await setState(world, legacy, "composable");
+      const listed = await runIn(world, "client", "list", "--product", HOSTED.id, "--env", "live");
+      expect(listed.code, listed.output).toBe(0);
+      // A deployment in a database no product is named for (a client product's, by --database)
+      // is the default product's.
+      const { productOfDatabase } = await import("../src/main.ts");
+      expect(productOfDatabase("composable", HOSTED, { products: PRODUCTS })).toBe(HOSTED.id);
+      expect(productOfDatabase("composable-staging", DEMO, { products: PRODUCTS })).toBe(HOSTED.id);
+      expect(productOfDatabase("demo", HOSTED, { products: PRODUCTS })).toBe(DEMO.id);
+      expect(productOfDatabase("gym", HOSTED, { products: PRODUCTS })).toBe(DEMO.id);
     } finally {
       world.server.close();
     }
