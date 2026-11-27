@@ -29,7 +29,10 @@ export interface SessionOptions {
 /** The operator's Worker for one command: opened, and the session taken, on its first call. */
 export function lazyOperator(
   registry: D1Database,
-  open: () => Promise<Operator & { close(): Promise<void> }>,
+  open: (session: {
+    /** Whether this run still holds the session (taken over by another: false). */
+    stillHolds(): Promise<boolean>;
+  }) => Promise<Operator & { close(): Promise<void> }>,
   options: SessionOptions,
 ): Operator & { close(): Promise<void>; readonly opened: boolean } {
   const holder = `run-${crypto.randomUUID()}`;
@@ -83,7 +86,7 @@ export function lazyOperator(
     }
     opening ??= (async () => {
       await take();
-      opened = await open();
+      opened = await open({ stillHolds: () => holdsOperatorSession(registry, holder) });
       return opened;
     })();
     return opening;
