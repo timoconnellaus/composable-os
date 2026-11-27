@@ -59,6 +59,7 @@ import {
   importClient,
   listClientsCommand,
   pauseClient,
+  REACHABLE_WAIT_MS,
   removeClient,
   removeSecret,
   resumeClient,
@@ -68,7 +69,7 @@ import {
 import { d1OverRest } from "./d1-rest.ts";
 import { FORCE_FAILURE_VAR, forcedFailure, withForcedMigration } from "./forced-failure.ts";
 import { fleetGatekeepers } from "./gatekeepers.ts";
-import { cloudflareEdge, dohTxt, setUpFleetZone, zoneOf } from "./hostnames.ts";
+import { cloudflareEdge, dohTxt, reachable, setUpFleetZone, zoneOf } from "./hostnames.ts";
 import {
   type KeysFile,
   keysFingerprint,
@@ -348,10 +349,17 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
   // The fleet's zone, once its Workers exist: the callback hostname, and where clients' own
   // domains point (each made once, so a re-run converges).
   if (state.fleet.zone) {
-    await setUpFleetZone(
+    const set = await setUpFleetZone(
       { api: s.api, accountId: s.accountId, fleet: state.fleet, ...edgeWorkers(manifest, state) },
       log,
     );
+    // Whether clients' own domains can be served (Cloudflare for SaaS on the zone), kept in the
+    // state so `cos client hostname add` refuses plainly until it is (ADR 0619).
+    const installed = result.state.fleet ?? state.fleet;
+    await writeDeploymentState(s.api, result.databaseId, {
+      ...result.state,
+      fleet: { ...installed, clientDomains: set.clientDomains },
+    });
   } else {
     deps.io.err(
       `  no zone of this account holds ${fleetDomain}: no hostname is attached (add the zone and run this again)`,
@@ -520,6 +528,16 @@ async function withContext(
       ...(edge ? { edge } : {}),
       // The `_cos-client` record of a client's own domain, read over DNS over HTTPS.
       txt: dohTxt(deps.fetch ?? fetch),
+      // A new hostname's DNS and certificate can take minutes: waited for, unless --no-wait.
+      ...(flags["no-wait"]
+        ? {}
+        : {
+            reach: (hostname: string) =>
+              reachable(hostname, {
+                ...(deps.fetch ? { fetch: deps.fetch } : {}),
+                timeoutMs: REACHABLE_WAIT_MS,
+              }),
+          }),
       migrations: bundleMigrations(installed.bundle),
       io: deps.io,
       yes: Boolean(flags.yes),
@@ -609,7 +627,7 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
           if (!verb || !id) {
             throw new CliError("cos client hostname add|verify|remove <id> <hostname> | list <id>");
           }
-          return hostnameCommand(ctx, verb, id, name);
+          return hostnameCommand(ctx, verb, id, name, { adopt: Boolean(flags.adopt) });
         }
         case "pause":
           return pauseClient(ctx, positional[0] as string);

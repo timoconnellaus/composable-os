@@ -320,22 +320,49 @@ export interface HostnameRow {
   surface: HostnameSurface;
   verified: boolean;
   primary: boolean;
+  /** The Cloudflare custom hostname this deployment made for it (migration 0799), or null. */
+  customHostnameId: string | null;
 }
 
 /** A client's hostnames, verified or not, in hostname order. */
 export async function listHostnames(registry: D1Database, id: ClientId): Promise<HostnameRow[]> {
   const { results } = await registry
     .prepare(
-      "SELECT hostname, surface, verified, is_primary FROM registry_hostnames WHERE client = ? ORDER BY hostname",
+      "SELECT hostname, surface, verified, is_primary, custom_hostname_id FROM registry_hostnames WHERE client = ? ORDER BY hostname",
     )
     .bind(validateClientId(id))
-    .all<{ hostname: string; surface: HostnameSurface; verified: number; is_primary: number }>();
+    .all<{
+      hostname: string;
+      surface: HostnameSurface;
+      verified: number;
+      is_primary: number;
+      custom_hostname_id: string | null;
+    }>();
   return results.map((r) => ({
     hostname: r.hostname,
     surface: r.surface,
     verified: Number(r.verified) === 1,
     primary: Number(r.is_primary) === 1,
+    customHostnameId: r.custom_hostname_id ?? null,
   }));
+}
+
+/**
+ * Records the custom hostname this deployment made for a client's hostname (migration 0799):
+ * what makes it this deployment's, so no other deployment's on the same zone is ever acted on.
+ */
+export async function recordCustomHostnameId(
+  registry: D1Database,
+  id: ClientId,
+  hostname: string,
+  customHostnameId: string,
+): Promise<void> {
+  await registry
+    .prepare(
+      "UPDATE registry_hostnames SET custom_hostname_id = ? WHERE hostname = ? AND client = ?",
+    )
+    .bind(customHostnameId, hostname, validateClientId(id))
+    .run();
 }
 
 /**

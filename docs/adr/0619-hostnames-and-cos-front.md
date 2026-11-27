@@ -89,7 +89,7 @@ step, so a re-run finds what is left.
   - **Cloudflare has proved it:** the custom hostname's `status` and `ssl.status` are both
     `active`, which real-time validation gives once the client's CNAME exists;
   - **the domain names this client:** its TXT `_cos-client.<hostname>` holds
-    `cos-client=<client id>`, which `cos` reads itself over DNS over HTTPS (Cloudflare's public
+    `cos-client=<environment>:<client id>`, which `cos` reads itself over DNS over HTTPS (Cloudflare's public
     resolver). A TXT naming another client refuses with that client named; a failed lookup refuses.
 
   Only then does it put the route `<hostname>/*` on cos-front and mark the registry's row verified
@@ -103,7 +103,7 @@ step, so a re-run finds what is left.
 | Record | Name | Value | Why |
 | --- | --- | --- | --- |
 | CNAME | `<hostname>` (a subdomain: `www.<domain>`) | `clients.<fleet domain>` | sends its visitors to the host. **DNS only (grey cloud), not proxied** |
-| TXT | `_cos-client.<hostname>` | `cos-client=<client id>` | says which client of the host the domain is for |
+| TXT | `_cos-client.<hostname>` | `cos-client=<environment>:<client id>` (`cos-client=live:gym-a`) | says which client, of which environment, the domain is for |
 
 The client redirects its bare domain to the subdomain in its own DNS (a Cloudflare zone does this
 with a redirect rule).
@@ -144,7 +144,7 @@ before the CNAME (pre-validation). Cloudflare's documentation, read again:
   `add` refuses a bare domain (a registrable domain, `gym.example` or `gym.co.uk`) and asks for a
   subdomain. This departs from stage 46's decision 15 ("its site answers on the bare domain"):
   the bare domain redirects to `www` in the client's own zone, which stage 46 already allowed
-  "where a provider cannot". For the owner to confirm.
+  "where a provider cannot". _The owner accepted this, 2026-11-27 (below)._
 - **No takeover.** With real-time validation, Cloudflare's proof is only that the hostname points
   at the fleet's target: if client B's domain already CNAMEs to `clients.<fleet domain>`, a custom
   hostname made for it, for client A, would turn active just the same. The registry already gives
@@ -299,6 +299,111 @@ standard web app; gatekeepers in a fleet; usage; the first real client (step 9).
   Cloudflare zone of another account, the `_cos-client` lookup over DNS over HTTPS, a route on a
   custom hostname reaching
   cos-front, a proxied CNAME from a client's own Cloudflare zone) is tested against the fake
-  Cloudflare API only, as Cloudflare's documentation describes it. Whether a zone on the Free plan
-  needs Cloudflare for SaaS switched on (and a payment method) before the first custom hostname is
-  for the first install to find.
+  Cloudflare API only, as Cloudflare's documentation describes it. A Free zone does need Cloudflare
+  for SaaS enabled first: the fleet's real zone answered 1456 and 1404 without it (below).
+
+## After the review of #543 (2026-11-27)
+
+### One deployment never takes another's (M1)
+
+A live fleet and a staging fleet may share one zone (`composableos.app` holds
+`<id>-admin.composableos.app` and `<id>-admin.staging.composableos.app`), and each has a registry of
+its own with the same client ids. The first version found a custom hostname or a route by its name
+and took it, so staging could re-point a live client's domain to its own cos-front, or delete it.
+Now:
+
+- **A custom hostname is this deployment's only by its id in this deployment's registry**
+  (registry migration 0799, `registry_hostnames.custom_hostname_id`, written as soon as `add` has
+  made it). Cloudflare's custom metadata, which could carry an owner, is Enterprise only. `add`
+  refuses a custom hostname already on the zone that its registry did not make ("never taken over");
+  `verify` reads the state only of the recorded one; `remove` and `cos client remove` delete only the
+  recorded one. After a crash between making one and recording its id, `cos client hostname add
+  --adopt` (the client's id typed) takes it.
+- **A route is this deployment's only while its Worker is this deployment's cos-front.**
+  `putRoute` never re-points a route of another Worker (`RouteTakenError`); `verify` refuses then,
+  and `remove` deletes a route only when it is its own cos-front's. The install's route of
+  `clients.<domain>` and the callback hostname's Custom Domain are refused the same way when
+  another Worker holds them; `cos client remove` detaches a staff or desk Custom Domain only from its
+  own cos-app.
+- **The TXT names the environment:** `_cos-client.<hostname>` = `cos-client=<environment>:<client
+  id>` (the client's stamp, `clientStamp`). A staging verify never passes on live's record, and a
+  record naming the other environment refuses like one naming another client.
+- Tested with a live and a staging fleet on one zone, the same client id and the same hostname: add,
+  verify, remove and `cos client remove` in staging leave live's custom hostname, route and Custom
+  Domains as they were.
+
+### A zone without Cloudflare for SaaS (M3)
+
+Checked on the fleet's real zone (`composableos.app`, Free plan, 2026-11-27, read-only): Cloudflare
+for SaaS is not enabled there; `GET …/custom_hostnames/fallback_origin` answers 401 with 1456
+("Access to configure this resource has not been granted for this zone. This feature is available
+with SSL for SaaS.") and `GET …/custom_hostnames` 403 with 1404 ("No quota has been allocated for
+this zone or for this account"). It is enabled in the dashboard only ("go to the **Custom
+Hostnames** page", "Select **Enable**"; non-enterprise zones "Enter payment information":
+https://developers.cloudflare.com/cloudflare-for-platforms/cloudflare-for-saas/start/enable/).
+
+- **`cos fleet install` works there.** It attaches the callback hostname and finds Cloudflare for
+  SaaS off (`saasEnabled`: 1456 and 1404 mean "not enabled", never an error). Then it makes nothing
+  of `clients.<domain>` (no record, no fallback origin, no route), says what to do, and records
+  `clientDomains: false` in the deployment's state. cos-front is deployed with the release either
+  way and is reached by nothing until then. A re-run after enabling sets it all up and records
+  `true`; re-runs converge either way.
+- **The fleet's own hostnames work there:** each client's staff and desk hostnames, Custom Domains
+  of cos-app. That is all the first client's line needs.
+- **A client's own domain is refused there**, before anything is written: `cos client add
+  --web-hostname` and `cos client hostname add` name the dashboard step and the re-run of `cos fleet
+  install`. A state that says it is set up while Cloudflare answers 1456 or 1404 is refused the
+  same way.
+- **The staging check's step 3b is partial, not failed,** on such a zone. It still checks the
+  same-origin rule.
+
+### Also (S1, S3, S4, F5)
+
+- **A fallback origin whose record is gone** (a deleted fleet's, a staging check's) is replaced by
+  `cos fleet install`, and it says so. One whose record is on the zone stays. The staging check's
+  teardown resets the zone's fallback origin when it is the run's own target.
+- **`check-host-cookies.mjs`** scans packages/core, packages/db and the packs too. It counts reads
+  per function, so a second read inside a listed function fails.
+- **The fake API is stricter, as the docs describe:**
+  - a route needs an existing Worker and a hostname of the zone (or one of its custom hostnames);
+  - the fallback origin needs a proxied record;
+  - an address record clashing with a CNAME is refused;
+  - a Custom Domain makes its own read-only record and refuses a hostname with a CNAME;
+  - custom hostnames page, and filter by a part of the name (`findCustomHostname` now reads every
+    page);
+  - a zone without Cloudflare for SaaS answers 1456 and 1404.
+
+  The codes it uses beyond those seen (10007, 10022, 1550, 81053, 100117, 1061) are as the docs or
+  error catalogue suggest, not seen on the account.
+- **The staging check's teardown deletes Custom Domains before DNS records** (F5).
+
+### A new hostname takes minutes to answer (the staging check's third real run, 2026-11-27)
+
+In run 45983992806 (before this PR) the second client's staff hostname answered its sign-in page
+(after a wait in step 3, which took 193 s in all) and then gave no answer at all (status 0) to a
+request seconds later. By step 8 it answered steadily. The callback hostname had taken about 155 s
+in step 1. Both staff hostnames were attached back to back, in one call after both adds, so alpha
+was not attached earlier than bravo: each Custom Domain's DNS and certificate reach Cloudflare's
+edges on their own time, and a first answer from one edge says nothing of the next. So:
+
+- `cos client add`, `import` and `hostname verify` say that a new hostname can take a few minutes,
+  and wait (`reachable`) until each answers over HTTPS (any HTTP status) three times running, up to
+  15 minutes. If one still does not, they say so; the command has still succeeded. `--no-wait`
+  skips the wait.
+- The staging check passes `--no-wait` and measures each new staff hostname itself (`settled`,
+  three answers running), reporting the seconds in step 2. A hostname that never settles fails
+  that step, named, instead of a status 0 on a later assertion.
+- Its operation reads (`staffOp`) ask again on no answer at all, twice.
+
+### The bare domain, accepted (2026-11-27)
+
+The owner accepts that a bare domain is refused. The first client's site stays in its own account
+for now. Later it is `www` through cos-front, with the apex redirected in the client's own zone.
+Stage 66's criterion 15 and stage 46's decision 15 carry the dated amendment.
+
+### Follow-ups (not built)
+
+F1: a verified hostname is never checked again (status and TXT), so a lapsed domain keeps being
+served. F3: the 100-a-zone Custom Domain limit and the route limit are not checked before an add.
+F4: `--attach wildcard` checks the domain is the zone's apex, not that the zone is the fleet's
+alone. Recorded in the spec's Status.

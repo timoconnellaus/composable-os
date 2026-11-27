@@ -316,6 +316,8 @@ export function parseArgs(argv: string[]): { command: string; flags: Flags } {
       "skip-staging",
       "take-over",
       "desk",
+      "adopt",
+      "no-wait",
     ].includes(key);
     let value: string | boolean = true;
     if (takesValue) {

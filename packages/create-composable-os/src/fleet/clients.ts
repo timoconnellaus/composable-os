@@ -48,6 +48,7 @@ import {
   type NewClient,
   newClientProblems,
   readClient,
+  recordCustomHostnameId,
   recordSchemaVersion,
   removeClientRows,
   removeHostname,
@@ -59,13 +60,15 @@ import {
   wasRemoved,
 } from "@composable-os/db/registry-writes";
 import type { ExportPart } from "@composable-os/db/sql-export";
-import { type FleetState, fleetClientTarget } from "@composable-os/release";
+import { type FleetState, fleetClientTarget, isSaasNotEnabled } from "@composable-os/release";
 import type { Io } from "../io.ts";
 import {
   clientTxtName,
   clientTxtValue,
   type FleetEdge,
+  NotOursError,
   recordsFor,
+  saasStep,
   type TxtLookup,
 } from "./hostnames.ts";
 import type { Operator } from "./operator-client.ts";
@@ -99,6 +102,11 @@ export interface FleetContext {
    * reads the `_cos-client` record that says which client a domain is for. Absent: none found.
    */
   txt?: TxtLookup;
+  /**
+   * Waits until a hostname answers over HTTPS (`reachable` in hostnames.ts, from `cos`); absent
+   * (`--no-wait`, or the tests): the command only says a new hostname may take minutes.
+   */
+  reach?: (hostname: string) => Promise<{ ok: boolean; seconds: number; last: string }>;
 }
 
 /** A refreshed registry is served within this long (packages/db `REGISTRY_REFRESH_MS`). */
@@ -233,9 +241,13 @@ export function hostnameProblem(
 
 /** Every hostname problem of a client to add (`hostnameProblem`, one line each). */
 export function fleetHostnameProblems(ctx: FleetContext, client: NewClient): string[] {
-  return client.hostnames
-    .map((h) => hostnameProblem(ctx.fleet, h.hostname, h.surface))
-    .filter((p): p is string => p !== null);
+  const own = client.hostnames.some((h) => h.surface === "web") ? ownDomainsProblem(ctx) : null;
+  return [
+    ...client.hostnames
+      .map((h) => hostnameProblem(ctx.fleet, h.hostname, h.surface))
+      .filter((p): p is string => p !== null),
+    ...(own ? [`a web hostname (the client's own domain): ${own}`] : []),
+  ];
 }
 
 /**
@@ -269,11 +281,55 @@ export function dnsInstructions(ctx: FleetContext, id: string, hostname: string)
   const target = fleetClientTarget(canonicalDomain(ctx.fleet.domain) ?? ctx.fleet.domain);
   return [
     `  ${hostname}: unverified, served nowhere yet. The client adds, at its DNS provider:`,
-    ...recordsFor(hostname, target, id).map(
+    ...recordsFor(hostname, target, ctx.fleet.environment, id).map(
       (r) => `    ${r.type.padEnd(5)} ${r.name}  ${r.value}    (${r.why})`,
     ),
     `  then: cos client hostname verify ${id} ${hostname}`,
   ];
+}
+
+/**
+ * Why this fleet cannot take a client's own domain now, or null: its zone must be known and have
+ * Cloudflare for SaaS set up (`FleetState.clientDomains`, ADR 0619).
+ */
+export function ownDomainsProblem(ctx: FleetContext): string | null {
+  if (!ctx.edge) {
+    return "this fleet's zone is not known: run cos fleet install again to learn it";
+  }
+  if (!ctx.edge.clientDomains) {
+    return `this fleet's zone cannot serve clients' own domains yet: ${saasStep(ctx.fleet.zone?.name ?? ctx.fleet.domain)}`;
+  }
+  return null;
+}
+
+/**
+ * A client's own domain as this deployment's custom hostname: the one its registry row records,
+ * or a new one whose id is recorded at once (registry migration 0799). One already on the zone
+ * that this deployment did not make is refused, never adopted, unless `adopt` (the operator's word,
+ * after a crash between making it and recording its id).
+ */
+async function ownCustomHostname(
+  ctx: FleetContext,
+  id: ClientId,
+  hostname: string,
+  adopt = false,
+): Promise<void> {
+  const edge = ctx.edge as FleetEdge;
+  const row = (await listHostnames(ctx.registry, id)).find((h) => h.hostname === hostname);
+  try {
+    const made = await edge.addCustomHostname(hostname, row?.customHostnameId ?? null, adopt);
+    if (made.id !== row?.customHostnameId) {
+      await recordCustomHostnameId(ctx.registry, id, hostname, made.id);
+    }
+  } catch (error) {
+    if (error instanceof NotOursError) throw new FleetError(error.message);
+    if (isSaasNotEnabled(error)) {
+      throw new FleetError(
+        `Cloudflare for SaaS is not enabled on ${ctx.fleet.zone?.name ?? "the fleet's zone"}: ${saasStep(ctx.fleet.zone?.name ?? ctx.fleet.domain)}`,
+      );
+    }
+    throw error;
+  }
 }
 
 /**
@@ -290,10 +346,15 @@ async function attachHostnames(ctx: FleetContext, id: string, client: NewClient)
   }
   for (const h of client.hostnames) {
     if (h.surface === "web") {
-      await ctx.edge.addCustomHostname(h.hostname);
+      await ownCustomHostname(ctx, id as ClientId, h.hostname);
       for (const line of dnsInstructions(ctx, id, h.hostname)) ctx.io.out(line);
     } else {
-      ctx.io.out(`  ${await ctx.edge.attachFleetHostname(h.hostname)}`);
+      try {
+        ctx.io.out(`  ${await ctx.edge.attachFleetHostname(h.hostname)}`);
+      } catch (error) {
+        if (error instanceof NotOursError) throw new FleetError(error.message);
+        throw error;
+      }
     }
   }
 }
@@ -388,7 +449,43 @@ export async function addClient(ctx: FleetContext, input: AddInput): Promise<num
   );
   for (const line of hostnames) ctx.io.out(`  ${line}`);
   ctx.io.out(REFRESH_NOTE);
+  await awaitReachable(
+    ctx,
+    client.hostnames.filter((h) => h.surface !== "web").map((h) => h.hostname),
+  );
   return 0;
+}
+
+/** How long `awaitReachable` waits for a new hostname by default: several times the 155 s seen. */
+export const REACHABLE_WAIT_MS = 15 * 60 * 1000;
+
+/**
+ * Says that a hostname just attached may take minutes to answer (a new Custom Domain's DNS and
+ * certificate reach Cloudflare's edges one by one: the staging check's callback hostname took
+ * about 155 s, and a second client's staff hostname answered once and then failed again on its
+ * next request), and waits until each answers over HTTPS several times running, when the
+ * command has a way to ask (`ctx.reach`; `--no-wait` gives none). A hostname that does not answer
+ * in time is said plainly; the command still succeeds: only its reachability is pending.
+ */
+export async function awaitReachable(ctx: FleetContext, hostnames: string[]): Promise<void> {
+  if (!ctx.edge || hostnames.length === 0) return;
+  if (!ctx.reach) {
+    ctx.io.out(
+      `  ${hostnames.map((h) => `https://${h}`).join(", ")}: a new hostname can take a few minutes to answer (its DNS and certificate)`,
+    );
+    return;
+  }
+  for (const hostname of hostnames) {
+    ctx.io.out(
+      `  waiting for https://${hostname} to answer (a new hostname's DNS and certificate can take a few minutes; --no-wait skips this)…`,
+    );
+    const reached = await ctx.reach(hostname);
+    ctx.io.out(
+      reached.ok
+        ? `  https://${hostname} answers (after ${reached.seconds.toFixed(0)} s)`
+        : `  https://${hostname} does not answer yet after ${reached.seconds.toFixed(0)} s: its DNS or certificate is still on its way. Nothing else is needed; try it again in a few minutes (last: ${reached.last}).`,
+    );
+  }
 }
 
 /**
@@ -433,6 +530,7 @@ export async function hostnameCommand(
   verb: string,
   raw: string,
   name?: string,
+  { adopt = false }: { adopt?: boolean } = {},
 ): Promise<number> {
   const id = idOf(raw);
   if (!(await readClient(ctx.registry, id))) throw new FleetError(`No client ${id}`);
@@ -470,47 +568,61 @@ export async function hostnameCommand(
       tier: "standard",
       hostnames: [{ hostname, surface: "web" }],
     });
-    if (!ctx.edge) {
-      throw new FleetError(
-        "This fleet's zone is not known: run cos fleet install again to learn it, then add the hostname",
-      );
-    }
+    const own = ownDomainsProblem(ctx);
+    if (own) throw new FleetError(`Cannot add ${hostname}: ${own}`);
     if (ctx.dryRun) {
       ctx.io.out(`Would add ${hostname} to ${id}, unverified. Nothing was changed (--dry-run).`);
       return 0;
     }
+    if (adopt) {
+      await confirmFor(
+        ctx,
+        id,
+        `This adopts the custom hostname ${hostname} already on the zone as the one this deployment made for ${id} (only after a crash lost its id)`,
+      );
+    }
     await addHostname(ctx.registry, id, hostname, "web", {
       callbackHostname: ctx.fleet.callbackHostname,
     });
-    await ctx.edge.addCustomHostname(hostname);
+    try {
+      await ownCustomHostname(ctx, id, hostname, adopt);
+    } catch (error) {
+      // A row this command wrote, for a custom hostname it could not make or take: not kept.
+      if (!row) await removeHostname(ctx.registry, id, hostname);
+      throw error;
+    }
     ctx.io.out(`Added ${hostname} to ${id}:`);
     for (const line of dnsInstructions(ctx, id, hostname)) ctx.io.out(line);
     return 0;
   }
   if (!ctx.edge)
     throw new FleetError("This fleet's zone is not known: run cos fleet install again");
-  if (verb === "remove" && !row && !ctx.dryRun) {
-    // A removal a crash stopped after the registry's row: Cloudflare's side is finished now.
-    const held = await hostnamesTaken(ctx.registry, [hostname]);
-    if (held.length) throw new FleetError(`${hostname} is ${held[0]?.client}'s, not ${id}'s`);
-    await ctx.edge.removeCustomHostname(hostname);
-    ctx.io.out(
-      `${hostname} is not ${id}'s in the registry; its route and custom hostname are gone.`,
-    );
-    return 0;
-  }
+  const edge = ctx.edge;
   if (!row || row.surface !== "web") {
     throw new FleetError(`${hostname} is not a web hostname of ${id}`);
   }
+  const ours = row.customHostnameId;
   if (verb === "verify") {
-    const state = await ctx.edge.customHostnameState(hostname);
+    if (!ours) {
+      throw new FleetError(
+        `${hostname} has no custom hostname this deployment made: run cos client hostname add ${id} ${hostname} again`,
+      );
+    }
+    let state: Awaited<ReturnType<FleetEdge["customHostnameState"]>>;
+    try {
+      state = await edge.customHostnameState(hostname, ours);
+    } catch (error) {
+      if (error instanceof NotOursError) throw new FleetError(error.message);
+      throw error;
+    }
     if (!state) {
       throw new FleetError(
         `${hostname} has no custom hostname on the fleet's zone: run cos client hostname add ${id} ${hostname} again`,
       );
     }
-    // Which client the domain is for, in the domain's own DNS (ADR 0619): Cloudflare's real-time
-    // validation proves only that the hostname points at the fleet.
+    // Which client, of which environment, the domain is for, in the domain's own DNS (ADR 0619):
+    // Cloudflare's real-time validation proves only that the hostname points at the fleet.
+    const mine = clientTxtValue(ctx.fleet.environment, id);
     const txt = ctx.txt ?? (async () => []);
     let named: string[];
     try {
@@ -520,10 +632,10 @@ export async function hostnameCommand(
         `Could not read ${clientTxtName(hostname)}: ${(error as Error).message}`,
       );
     }
-    const others = named.filter((v) => v.startsWith("cos-client=") && v !== clientTxtValue(id));
+    const others = named.filter((v) => v.startsWith("cos-client=") && v !== mine);
     if (others.length) {
       throw new FleetError(
-        `${clientTxtName(hostname)} names another client (${others.join(", ")}): ${hostname} is not ${id}'s. Nothing was changed.`,
+        `${clientTxtName(hostname)} names another client or environment (${others.join(", ")}): ${hostname} is not ${ctx.fleet.environment}:${id}'s. Nothing was changed.`,
       );
     }
     const missing = [
@@ -532,9 +644,7 @@ export async function hostnameCommand(
         : [
             `Cloudflare has not proved it (hostname ${state.status}, certificate ${state.certificate})`,
           ]),
-      ...(named.includes(clientTxtValue(id))
-        ? []
-        : [`its TXT ${clientTxtName(hostname)} does not say ${clientTxtValue(id)}`]),
+      ...(named.includes(mine) ? [] : [`its TXT ${clientTxtName(hostname)} does not say ${mine}`]),
     ];
     if (missing.length) {
       ctx.io.out(`${hostname} is not verified: ${missing.join("; ")}. Nothing was changed.`);
@@ -546,9 +656,17 @@ export async function hostnameCommand(
       return 0;
     }
     // The route first, the mark last: a hostname marked verified is one cos-front is reached on.
-    await ctx.edge.routeToFront(hostname);
+    // A route of it that is another Worker's (another deployment's) is refused, never re-pointed.
+    try {
+      await edge.routeToFront(hostname);
+    } catch (error) {
+      if (error instanceof NotOursError)
+        throw new FleetError(`${error.message}. Nothing was changed.`);
+      throw error;
+    }
     await verifyHostname(ctx.registry, id, hostname);
     ctx.io.out(`Verified ${hostname} for ${id}: cos-front serves it. ${REFRESH_NOTE}`);
+    await awaitReachable(ctx, [hostname]);
     return 0;
   }
   if (ctx.dryRun) {
@@ -556,9 +674,11 @@ export async function hostnameCommand(
     return 0;
   }
   await confirmFor(ctx, id, `This removes ${hostname} from ${id}`);
-  // The mark and row first, so the host stops naming it, then Cloudflare's side.
+  // Cloudflare's side first, only what this deployment made (its cos-front's route, the custom
+  // hostname whose id it recorded), while the row still says which; then the row. A re-run after
+  // a crash between the two finds nothing left and removes the row.
+  ctx.io.out(`  ${await edge.removeCustomHostname(hostname, ours)}`);
   await removeHostname(ctx.registry, id, hostname);
-  await ctx.edge.removeCustomHostname(hostname);
   ctx.io.out(`Removed ${hostname} from ${id}. ${REFRESH_NOTE}`);
   return 0;
 }
@@ -571,8 +691,8 @@ async function detachHostnames(ctx: FleetContext, id: ClientId): Promise<void> {
   }
   for (const h of await listHostnames(ctx.registry, id)) {
     if (h.surface === "web") {
-      await ctx.edge.removeCustomHostname(h.hostname);
-      ctx.io.out(`  ${h.hostname}: its route and custom hostname removed`);
+      // Only what this deployment made: its cos-front's route, the custom hostname it recorded.
+      ctx.io.out(`  ${await ctx.edge.removeCustomHostname(h.hostname, h.customHostnameId)}`);
     } else {
       ctx.io.out(`  ${await ctx.edge.detachFleetHostname(h.hostname)}`);
     }
@@ -1267,6 +1387,10 @@ export async function importClient(ctx: FleetContext, input: ImportInput): Promi
     );
   }
   ctx.io.out(REFRESH_NOTE);
+  await awaitReachable(
+    ctx,
+    client.hostnames.filter((h) => h.surface !== "web").map((h) => h.hostname),
+  );
   return 0;
 }
 

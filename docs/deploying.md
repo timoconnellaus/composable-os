@@ -1271,19 +1271,32 @@ cos client remove gym-a                      # export kept 90 days, then erased;
   (at most 100 a zone). With `--attach wildcard` one `*.<domain>` record and route serve them all and
   nothing is attached per client; only when `--domain` is the zone's apex, on a zone used for
   nothing else. `cos client pause` leaves a client's hostnames attached: they answer "being
-  updated".
+  updated". A new hostname can take minutes to answer (its DNS and certificate reach Cloudflare's
+  edges one by one: about 155 s for the staging check's callback hostname). `cos client add`,
+  `import` and `hostname verify` wait until each answers over HTTPS three times running, up to
+  15 minutes, and say if one still does not (the command has still succeeded); `--no-wait` skips
+  the wait.
 - **A client's own domain** (its web hostname) is never under the fleet's registrable domain (no
   Public Suffix listing; client code runs only on the client's own domain). `cos client hostname
   add <id> <hostname>` (or `cos client add --web-hostname`) records it unverified, makes it a
   Cloudflare for SaaS custom hostname on the fleet's zone and prints what the client adds at its
   DNS provider: a CNAME `<hostname>` to `clients.<fleet domain>`, **DNS only (grey cloud)**, and a
-  TXT `_cos-client.<hostname>` saying `cos-client=<id>`. It must be a subdomain (`www.<domain>`):
+  TXT `_cos-client.<hostname>` saying `cos-client=<environment>:<id>` (`cos-client=live:gym-a`). It must be a subdomain (`www.<domain>`):
   a bare domain is refused, and the client redirects it to the subdomain in its own DNS. `cos
   client hostname verify` serves it (a route to cos-front) only once Cloudflare reports the
   hostname and its certificate active (real-time validation, once the CNAME exists; this works for
   a client whose own zone is on Cloudflare, in another account) and the TXT names that client;
   `remove` takes it away. A hostname, and a domain, is one client's. 100 custom hostnames a zone are
-  included, then $0.10 a month each.
+  included, then $0.10 a month each. A deployment acts only on the custom hostnames and routes it
+  made itself, so a staging fleet on the live fleet's zone never touches live's.
+- **Clients' own domains need Cloudflare for SaaS on the fleet's zone**, which is enabled in the
+  dashboard only (the zone's Custom Hostnames page, **Enable**; a payment method on file for a
+  non-enterprise zone). Without it `cos fleet install` still installs the fleet and attaches its own
+  hostnames, says Cloudflare for SaaS is not enabled, and `cos client hostname add` refuses until it
+  is. After enabling it, run `cos fleet install` again to set up `clients.<fleet domain>`.
+- **The token's zone permissions** (on the fleet's zone), besides the account's own: Zone Read, DNS
+  Write, Workers Routes Edit, and SSL and Certificates Edit (custom hostnames and the fallback
+  origin). Workers Custom Domains also need the account's Workers Scripts Edit.
 - **cos-front** (`<prefix>front`) answers clients' own domains: today a holding page for a verified
   one, a 404 for anything else. Serving the client's published web app is stage 75.
 - **On a host of many clients** a change (any POST, PUT, PATCH or DELETE) is made only from the
@@ -1603,13 +1616,13 @@ the script refuses `--ai on`.
 
 **The zone.** The app decides a client only by the hostname a request reached, so on
 `workers.dev` alone no client can be reached. With `zone` set to an active zone of the account on
-which the token has Zone Read, Workers Routes, DNS, SSL and Custom Hostnames, `cos` (stage 66 step
+which the token has Zone Read, Workers Routes Edit, DNS Write, and SSL and Certificates Edit, `cos` (stage 66 step
 8) attaches the callback hostname and each staff hostname as Workers Custom Domains (Cloudflare
 makes their DNS records and certificates, and removes them with the domain; it never replaces a
-record that exists), and makes `clients.<fleet domain>` (a placeholder record, a route to
-cos-front, and the zone's fallback origin unless it already has one: `cos` leaves another). The
+record that exists), and, when the zone has Cloudflare for SaaS, makes `clients.<fleet domain>` (a placeholder record, a route to
+cos-front, and the zone's fallback origin unless it has another that is in use; step 3b is partial without it). The
 teardown deletes the run's routes, DNS records and custom hostnames on that zone and the client
-zone, by a hostname label exactly the prefix. **Use a spare zone, not a live site's**: the certificates'
+zone, by a hostname label exactly the prefix, and resets the fallback origin when it is the run's. **Use a spare zone, not a live site's**: the certificates'
 hostnames stay in public certificate logs. Without one, steps 1, 3, 5, 6 and 8 are partial and the
 run is not proved; what can run still runs.
 

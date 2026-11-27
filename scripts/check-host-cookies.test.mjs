@@ -1,10 +1,12 @@
 // Proves the cookie-read check works (stage 66 step 8, ADR 0619, rule (c)): every shape of read is
 // found by its enclosing function, an unlisted or stale entry fails, and the repository passes.
 import assert from "node:assert/strict";
-import { dirname, resolve } from "node:path";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { COOKIE_READS, checkHostCookies, cookieReads } from "./check-host-cookies.mjs";
+import { COOKIE_READS, checkHostCookies, cookieReads, SCANNED } from "./check-host-cookies.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -33,6 +35,22 @@ test("every shape of cookie read is found, by its function", () => {
       ["<module>", "import { getCookie }"],
     ],
   );
+});
+
+test("core, db and the packs are scanned, and a second read inside a listed function fails (review of #543, S3)", () => {
+  for (const dir of ["packages/core/src", "packages/db/src", "packs"]) {
+    assert.ok(SCANNED.includes(dir), dir);
+  }
+  const dir = mkdtempSync(join(tmpdir(), "s66s8-cookies-"));
+  mkdirSync(join(dir, "apps/app/src"), { recursive: true });
+  writeFileSync(
+    join(dir, "apps/app/src/a.ts"),
+    'export function jar(r) { return [r.headers.get("cookie"), r.headers.get("Cookie")]; }\n',
+  );
+  const problems = checkHostCookies(dir, { "apps/app/src/a.ts#jar": "one read" });
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /reads cookies 2 times \(lines 1, 1\), the list says 1/);
+  assert.deepEqual(checkHostCookies(dir, { "apps/app/src/a.ts#jar": { reads: 2, why: "x" } }), []);
 });
 
 test("a read not listed fails, and so does a listed place that reads none", () => {

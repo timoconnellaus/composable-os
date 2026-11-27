@@ -23,7 +23,7 @@ import type {
   FleetAttach,
   FleetState,
 } from "@composable-os/release";
-import { fleetClientTarget } from "@composable-os/release";
+import { fleetClientTarget, RouteTakenError } from "@composable-os/release";
 
 /** What the client adds to its DNS for its own domain, line by line. */
 export interface DnsRecordLine {
@@ -41,18 +41,43 @@ export interface CustomHostnameState {
   active: boolean;
 }
 
-/** What the commands need of Cloudflare for hostnames. */
+/**
+ * A custom hostname on the zone that this deployment did not make (another deployment's on the
+ * same zone, live beside staging, or someone's own): never adopted, re-pointed or deleted.
+ */
+export class NotOursError extends Error {
+  override name = "NotOursError";
+}
+
+/**
+ * What the commands need of Cloudflare for hostnames. A client's own domain is this deployment's
+ * only by the custom hostname id its registry recorded when it made it (registry migration 0799;
+ * custom metadata, which could carry an owner, is Enterprise only), and its route only while the
+ * route's Worker is this deployment's cos-front.
+ */
 export interface FleetEdge {
+  /** Whether the zone serves clients' own domains (Cloudflare for SaaS set up, `clientDomains`). */
+  readonly clientDomains: boolean;
   /** A hostname on the fleet's domain, to cos-app. */
   attachFleetHostname(hostname: string): Promise<string>;
+  /** Detaches it, only from this deployment's cos-app. */
   detachFleetHostname(hostname: string): Promise<string>;
-  /** A client's own domain, as a custom hostname (made once). */
-  addCustomHostname(hostname: string): Promise<CustomHostnameState>;
-  customHostnameState(hostname: string): Promise<CustomHostnameState | null>;
-  /** Its route to cos-front (made once the hostname is active). */
+  /**
+   * A client's own domain as a custom hostname: made, or the one `ours` names. One already on the
+   * zone that is not `ours` is refused (`NotOursError`), unless `adopt` (the operator's word that
+   * this deployment made it and lost its id to a crash).
+   */
+  addCustomHostname(
+    hostname: string,
+    ours: string | null,
+    adopt?: boolean,
+  ): Promise<{ id: string; state: CustomHostnameState }>;
+  /** Its state, when the zone's custom hostname is `ours`; null when there is none. */
+  customHostnameState(hostname: string, ours: string): Promise<CustomHostnameState | null>;
+  /** Its route to cos-front, made once; another Worker's route of it is refused (`NotOursError`). */
   routeToFront(hostname: string): Promise<void>;
-  /** Its route and its custom hostname, gone. */
-  removeCustomHostname(hostname: string): Promise<void>;
+  /** Its route (when cos-front's) and its custom hostname (when `ours`) gone: what was done. */
+  removeCustomHostname(hostname: string, ours: string | null): Promise<string>;
 }
 
 export interface EdgeInput {
@@ -70,9 +95,14 @@ export function clientTxtName(hostname: string): string {
   return `_cos-client.${hostname}`;
 }
 
-/** The value of that record for a client. */
-export function clientTxtValue(client: string): string {
-  return `cos-client=${client}`;
+/**
+ * The value of that record for a client of one environment: `cos-client=<environment>:<client>`,
+ * the client's stamp (packages/db `clientStamp`). The environment is in it because live and
+ * staging are two registries with the same client ids, and a staging verify must never pass on
+ * live's record (review of #543, M1).
+ */
+export function clientTxtValue(environment: string, client: string): string {
+  return `cos-client=${environment}:${client}`;
 }
 
 /**
@@ -86,7 +116,12 @@ export function clientTxtValue(client: string): string {
  *   is for, so without this a hostname another client's DNS already points at the target could be
  *   claimed for the wrong client.
  */
-export function recordsFor(hostname: string, target: string, client: string): DnsRecordLine[] {
+export function recordsFor(
+  hostname: string,
+  target: string,
+  environment: string,
+  client: string,
+): DnsRecordLine[] {
   return [
     {
       type: "CNAME",
@@ -97,8 +132,8 @@ export function recordsFor(hostname: string, target: string, client: string): Dn
     {
       type: "TXT",
       name: clientTxtName(hostname),
-      value: clientTxtValue(client),
-      why: "says which client of the host the domain is for",
+      value: clientTxtValue(environment, client),
+      why: "says which client of the host, and which environment, the domain is for",
     },
   ];
 }
@@ -127,6 +162,54 @@ export function dohTxt(fetchImpl: typeof fetch = fetch): TxtLookup {
   };
 }
 
+/**
+ * Waits until `https://<hostname>/` answers over HTTPS (any HTTP status: DNS and the certificate
+ * work) `times` times running, polling every `intervalMs` for up to `timeoutMs`. One answer is not
+ * enough: in the staging check's third run a new staff hostname answered its sign-in page and then
+ * failed (no answer at all) on a later request, as its DNS and certificate reached Cloudflare's
+ * edges one by one.
+ */
+export async function reachable(
+  hostname: string,
+  options: {
+    fetch?: typeof fetch;
+    timeoutMs?: number;
+    intervalMs?: number;
+    times?: number;
+    sleep?: (ms: number) => Promise<void>;
+    now?: () => number;
+  } = {},
+): Promise<{ ok: boolean; seconds: number; last: string }> {
+  const fetchImpl = options.fetch ?? fetch;
+  const now = options.now ?? (() => Date.now());
+  const sleep = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+  const times = options.times ?? 3;
+  const start = now();
+  let streak = 0;
+  let last = "no answer yet";
+  for (;;) {
+    try {
+      const response = await fetchImpl(`https://${hostname}/`, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(20_000),
+      });
+      await response.body?.cancel();
+      streak += 1;
+      last = `HTTP ${response.status}`;
+    } catch (error) {
+      streak = 0;
+      last = (error as { cause?: { code?: string } }).cause?.code ?? (error as Error).message;
+    }
+    const seconds = (now() - start) / 1000;
+    if (streak >= times) return { ok: true, seconds, last };
+    // Time runs out only while it does not answer: a run of answers is let finish.
+    if (streak === 0 && now() - start >= (options.timeoutMs ?? 15 * 60 * 1000)) {
+      return { ok: false, seconds, last };
+    }
+    await sleep(streak ? 3_000 : (options.intervalMs ?? 10_000));
+  }
+}
+
 /** The edge over Cloudflare's API, or null for a fleet whose zone is not known. */
 export function cloudflareEdge(input: EdgeInput): FleetEdge | null {
   const { api, accountId, fleet, appWorker, frontWorker } = input;
@@ -140,34 +223,71 @@ export function cloudflareEdge(input: EdgeInput): FleetEdge | null {
     return frontWorker;
   };
   return {
+    clientDomains: fleet.clientDomains === true,
     async attachFleetHostname(hostname) {
       if (attach === "wildcard") return `${hostname}: reached through the fleet's wildcard route`;
+      const held = (await api.listDomains(accountId)).find((d) => d.hostname === hostname);
+      if (held && held.service !== appWorker) {
+        throw new NotOursError(
+          `${hostname} is a Custom Domain of ${held.service}, not of ${appWorker}: never re-pointed`,
+        );
+      }
       await api.putDomain(accountId, hostname, appWorker, zone.id);
       return `${hostname}: a Custom Domain of ${appWorker}`;
     },
     async detachFleetHostname(hostname) {
       if (attach === "wildcard") return `${hostname}: nothing to detach (the wildcard route)`;
       const found = (await api.listDomains(accountId)).filter((d) => d.hostname === hostname);
-      for (const d of found) await api.deleteDomain(accountId, d.id);
-      return found.length ? `${hostname}: detached` : `${hostname}: was not attached`;
+      const ours = found.filter((d) => d.service === appWorker);
+      for (const d of ours) await api.deleteDomain(accountId, d.id);
+      if (ours.length) return `${hostname}: detached`;
+      return found.length
+        ? `${hostname}: another Worker's Custom Domain (${found.map((d) => d.service).join(", ")}), left as it is`
+        : `${hostname}: was not attached`;
     },
-    async addCustomHostname(hostname) {
-      const found =
-        (await api.findCustomHostname(zone.id, hostname)) ??
-        (await api.createCustomHostnameForCname(zone.id, hostname));
+    async addCustomHostname(hostname, ours, adopt = false) {
+      const found = await api.findCustomHostname(zone.id, hostname);
+      if (found) {
+        if (found.id === ours || (adopt && ours === null)) {
+          return { id: found.id, state: stateOf(found) };
+        }
+        throw new NotOursError(
+          `${hostname} is already a custom hostname on ${zone.name}, which this deployment did not make (another deployment's on the same zone, or someone's own): it is never taken over. Nothing was changed.`,
+        );
+      }
+      const made = await api.createCustomHostnameForCname(zone.id, hostname);
+      return { id: made.id, state: stateOf(made) };
+    },
+    async customHostnameState(hostname, ours) {
+      const found = await api.findCustomHostname(zone.id, hostname);
+      if (!found) return null;
+      if (found.id !== ours) {
+        throw new NotOursError(
+          `${hostname}'s custom hostname on ${zone.name} is not the one this deployment made: nothing was changed`,
+        );
+      }
       return stateOf(found);
     },
-    async customHostnameState(hostname) {
-      const found = await api.findCustomHostname(zone.id, hostname);
-      return found ? stateOf(found) : null;
-    },
     async routeToFront(hostname) {
-      await api.putRoute(zone.id, `${hostname}/*`, front());
+      try {
+        await api.putRoute(zone.id, `${hostname}/*`, front());
+      } catch (error) {
+        if (error instanceof RouteTakenError) throw new NotOursError(error.message);
+        throw error;
+      }
     },
-    async removeCustomHostname(hostname) {
-      await api.deleteRoute(zone.id, `${hostname}/*`);
-      const found = await api.findCustomHostname(zone.id, hostname);
-      if (found) await api.deleteCustomHostname(zone.id, found.id);
+    async removeCustomHostname(hostname, ours) {
+      const routed = frontWorker
+        ? await api.deleteRoute(zone.id, `${hostname}/*`, frontWorker)
+        : false;
+      const found = ours ? await api.findCustomHostname(zone.id, hostname) : null;
+      const deleted = Boolean(found && found.id === ours);
+      if (found && deleted) await api.deleteCustomHostname(zone.id, found.id);
+      return `${hostname}: ${routed ? "its route" : "no route of this deployment's"} and ${
+        deleted
+          ? "its custom hostname removed"
+          : "no custom hostname of this deployment's to remove"
+      }`;
     },
   };
 }
@@ -194,40 +314,81 @@ export async function zoneOf(
   return best ? { id: best.id, name: best.name } : null;
 }
 
+/** What the operator does to let a fleet serve clients' own domains (ADR 0619). */
+export function saasStep(zoneName: string): string {
+  return `enable Cloudflare for SaaS on the zone ${zoneName} in the dashboard (the zone's Custom Hostnames page, Enable; a payment method on file), then run cos fleet install again`;
+}
+
 /**
- * What `cos fleet install` sets on the fleet's zone, each made once: the callback hostname to
- * cos-app (a Custom Domain, or the wildcard route and record), and for clients' own domains the
- * CNAME target `clients.<domain>` (a proxied placeholder record), the zone's fallback origin set to
- * it, and its route to cos-front (so a proxied CNAME from a client's Cloudflare zone, which reaches
- * the target's route, is answered by cos-front too, and the target itself is a 404 there).
+ * What `cos fleet install` sets on the fleet's zone, each made once, so a re-run converges:
+ * - the callback hostname to cos-app (a Custom Domain, or the wildcard route and record);
+ * - for clients' own domains, only when the zone has Cloudflare for SaaS: the CNAME target
+ *   `clients.<domain>` (a proxied placeholder record), the zone's fallback origin set to it, and
+ *   its route to cos-front (so a proxied CNAME from a client's Cloudflare zone, which reaches the
+ *   target's route, is answered by cos-front too, and the target itself is a 404 there).
+ * On a zone without Cloudflare for SaaS (Cloudflare answers 1456 or 1404) none of the second part
+ * is made: the fleet's own hostnames work, it says what to do, and returns false. cos-front is
+ * deployed with the release either way and is reached by nothing until then.
  */
-export async function setUpFleetZone(input: EdgeInput, log: (line: string) => void): Promise<void> {
+export async function setUpFleetZone(
+  input: EdgeInput,
+  log: (line: string) => void,
+): Promise<{ clientDomains: boolean }> {
   const { api, fleet, appWorker, frontWorker } = input;
   const zone = fleet.zone;
-  if (!zone) return;
+  if (!zone) return { clientDomains: false };
   const attach = fleet.attach ?? "custom-domains";
   if (attach === "wildcard") {
     const made = await api.ensureProxiedPlaceholder(zone.id, `*.${fleet.domain}`);
     await api.putRoute(zone.id, `*.${fleet.domain}/*`, appWorker);
     log(`  zone ${zone.name}: *.${fleet.domain} (${made}) routed to ${appWorker}`);
   } else {
+    const held = (await api.listDomains(input.accountId)).find(
+      (d) => d.hostname === fleet.callbackHostname,
+    );
+    if (held && held.service !== appWorker) {
+      throw new NotOursError(
+        `${fleet.callbackHostname} is a Custom Domain of ${held.service}, not of ${appWorker}: never re-pointed`,
+      );
+    }
     await api.putDomain(input.accountId, fleet.callbackHostname, appWorker, zone.id);
     log(`  zone ${zone.name}: ${fleet.callbackHostname}, a Custom Domain of ${appWorker}`);
   }
   if (!frontWorker) {
     log("  clients' own domains: this release has no cos-front; none can be added yet");
-    return;
+    return { clientDomains: false };
+  }
+  if (!(await api.saasEnabled(zone.id))) {
+    log(
+      `  clients' own domains: not set up, Cloudflare for SaaS is not enabled on ${zone.name}. The fleet's own hostnames work. To serve clients' own domains, ${saasStep(zone.name)}.`,
+    );
+    return { clientDomains: false };
   }
   const target = fleetClientTarget(fleet.domain);
   const made = await api.ensureProxiedPlaceholder(zone.id, target);
-  // A zone's fallback origin is the zone's, not the fleet's alone: one already set to something
-  // else is left as it is (a route on each verified hostname reaches cos-front before any origin).
+  // A zone's fallback origin is the zone's, not the fleet's alone: one set to something else that
+  // has a record on the zone is left as it is (a route on each verified hostname reaches cos-front
+  // before any origin); one whose record is gone (a deleted fleet's, a staging check's) is
+  // replaced, and said.
   const fallback = await api.getFallbackOrigin(zone.id);
-  if (!fallback || fallback === target) await api.putFallbackOrigin(zone.id, target);
-  await api.putRoute(zone.id, `${target}/*`, frontWorker);
+  let note: string;
+  if (!fallback || fallback === target) {
+    await api.putFallbackOrigin(zone.id, target);
+    note = `is ${target}`;
+  } else if ((await api.listDnsRecords(zone.id, fallback)).length === 0) {
+    await api.putFallbackOrigin(zone.id, target);
+    note = `was ${fallback}, which has no DNS record on the zone: replaced by ${target}`;
+  } else {
+    note = `stays ${fallback} (another's, not changed)`;
+  }
+  try {
+    await api.putRoute(zone.id, `${target}/*`, frontWorker);
+  } catch (error) {
+    if (error instanceof RouteTakenError) throw new NotOursError(error.message);
+    throw error;
+  }
   log(
-    `  clients' own domains: CNAME to ${target} (${made}), routed to ${frontWorker}; the zone's fallback origin ${
-      !fallback || fallback === target ? `is ${target}` : `stays ${fallback} (not changed)`
-    }`,
+    `  clients' own domains: CNAME to ${target} (${made}), routed to ${frontWorker}; the zone's fallback origin ${note}`,
   );
+  return { clientDomains: true };
 }

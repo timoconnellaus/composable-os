@@ -15,13 +15,20 @@
 //
 // Better Auth reads its own cookies inside the library, by the names `cookieOptions` gives it:
 // `__Host-` on a many-client host (packages/auth/test/host-cookies.test.ts).
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 /** The folders whose code a many-client host runs on its own hostnames. */
-export const SCANNED = ["apps/app/src", "packages/auth/src"];
+export const SCANNED = [
+  "apps/app/src",
+  "packages/auth/src",
+  // What else the app Worker runs on a client's hostname (review of #543, S3).
+  "packages/core/src",
+  "packages/db/src",
+  "packs",
+];
 
 /** Every place that reads a request's cookies, and how it reads only `__Host-` names on a fleet. */
 export const COOKIE_READS = {
@@ -44,7 +51,9 @@ const NOT_SHIPPED = /\.(test|spec)\.tsx?$|\.d\.ts$/;
 
 function* files(dir) {
   for (const name of readdirSync(dir).sort()) {
-    if (name === "node_modules" || name === "dist" || name.startsWith(".")) continue;
+    if (["node_modules", "dist", "test", "tests", "e2e"].includes(name) || name.startsWith(".")) {
+      continue;
+    }
     const path = join(dir, name);
     if (statSync(path).isDirectory()) yield* files(path);
     else if (SOURCE.test(name) && !NOT_SHIPPED.test(name)) yield path;
@@ -115,23 +124,39 @@ export function cookieReads(text, fileName = "a.ts") {
   return out;
 }
 
+/** How many reads a listed place has: one, unless its entry says `{ reads, why }`. */
+function readsOf(entry) {
+  return typeof entry === "object" && entry !== null ? Number(entry.reads) : 1;
+}
+
 /** The problems: a read not listed, or a listed place that reads no cookie now. */
 export function checkHostCookies(root, list = COOKIE_READS) {
   const found = new Map();
   for (const dir of SCANNED) {
-    for (const path of files(join(root, dir))) {
+    const at = join(root, dir);
+    if (!existsSync(at)) continue;
+    for (const path of files(at)) {
       const file = relative(root, path).split(sep).join("/");
       for (const read of cookieReads(readFileSync(path, "utf8"), path)) {
         const key = `${file}#${read.name}`;
-        if (!found.has(key)) found.set(key, read);
+        found.set(key, [...(found.get(key) ?? []), read]);
       }
     }
   }
   const problems = [];
-  for (const [key, read] of found) {
+  for (const [key, reads] of found) {
+    const first = reads[0];
     if (!Object.hasOwn(list, key)) {
       problems.push(
-        `${key} (line ${read.line}, ${read.how}) reads a cookie and is not in scripts/check-host-cookies.mjs: on a many-client host it must read only \`__Host-\` names; say how, with its test`,
+        `${key} (line ${first.line}, ${first.how}) reads a cookie and is not in scripts/check-host-cookies.mjs: on a many-client host it must read only \`__Host-\` names; say how, with its test`,
+      );
+      continue;
+    }
+    // A second read inside a listed function is a new read, looked at as one (review of #543, S3).
+    const listed = readsOf(list[key]);
+    if (reads.length !== listed) {
+      problems.push(
+        `${key} reads cookies ${reads.length} times (lines ${reads.map((r) => r.line).join(", ")}), the list says ${listed}: look at the new read and set \`reads\``,
       );
     }
   }

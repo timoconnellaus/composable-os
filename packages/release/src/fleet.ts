@@ -60,6 +60,13 @@ export interface FleetState {
    * apex, which Universal SSL covers one level down). ADR 0619.
    */
   attach?: FleetAttach;
+  /**
+   * Whether clients' own domains can be served: the zone has Cloudflare for SaaS (enabled in the
+   * dashboard, with a payment method on file) and `cos fleet install` set up `clients.<domain>`.
+   * False or absent: the fleet's own hostnames work, and `cos client hostname add` refuses until
+   * Cloudflare for SaaS is enabled and `cos fleet install` runs again (ADR 0619).
+   */
+  clientDomains?: boolean;
 }
 
 export type FleetAttach = "custom-domains" | "wildcard";

@@ -19,6 +19,7 @@ import {
   exportClient,
   type FleetContext,
   hostnameCommand,
+  hostnameProblem,
   importClient,
   listClientsCommand,
   pauseClient,
@@ -28,7 +29,7 @@ import {
   senderCommand,
   setSecret,
 } from "../src/fleet/clients.ts";
-import { cloudflareEdge, dohTxt, setUpFleetZone } from "../src/fleet/hostnames.ts";
+import { cloudflareEdge, dohTxt, reachable, setUpFleetZone } from "../src/fleet/hostnames.ts";
 import {
   keysFingerprint,
   keysMismatch,
@@ -277,29 +278,30 @@ beforeEach(async () => {
 });
 
 describe("cos client add (criterion 11)", () => {
-  it("makes a working client with no Worker upload, in under a minute, and prints its two hostnames", async () => {
+  it("makes a working client with no Worker upload, in under a minute, and prints its hostname", async () => {
     const started = Date.now();
-    expect(
-      await addClient(ctx(), { id: "gym-a", locationHint: "oc", webHostname: "www.gym-a.example" }),
-    ).toBe(0);
+    expect(await addClient(ctx(), { id: "gym-a", locationHint: "oc" })).toBe(0);
     expect(Date.now() - started).toBeLessThan(60_000);
     expect(await readClient(registry, id("gym-a"))).toMatchObject({
       status: "active",
       schemaVersion: 3,
     });
     const snapshot = await readRegistry(registry);
-    // Its own domain is recorded unverified (stage 66 step 8): no web address until verified.
     expect(snapshot.addresses.get(id("gym-a"))).toMatchObject({
       staff: "gym-a-admin.fleet.example",
       web: null,
     });
-    expect(snapshot.unverified.has("www.gym-a.example")).toBe(true);
     expect(operator.calls).toEqual(["place gym-a", "migrate gym-a"]);
     expect(out.lines.join("\n")).toContain("with no Worker uploaded");
     expect(out.lines.join("\n")).toContain("staff https://gym-a-admin.fleet.example");
-    expect(out.lines.join("\n")).toContain("web https://www.gym-a.example (unverified)");
     // Once added it is a client: a second add is refused.
     await expect(addClient(ctx(), { id: "gym-a" })).rejects.toThrow(/already a client/);
+    // A client's own domain needs the fleet's zone (and Cloudflare for SaaS on it): refused here,
+    // before anything is written (stage 66 step 8; the own-domain tests are below).
+    await expect(
+      addClient(ctx(), { id: "gym-b", webHostname: "www.gym-b.example" }),
+    ).rejects.toThrow(/zone is not known/);
+    expect(await readClient(registry, id("gym-b"))).toBeNull();
   });
 
   it("never puts a client's web app on the fleet's domain beside the staff hostnames (no Public Suffix listing)", async () => {
@@ -330,7 +332,7 @@ describe("cos client add (criterion 11)", () => {
     expect(registrableDomain("clients.fleet.example")).toBe("fleet.example");
     expect(registrableDomain("a.fleet.co.uk")).toBe("fleet.co.uk");
     // Its own domain is fine.
-    expect(await addClient(sibling, { id: "gym-a", webHostname: "www.gym-a.example" })).toBe(0);
+    expect(hostnameProblem(sibling.fleet, "www.gym-a.example", "web")).toBeNull();
   });
 
   it("changes nothing on a dry run", async () => {
@@ -925,20 +927,36 @@ describe("export, import and remove (criterion 13)", () => {
 describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
   const ZONE = "zone-fleet";
   let cf: FakeCloudflare;
-  const fleetOn = (attach: "custom-domains" | "wildcard" = "custom-domains") => ({
+  const fleetOn = (
+    attach: "custom-domains" | "wildcard" = "custom-domains",
+    clientDomains = true,
+  ): FleetContext["fleet"] => ({
     ...ctx().fleet,
     zone: { id: ZONE, name: "fleet.example" },
     attach,
+    clientDomains,
   });
-  const edged = (over: Partial<FleetContext> = {}, attach?: "custom-domains" | "wildcard") => {
-    const fleet = fleetOn(attach);
+  /** The staging fleet of the same product on the same zone, with a registry of its own. */
+  const stagingFleet = (): FleetContext["fleet"] => ({
+    ...fleetOn(),
+    environment: "staging",
+    domain: "staging.fleet.example",
+    callbackHostname: "callback.staging.fleet.example",
+  });
+  const edged = (
+    over: Partial<FleetContext> = {},
+    attach?: "custom-domains" | "wildcard",
+    clientDomains = true,
+  ) => {
+    const fleet = over.fleet ?? fleetOn(attach, clientDomains);
+    const suffix = fleet.environment === "staging" ? "-staging" : "";
     const api = new CloudflareClient({ token: "t", apiBase: "https://cf.test", fetch: cf.fetch });
     const edge = cloudflareEdge({
       api,
       accountId: "acct",
       fleet,
-      appWorker: "demo-app",
-      frontWorker: "demo-front",
+      appWorker: `demo-app${suffix}`,
+      frontWorker: `demo-front${suffix}`,
     });
     return ctx({
       fleet,
@@ -952,7 +970,7 @@ describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
   /** What a client's DNS does: its CNAME (Cloudflare proves it), and its TXT naming the client. */
   const prove = (hostname: string, client: string) => {
     cf.activateCustomHostname(hostname);
-    txtRecords.set(`_cos-client.${hostname}`, [`cos-client=${client}`]);
+    txtRecords.set(`_cos-client.${hostname}`, [`cos-client=live:${client}`]);
   };
 
   beforeEach(() => {
@@ -966,6 +984,9 @@ describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
       zones: [{ id: ZONE, name: "fleet.example" }],
     });
     cf.autoActivateCustomHostnames = false;
+    for (const name of ["demo-app", "demo-front", "demo-app-staging", "demo-front-staging"]) {
+      cf.addScript(name);
+    }
   });
 
   it("attaches each client's staff and desk hostnames to the app, and its own domain only as an unverified custom hostname", async () => {
@@ -995,7 +1016,7 @@ describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
     const text = out.lines.join("\n");
     expect(text).toContain("CNAME www.gym-a.example  clients.fleet.example");
     expect(text).toContain("DNS only (grey cloud), not proxied");
-    expect(text).toContain("TXT   _cos-client.www.gym-a.example  cos-client=gym-a");
+    expect(text).toContain("TXT   _cos-client.www.gym-a.example  cos-client=live:gym-a");
     expect(text).not.toContain("_cf-custom-hostname");
     expect(text).toContain("cos client hostname verify gym-a www.gym-a.example");
   });
@@ -1019,7 +1040,7 @@ describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
     expect(cf.routes).toEqual([]);
     expect((await readRegistry(registry)).addresses.get(id("gym-a"))?.web).toBeNull();
     // The domain names gym-a, but Cloudflare has not proved it (no CNAME yet): nothing changes.
-    txtRecords.set("_cos-client.www.gym-a.example", ["cos-client=gym-a"]);
+    txtRecords.set("_cos-client.www.gym-a.example", ["cos-client=live:gym-a"]);
     expect(await hostnameCommand(edged(), "verify", "gym-a", "www.gym-a.example")).toBe(1);
     expect(out.lines.join("\n")).toContain("Cloudflare has not proved it");
     expect(cf.routes).toEqual([]);
@@ -1027,7 +1048,7 @@ describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
     // Cloudflare proved it (its CNAME), but the domain does not say it is gym-a's: nothing changes.
     cf.activateCustomHostname("www.gym-a.example");
     expect(await hostnameCommand(edged(), "verify", "gym-a", "www.gym-a.example")).toBe(1);
-    expect(out.lines.join("\n")).toContain("does not say cos-client=gym-a");
+    expect(out.lines.join("\n")).toContain("does not say cos-client=live:gym-a");
     expect(cf.routes).toEqual([]);
     // The client's DNS is right: verified, routed, its address.
     prove("www.gym-a.example", "gym-a");
@@ -1049,7 +1070,7 @@ describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
     await hostnameCommand(edged(), "add", "gym-a", "www.gym-b.example");
     prove("www.gym-b.example", "gym-b");
     await expect(hostnameCommand(edged(), "verify", "gym-a", "www.gym-b.example")).rejects.toThrow(
-      /names another client \(cos-client=gym-b\)/,
+      /names another client or environment \(cos-client=live:gym-b\)/,
     );
     expect(cf.routes).toEqual([]);
     expect((await readRegistry(registry)).unverified.has("www.gym-b.example")).toBe(true);
@@ -1066,6 +1087,60 @@ describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
         "www.gym-b.example",
       ),
     ).rejects.toThrow(/Could not read _cos-client/);
+  });
+
+  it("waits for a new hostname to answer several times running, and never fails the add when it does not (the third staging run)", async () => {
+    // A hostname that answers once, then not, then steadily: only the steady answers count.
+    const answers = [true, false, true, true, true];
+    let clock = 0;
+    const flapping = await reachable("gym-a-admin.fleet.example", {
+      fetch: (async () => {
+        if (!answers.shift())
+          throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ENOTFOUND" } });
+        return new Response("ok");
+      }) as unknown as typeof fetch,
+      sleep: async (ms) => {
+        clock += ms;
+      },
+      now: () => clock,
+    });
+    expect(flapping.ok).toBe(true);
+    expect(flapping.last).toBe("HTTP 200");
+    expect(answers).toEqual([]);
+    clock = 0;
+    const never = await reachable("gym-b-admin.fleet.example", {
+      fetch: (async () => {
+        throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNRESET" } });
+      }) as unknown as typeof fetch,
+      timeoutMs: 60_000,
+      sleep: async (ms) => {
+        clock += ms;
+      },
+      now: () => clock,
+    });
+    expect(never).toMatchObject({ ok: false, last: "ECONNRESET" });
+    expect(never.seconds).toBeGreaterThanOrEqual(60);
+    // The add says so, waits, and succeeds either way.
+    const asked: string[] = [];
+    const slow = edged({
+      reach: async (hostname) => {
+        asked.push(hostname);
+        return hostname.startsWith("gym-a-admin")
+          ? { ok: true, seconds: 42, last: "HTTP 200" }
+          : { ok: false, seconds: 900, last: "ENOTFOUND" };
+      },
+    });
+    expect(await addClient(slow, { id: "gym-a", desk: true })).toBe(0);
+    expect(asked).toEqual(["gym-a-admin.fleet.example", "gym-a-desk.fleet.example"]);
+    const text = out.lines.join("\n");
+    expect(text).toContain("https://gym-a-admin.fleet.example answers (after 42 s)");
+    expect(text).toContain(
+      "https://gym-a-desk.fleet.example does not answer yet after 900 s: its DNS or certificate is still on its way",
+    );
+    expect(await readClient(registry, id("gym-a"))).toMatchObject({ status: "active" });
+    // Without a way to ask (--no-wait), it only says a new hostname can take minutes.
+    await addClient(edged(), { id: "gym-b" });
+    expect(out.lines.join("\n")).toContain("a new hostname can take a few minutes to answer");
   });
 
   it("reads a TXT record over DNS over HTTPS, its strings joined", async () => {
@@ -1149,15 +1224,114 @@ describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
     expect(cf.routes).toEqual([]);
     expect(cf.customHostnames).toEqual([]);
     expect((await readRegistry(registry)).unverified.has("www.gym-a.example")).toBe(false);
-    // A removal a crash stopped after the row is finished on the re-run.
+    // A removal a crash stopped after Cloudflare's side is finished on the re-run: the row goes.
     await hostnameCommand(edged(), "add", "gym-a", "www.gym-a.example");
-    await registry
-      .prepare("DELETE FROM registry_hostnames WHERE hostname = 'www.gym-a.example'")
-      .run();
+    cf.customHostnames.splice(0);
     expect(
       await hostnameCommand(edged({ yes: true }), "remove", "gym-a", "www.gym-a.example"),
     ).toBe(0);
+    expect((await readRegistry(registry)).unverified.has("www.gym-a.example")).toBe(false);
+  });
+
+  it("with a live and a staging fleet on one zone, staging never adopts, re-points or deletes live's own domain (review of #543, M1)", async () => {
+    const stagingRegistry = nodeD1();
+    await applyMigrations(stagingRegistry, registryMigrations(), {
+      table: REGISTRY_MIGRATIONS_TABLE,
+    });
+    const live = (over: Partial<FleetContext> = {}) => edged(over);
+    const staging = (over: Partial<FleetContext> = {}) =>
+      edged({ fleet: stagingFleet(), registry: stagingRegistry, ...over });
+    // Live: gym-a with its own domain, verified and served by live's cos-front.
+    await addClient(live(), { id: "gym-a" });
+    await hostnameCommand(live(), "add", "gym-a", "www.gym-a.example");
+    prove("www.gym-a.example", "gym-a");
+    expect(await hostnameCommand(live(), "verify", "gym-a", "www.gym-a.example")).toBe(0);
+    // Staging: the same client id, the same hostname.
+    await addClient(staging(), { id: "gym-a" });
+    await expect(hostnameCommand(staging(), "add", "gym-a", "www.gym-a.example")).rejects.toThrow(
+      /already a custom hostname on fleet\.example, which this deployment did not make/,
+    );
+    // Even with the row written by hand and live's custom hostname id copied into it, live's TXT
+    // (`cos-client=live:gym-a`) never verifies for staging, and live's route is never re-pointed.
+    await stagingRegistry
+      .prepare(
+        "INSERT INTO registry_hostnames (hostname, client, surface, verified, is_primary, custom_hostname_id) VALUES ('www.gym-a.example', 'gym-a', 'web', 0, 0, ?)",
+      )
+      .bind(cf.customHostnames[0]?.id)
+      .run();
+    await expect(
+      hostnameCommand(staging(), "verify", "gym-a", "www.gym-a.example"),
+    ).rejects.toThrow(/names another client or environment \(cos-client=live:gym-a\)/);
+    txtRecords.set("_cos-client.www.gym-a.example", ["cos-client=staging:gym-a"]);
+    await expect(
+      hostnameCommand(staging(), "verify", "gym-a", "www.gym-a.example"),
+    ).rejects.toThrow(/demo-front's: never re-pointed/);
+    expect(cf.routes.map((r) => [r.pattern, r.script])).toEqual([
+      ["www.gym-a.example/*", "demo-front"],
+    ]);
+    // Staging's removal of it, and of its client, leaves live's route and custom hostname.
+    await stagingRegistry
+      .prepare(
+        "UPDATE registry_hostnames SET custom_hostname_id = 'not-live-s' WHERE hostname = 'www.gym-a.example'",
+      )
+      .run();
+    expect(
+      await hostnameCommand(staging({ yes: true }), "remove", "gym-a", "www.gym-a.example"),
+    ).toBe(0);
+    expect(await removeClient(staging({ yes: true }), "gym-a")).toBe(0);
+    expect(cf.routes.map((r) => r.script)).toEqual(["demo-front"]);
+    expect(cf.customHostnames.map((h) => h.hostname)).toEqual(["www.gym-a.example"]);
+    expect(cf.domains.map((d) => d.hostname)).toEqual(["gym-a-admin.fleet.example"]);
+    // Live itself still removes its own.
+    expect(await removeClient(live({ yes: true }), "gym-a")).toBe(0);
+    expect(cf.routes).toEqual([]);
     expect(cf.customHostnames).toEqual([]);
+    expect(cf.domains).toEqual([]);
+  });
+
+  it("never re-points or detaches a Custom Domain that is another Worker's", async () => {
+    const api = new CloudflareClient({ token: "t", apiBase: "https://cf.test", fetch: cf.fetch });
+    cf.addScript("crm-app");
+    await api.putDomain("acct", "gym-a-admin.fleet.example", "crm-app", ZONE);
+    const edge = cloudflareEdge({
+      api,
+      accountId: "acct",
+      fleet: fleetOn(),
+      appWorker: "demo-app",
+      frontWorker: "demo-front",
+    }) as NonNullable<ReturnType<typeof cloudflareEdge>>;
+    await expect(edge.attachFleetHostname("gym-a-admin.fleet.example")).rejects.toThrow(
+      /a Custom Domain of crm-app, not of demo-app: never re-pointed/,
+    );
+    expect(await edge.detachFleetHostname("gym-a-admin.fleet.example")).toContain(
+      "another Worker's Custom Domain (crm-app), left as it is",
+    );
+    expect(cf.domains.map((d) => [d.hostname, d.service])).toEqual([
+      ["gym-a-admin.fleet.example", "crm-app"],
+    ]);
+  });
+
+  it("adopts a custom hostname it lost the id of only when told to, after the client's id is typed", async () => {
+    await addClient(edged(), { id: "gym-a" });
+    await hostnameCommand(edged(), "add", "gym-a", "www.gym-a.example");
+    // A crash between making the custom hostname and recording its id.
+    await registry.prepare("UPDATE registry_hostnames SET custom_hostname_id = NULL").run();
+    await expect(hostnameCommand(edged(), "add", "gym-a", "www.gym-a.example")).rejects.toThrow(
+      /which this deployment did not make/,
+    );
+    // Adopting asks for the client's id first.
+    await expect(
+      hostnameCommand(edged(), "add", "gym-a", "www.gym-a.example", { adopt: true }),
+    ).rejects.toThrow(/--yes/);
+    expect(
+      await hostnameCommand(edged({ yes: true }), "add", "gym-a", "www.gym-a.example", {
+        adopt: true,
+      }),
+    ).toBe(0);
+    const row = await registry
+      .prepare("SELECT custom_hostname_id AS id FROM registry_hostnames WHERE surface = 'web'")
+      .first<{ id: string }>();
+    expect(row?.id).toBe(cf.customHostnames[0]?.id);
   });
 
   it("keeps a paused client's hostnames attached (it answers 'being updated'), and detaches every one when the client is removed, the other client's untouched", async () => {
@@ -1198,17 +1372,41 @@ describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
       appWorker: "demo-app",
       frontWorker: "demo-front",
     };
-    await setUpFleetZone(input, () => {});
+    expect(await setUpFleetZone(input, () => {})).toEqual({ clientDomains: true });
     await setUpFleetZone(input, () => {});
     expect(cf.fallbackOrigins.get(ZONE)).toBe("clients.fleet.example");
     expect(cf.routes.map((r) => r.pattern)).toEqual(["clients.fleet.example/*"]);
-    expect(cf.dnsRecords.length).toBe(1);
+    expect(cf.dnsRecords.filter((r) => !r.readOnly).length).toBe(1);
     expect(cf.domains.map((d) => d.hostname)).toEqual(["callback.fleet.example"]);
-    cf.fallbackOrigins.set(ZONE, "proxy-fallback.other.example");
+    // Another's fallback origin, whose record is on the zone, is left as it is.
+    cf.dnsRecords.push({
+      id: "other",
+      zone_id: ZONE,
+      type: "CNAME",
+      name: "proxy-fallback.fleet.example",
+      content: "elsewhere.example",
+      proxied: true,
+    });
+    cf.fallbackOrigins.set(ZONE, "proxy-fallback.fleet.example");
     const lines: string[] = [];
     await setUpFleetZone(input, (l) => lines.push(l));
-    expect(cf.fallbackOrigins.get(ZONE)).toBe("proxy-fallback.other.example");
-    expect(lines.join("\n")).toContain("stays proxy-fallback.other.example (not changed)");
+    expect(cf.fallbackOrigins.get(ZONE)).toBe("proxy-fallback.fleet.example");
+    expect(lines.join("\n")).toContain(
+      "stays proxy-fallback.fleet.example (another's, not changed)",
+    );
+    // One whose record is gone (a deleted fleet's, a staging check's) is replaced, and said (S1).
+    cf.fallbackOrigins.set(ZONE, "clients.cosstg-1.fleet.example");
+    lines.length = 0;
+    await setUpFleetZone(input, (l) => lines.push(l));
+    expect(cf.fallbackOrigins.get(ZONE)).toBe("clients.fleet.example");
+    expect(lines.join("\n")).toContain(
+      "was clients.cosstg-1.fleet.example, which has no DNS record on the zone: replaced",
+    );
+    // A route of the target that is another Worker's is never re-pointed.
+    const target = cf.routes[0] as (typeof cf.routes)[number];
+    target.script = "demo-app";
+    await expect(setUpFleetZone(input, () => {})).rejects.toThrow(/never re-pointed/);
+    target.script = "demo-front";
     // The wildcard: one record and one route for every name, nothing per client.
     await setUpFleetZone({ ...input, fleet: fleetOn("wildcard") }, () => {});
     expect(cf.routes.map((r) => [r.pattern, r.script])).toContainEqual([
@@ -1216,6 +1414,56 @@ describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
       "demo-app",
     ]);
     expect(cf.dnsRecords.map((r) => r.name)).toContain("*.fleet.example");
+  });
+
+  it("on a zone without Cloudflare for SaaS: the fleet's own hostnames work, clients' own domains are refused plainly, and a re-run once it is enabled finishes the set-up (M3)", async () => {
+    cf.saasOff.add(ZONE);
+    const api = new CloudflareClient({ token: "t", apiBase: "https://cf.test", fetch: cf.fetch });
+    const input = {
+      api,
+      accountId: "acct",
+      fleet: fleetOn(),
+      appWorker: "demo-app",
+      frontWorker: "demo-front",
+    };
+    const lines: string[] = [];
+    expect(await setUpFleetZone(input, (l) => lines.push(l))).toEqual({ clientDomains: false });
+    expect(lines.join("\n")).toContain("Cloudflare for SaaS is not enabled on fleet.example");
+    expect(lines.join("\n")).toContain("Custom Hostnames page, Enable; a payment method on file");
+    // A re-run converges: the callback hostname, and nothing of clients.<domain>.
+    expect(await setUpFleetZone(input, () => {})).toEqual({ clientDomains: false });
+    expect(cf.domains.map((d) => d.hostname)).toEqual(["callback.fleet.example"]);
+    expect(cf.routes).toEqual([]);
+    expect(cf.dnsRecords.filter((r) => !r.readOnly)).toEqual([]);
+    expect(cf.fallbackOrigins.size).toBe(0);
+    // The fleet's own hostnames: a client with a staff and a desk hostname, added and removed.
+    const off = (over: Partial<FleetContext> = {}) => edged(over, undefined, false);
+    expect(await addClient(off(), { id: "gym-a", desk: true })).toBe(0);
+    expect(cf.domains.map((d) => d.hostname).sort()).toEqual([
+      "callback.fleet.example",
+      "gym-a-admin.fleet.example",
+      "gym-a-desk.fleet.example",
+    ]);
+    // A client's own domain: refused before anything is written, naming the dashboard step.
+    await expect(
+      addClient(off(), { id: "gym-b", webHostname: "www.gym-b.example" }),
+    ).rejects.toThrow(/Custom Hostnames page, Enable.*then run cos fleet install again/);
+    expect(await readClient(registry, id("gym-b"))).toBeNull();
+    await expect(hostnameCommand(off(), "add", "gym-a", "www.gym-a.example")).rejects.toThrow(
+      /cannot serve clients' own domains yet: enable Cloudflare for SaaS/,
+    );
+    // A state that says it is set up while the zone says otherwise is refused just as plainly.
+    await expect(hostnameCommand(edged(), "add", "gym-a", "www.gym-a.example")).rejects.toThrow(
+      /Cloudflare for SaaS is not enabled on fleet\.example/,
+    );
+    // …and leaves no row of the hostname behind.
+    expect((await readRegistry(registry)).unverified.has("www.gym-a.example")).toBe(false);
+    expect(await removeClient(off({ yes: true }), "gym-a")).toBe(0);
+    expect(cf.domains.map((d) => d.hostname)).toEqual(["callback.fleet.example"]);
+    // Enabled in the dashboard: a re-run of the install finishes the set-up.
+    cf.saasOff.delete(ZONE);
+    expect(await setUpFleetZone(input, () => {})).toEqual({ clientDomains: true });
+    expect(cf.fallbackOrigins.get(ZONE)).toBe("clients.fleet.example");
   });
 
   it("writes the registry and says so when the fleet's zone is not known", async () => {
@@ -1292,6 +1540,59 @@ describe("the keys file", () => {
 });
 
 describe("cos fleet install", () => {
+  it("installs on a zone without Cloudflare for SaaS: the fleet's own hostnames, nothing of clients' own domains, said and recorded; a re-run once it is enabled finishes (M3)", async () => {
+    const { buildFixtureRelease } = await import("@composable-os/release/testing");
+    const { runIn, startWorld } = await import("./world.ts");
+    const world = await startWorld();
+    const zone = "zone0000000000000000000000fleet";
+    world.cf.saasOff.add(zone);
+    try {
+      await world.github.publish(
+        await buildFixtureRelease({ version: "1.0.0", fleet: true, clientGatekeepers: true }),
+      );
+      const keysPath = join(mkdtempSync(join(tmpdir(), "s66s8-keys-")), "live.json");
+      expect((await runIn(world, "fleet", "keys", "--env", "live", "--out", keysPath)).code).toBe(
+        0,
+      );
+      const args = [
+        "fleet",
+        "install",
+        "--env",
+        "live",
+        "--keys-file",
+        keysPath,
+        "--callback-hostname",
+        "callback.fleet.example",
+        "--domain",
+        "fleet.example",
+      ];
+      const state = async () => {
+        const db = [...world.cf.d1.values()].find((d) => d.name === "demo");
+        const rows = await db?.engine.query(
+          "SELECT value FROM core_install WHERE key = 'deployment'",
+          [],
+        );
+        return JSON.parse(String(rows?.[0]?.value)).fleet;
+      };
+      for (let run = 0; run < 2; run++) {
+        const { code, output } = await runIn(world, ...args);
+        expect(code, output).toBe(0);
+        expect(output).toContain("Cloudflare for SaaS is not enabled on fleet.example");
+        expect(world.cf.domains.map((d) => d.hostname)).toEqual(["callback.fleet.example"]);
+        expect(world.cf.routes).toEqual([]);
+        expect(world.cf.fallbackOrigins.size).toBe(0);
+        expect((await state()).clientDomains).toBe(false);
+      }
+      world.cf.saasOff.delete(zone);
+      const done = await runIn(world, ...args);
+      expect(done.code, done.output).toBe(0);
+      expect(world.cf.fallbackOrigins.get(zone)).toBe("clients.fleet.example");
+      expect((await state()).clientDomains).toBe(true);
+    } finally {
+      world.server.close();
+    }
+  });
+
   it("installs a host of many clients: its registry migrated, cos-client-db and the operator's Worker, and the keys set", async () => {
     const { buildFixtureRelease } = await import("@composable-os/release/testing");
     const { runIn, startWorld } = await import("./world.ts");
@@ -1339,9 +1640,11 @@ describe("cos fleet install", () => {
       expect(world.cf.routes.map((r) => [r.pattern, r.script])).toEqual([
         ["clients.fleet.example/*", "demo-front"],
       ]);
-      expect(world.cf.dnsRecords.map((r) => [r.name, r.type, r.content, r.proxied])).toEqual([
-        ["clients.fleet.example", "AAAA", "100::", true],
-      ]);
+      expect(
+        world.cf.dnsRecords
+          .filter((r) => !r.readOnly)
+          .map((r) => [r.name, r.type, r.content, r.proxied]),
+      ).toEqual([["clients.fleet.example", "AAAA", "100::", true]]);
       // cos-front holds the registry and its two vars, and no secret.
       const front = world.cf.live("demo-front")?.metadata.bindings as {
         name: string;
@@ -1372,7 +1675,7 @@ describe("cos fleet install", () => {
       expect([...world.cf.d1.values()].filter((d) => d.name === "demo-registry").length).toBe(1);
       expect(world.cf.domains.length).toBe(1);
       expect(world.cf.routes.length).toBe(1);
-      expect(world.cf.dnsRecords.length).toBe(1);
+      expect(world.cf.dnsRecords.filter((r) => !r.readOnly).length).toBe(1);
       // A wildcard is refused where the domain is not its zone's apex.
       const deeper = await runIn(
         world,
