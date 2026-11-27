@@ -16,8 +16,8 @@
 //   { "name", "pack": "deals" | null, "skin": "web" | "native", "operations": [...],
 //     "files": [...], "dependsOn": [...] }
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { PortalPackFile } from "@composable-os/core/http-contract";
 import type { ClientProductDefinition } from "@composable-os/product";
 import { type ClientKit, fetchKit, loadClientProduct, requiredPacks } from "./client-repo.ts";
@@ -114,6 +114,43 @@ export function installCommand(root: string, app: string, packages: string[]): s
 
 /** Where a block's files go: `<app>/src/blocks/<name>/`. */
 const blockDir = (app: string, name: string) => join(app, "src", "blocks", name);
+
+/** Whether `child` is strictly inside `parent` (both resolved). */
+const inside = (parent: string, child: string) => {
+  const r = relative(parent, child);
+  return r !== "" && !r.startsWith("..") && !isAbsolute(r);
+};
+
+/**
+ * An app folder `blocks.lock.json` (or product.ts) names, resolved and refused unless it is inside
+ * the repo: the lock is a file anyone can edit, and cos reads, writes and deletes by it.
+ */
+function appPath(root: string, app: string): string {
+  const base = resolve(root);
+  const path = resolve(base, app);
+  if (!inside(base, path)) {
+    throw new CliError(
+      `${LOCK} names the app folder ${app}, outside this repo. Nothing was changed.`,
+    );
+  }
+  return path;
+}
+
+/**
+ * A file of a copied block as `blocks.lock.json` records it, resolved and refused unless it is
+ * inside the block's own folder (`<app>/src/blocks/<name>/`) in the repo: a `../` in a recorded file
+ * or app would otherwise reach any file.
+ */
+function copiedPath(root: string, app: string, name: string, file: string): string {
+  const dir = resolve(appPath(root, app), "src", "blocks", name);
+  const path = resolve(dir, file);
+  if (!inside(dir, path)) {
+    throw new CliError(
+      `${LOCK} records ${file} for ${name}, outside ${blockDir(app, name)}. Nothing was changed: correct the lock (or take the entry out).`,
+    );
+  }
+  return path;
+}
 
 /** The account shell of each skin, whose sections `cos add` wires (ADR 0710). */
 export const ACCOUNT_SHELLS = { web: "web-account", native: "native-account" } as const;
@@ -269,7 +306,7 @@ export function writeAccountSections(
       if (!copy) continue;
       const file = fileExporting(kit, s.block, s.export);
       if (!file) throw new CliError(`The release's ${s.block} exports no ${s.export}.`);
-      const path = join(root, blockDir(copy.app, s.block), file);
+      const path = copiedPath(root, copy.app, s.block, file);
       if (existsSync(path) && exportsName(readFileSync(path, "utf8"), s.export)) {
         wired.push({ ...s, file });
       } else {
@@ -284,7 +321,7 @@ export function writeAccountSections(
         });
       }
     }
-    const file = join(root, shell.app, "src", "blocks", ACCOUNT_SECTIONS_FILE);
+    const file = join(appPath(root, shell.app), "src", "blocks", ACCOUNT_SECTIONS_FILE);
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, accountSectionsSource(wired, skin));
   }
@@ -370,6 +407,11 @@ export interface Copied {
  * (not written here), and, once an account shell is copied, the listed packs' section blocks and
  * the app's section wiring (ADR 0710). A block already in the lock is left as it is: the copy is
  * the client's.
+ *
+ * `check`: every refusal a copy can make (no such block in the release, its pack or app not in
+ * product.ts, a file already there that no copied block owns), and nothing written: `lock` is a
+ * copy the caller throws away. `owned` names files that will be gone by the copy (a block being
+ * replaced), which are not in the way.
  */
 export function copyBlocks(
   root: string,
@@ -378,6 +420,7 @@ export function copyBlocks(
   version: string,
   names: readonly string[],
   lock: Lock,
+  options: { check?: boolean; owned?: ReadonlySet<string> } = {},
 ): Copied & SectionsWritten {
   // The packs product.ts lists and those they bring (Courses: Content, whose rich text its
   // player draws with): `cos deploy` installs both, so a block may be either's.
@@ -422,9 +465,13 @@ export function copyBlocks(
       const bytes = kit.get(`blocks/${block}/${file}`);
       if (!bytes) throw new CliError(`The release's ${block} has no ${file}.`);
       const target = join(root, blockDir(app, block), file);
-      if (existsSync(target)) throw new CliError(`${target} exists and is not a copied block.`);
-      mkdirSync(dirname(target), { recursive: true });
-      writeFileSync(target, bytes);
+      if (existsSync(target) && !options.owned?.has(resolve(target))) {
+        throw new CliError(`${target} exists and is not a copied block.`);
+      }
+      if (!options.check) {
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, bytes);
+      }
       files[file] = sha(bytes);
     }
     lock[block] = { version, app, files };
@@ -437,30 +484,68 @@ export function copyBlocks(
   };
   for (const name of names) visit(name, []);
   let written: SectionsWritten = { missing: [], unwired: [] };
-  if (Object.values(ACCOUNT_SHELLS).some((shell) => lock[shell])) {
+  if (!options.check && Object.values(ACCOUNT_SHELLS).some((shell) => lock[shell])) {
     for (const block of writeAccountSections(root, product, kit, lock).missing) visit(block, []);
     written = writeAccountSections(root, product, kit, lock);
   }
   return { added, needs, apps, ...written };
 }
 
+/** What `cos add --replace` will take away, worked out before anything is touched. */
+interface ReplacePlan {
+  /** The recorded files there now, resolved inside the block's folder: deleted by the replace. */
+  paths: string[];
+  /** Recorded files that differ from what was copied: the client's edits. */
+  edited: string[];
+  /** Recorded files no longer there: the release's copy brings them back. */
+  missing: string[];
+}
+
 /**
- * Takes a copied block out of the repo for `cos add --replace`: its recorded files are deleted
- * (a file of its own added beside them stays) and its lock entry removed, so `copyBlocks` copies
- * the release's again. Returns the files that differed from what was copied (the client's edits).
+ * Plans a replace of a copied block, refusing before any change: a recorded path outside the
+ * block's folder (S1), a block folder or file that is a symbolic link (deleting through it would
+ * reach its target), and, by a check run of the copy itself, everything the copy would refuse
+ * (the release has no such block, its pack or app is not in product.ts, a new file of the release
+ * would land on one of the client's own). Nothing is deleted here.
  */
-function replaceCopy(root: string, lock: Lock, name: string): { edited: string[] } {
-  const entry = lock[name];
-  if (!entry) return { edited: [] };
-  const edited: string[] = [];
-  for (const [file, hash] of Object.entries(entry.files)) {
-    const path = join(root, blockDir(entry.app, name), file);
-    if (!existsSync(path)) continue;
-    if (sha(readFileSync(path)) !== hash) edited.push(file);
-    rmSync(path);
+function planReplace(
+  root: string,
+  product: ClientProductDefinition,
+  kit: ClientKit,
+  version: string,
+  lock: Lock,
+  name: string,
+): ReplacePlan {
+  const entry = lock[name] as LockEntry;
+  const dir = resolve(appPath(root, entry.app), "src", "blocks", name);
+  if (existsSync(dir) && lstatSync(dir).isSymbolicLink()) {
+    throw new CliError(
+      `${blockDir(entry.app, name)} is a symbolic link: cos add --replace deletes only a block's own files. Nothing was changed.`,
+    );
   }
-  delete lock[name];
-  return { edited: edited.sort() };
+  const plan: ReplacePlan = { paths: [], edited: [], missing: [] };
+  for (const [file, hash] of Object.entries(entry.files).sort(([a], [b]) => a.localeCompare(b))) {
+    const path = copiedPath(root, entry.app, name, file);
+    if (!existsSync(path)) {
+      plan.missing.push(file);
+      continue;
+    }
+    if (lstatSync(path).isSymbolicLink()) {
+      throw new CliError(
+        `${file} of ${name} is a symbolic link: cos add --replace deletes only a block's own files. Nothing was changed.`,
+      );
+    }
+    if (sha(readFileSync(path)) !== hash) plan.edited.push(file);
+    plan.paths.push(path);
+  }
+  // The copy, run as a check on a lock without this block: throws what the real one would.
+  const without = structuredClone(lock);
+  delete without[name];
+  copyBlocks(root, product, kit, version, [name], without, {
+    check: true,
+    owned: new Set(plan.paths),
+  });
+  return plan;
 }
 
 /** Writes `blocks.lock.json` after `copyBlocks` (for `cos create`). */
@@ -483,15 +568,47 @@ export async function add(argv: string[], flags: Flags, deps: Deps): Promise<num
   }
   const lock = readLock(root);
   // `--replace`: the copy is the client's, so a block already copied is left alone unless asked.
-  // Asked, its copied files are taken away and the release's copied in their place; the blocks it
-  // depends on stay as they are (each is replaced by name). Edits made to the copy are named.
-  const replaced = flags.replace ? replaceCopy(root, lock, name) : null;
+  // Asked, everything is checked first and a refusal changes nothing; edits to the copy are named
+  // and need --yes; only then are its copied files taken away and the release's copied in their
+  // place. The blocks it depends on stay as they are (each is replaced by name).
+  let replaced: ReplacePlan | null = null;
+  if (flags.replace && lock[name]) {
+    replaced = planReplace(root, product, kit, version, lock, name);
+    if (replaced.edited.length && !flags.yes) {
+      deps.io.err(
+        `Your copy of ${name} has edits in ${replaced.edited.join(", ")}. cos add --replace would delete them, and cos cannot tell whether you committed them. Nothing was changed. See them with cos diff ${name}, keep what you want, then run cos add ${name} --replace --yes.`,
+      );
+      return 1;
+    }
+    for (const path of replaced.paths) rmSync(path);
+    delete lock[name];
+  }
   const { added, needs, apps, unwired } = copyBlocks(root, product, kit, version, [name], lock);
   writeLock(root, lock);
-  if (replaced?.edited.length) {
+  if (replaced) {
     deps.io.out(
-      `Replaced your copy of ${name}: your edits to ${replaced.edited.join(", ")} are gone from the working tree (git still has them).`,
+      [
+        `Replaced your copy of ${name} with ${version}'s.`,
+        replaced.edited.length
+          ? ` Your edits to ${replaced.edited.join(", ")} were deleted: only a commit made before this has them.`
+          : "",
+        replaced.missing.length
+          ? ` ${replaced.missing.join(", ")}, deleted here, ${replaced.missing.length > 1 ? "are" : "is"} back.`
+          : "",
+      ].join(""),
     );
+    const dependents = Object.keys(lock).filter((other) => {
+      try {
+        return blockManifest(kit, other).dependsOn.includes(name);
+      } catch {
+        return false;
+      }
+    });
+    if (dependents.length) {
+      deps.io.out(
+        `${dependents.join(", ")} ${dependents.length > 1 ? "depend" : "depends"} on ${name}: check ${dependents.length > 1 ? "they still build" : "it still builds"} against the new copy.`,
+      );
+    }
   }
   if (needs.size) {
     const app = apps[0] as string;
@@ -506,7 +623,7 @@ export async function add(argv: string[], flags: Flags, deps: Deps): Promise<num
   deps.io.out(
     added.length
       ? `Copied ${added.join(", ")} (${version}) into ${added.map((b) => blockDir(lock[b]?.app ?? "", b)).join(", ")}. The files are yours now; ${LOCK} records where they came from.`
-      : `${name} is already copied (${LOCK}). To take the release's copy in place of yours, run cos add ${name} --replace (your edits to it are lost; cos diff ${name} shows them first).`,
+      : `${name} is already copied (${LOCK}). To take the release's copy in place of yours, run cos add ${name} --replace (it stops first if you edited the copy: cos diff ${name} shows the edits).`,
   );
   for (const shell of Object.values(ACCOUNT_SHELLS).filter((s) => lock[s])) {
     const app = lock[shell]?.app ?? "";
@@ -580,7 +697,7 @@ export async function diff(argv: string[], flags: Flags, deps: Deps): Promise<nu
   };
   // Local edits are the client's; they are said, never touched.
   for (const [file, hash] of Object.entries(entry.files)) {
-    const path = join(root, blockDir(entry.app, name), file);
+    const path = copiedPath(root, entry.app, name, file);
     if (!existsSync(path)) io.out(`${file}: removed here`);
     else if (sha(readFileSync(path)) !== hash) io.out(`${file}: edited here since it was copied`);
   }
@@ -600,7 +717,7 @@ export async function diff(argv: string[], flags: Flags, deps: Deps): Promise<nu
       const upstream = bytes ? decode(bytes) : "";
       if (bytes && sha(bytes) === entry.files[file]) continue;
       changed = true;
-      const path = join(root, blockDir(entry.app, name), file);
+      const path = copiedPath(root, entry.app, name, file);
       const here = existsSync(path) ? readFileSync(path, "utf8") : "";
       const unedited = existsSync(path) && sha(readFileSync(path)) === entry.files[file];
       io.out(

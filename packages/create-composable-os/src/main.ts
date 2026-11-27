@@ -102,7 +102,8 @@ A client repo (stage 24)
                                          errors; deploys nothing
   cos add <block> [--replace], cos diff <block> [--accept]
                                          copy a block from the release; show its upstream changes
-                                         (--replace: the release's copy in place of yours;
+                                         (--replace: the release's copy in place of yours, --yes
+                                         when you edited it;
                                          --accept: record them as merged by hand)
                                          (cos add with no block lists them, with their skins)
   cos client generate                    in a client repo: each app's typed client, again (and
