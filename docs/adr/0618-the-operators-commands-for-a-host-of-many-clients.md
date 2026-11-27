@@ -334,9 +334,26 @@ plane, `products/crm/apps/control`, stays the CRM's).
   `cos fleet` and `cos client` command: they find the fleet by the product's database name, so a
   command without it looks for the CRM's fleet, finds none, and changes nothing. The CRM stays the
   default product for everything. `--product-file` keeps taking a throwaway `cosstg-` product only.
-- **What a client reads.** The product's label is what a client's screens and mail show where it
-  has none of its own; the platform's screens and mail never say "CRM"
-  (`scripts/release/test/hosted-product.test.ts` scans them).
+- **What a client reads.** Every client of the fleet sees the hosted product's label, "Composable
+  OS": the label is one for the whole host (`COS_PRODUCT_LABEL` is shared) until a client's own
+  is held in the registry (PR #552). The app's screens, the host's mail, the messages of its
+  errors and its dashboards' descriptions do not say "CRM" (`scripts/release/test/
+  hosted-product.test.ts` scans them). The model-facing text still does, deliberately, since
+  changing it is a prompt change and part of the staff contract: docs/deploying.md, "What a
+  client sees", lists it; a later change rewords it.
+- **A client has exactly the packs it is given** (review of #553). `cos client add` on a fleet
+  requires `--setting COS_PACKS=<packs>` (empty for base records only) and refuses `*`, the
+  product's catalogue, whose non-optional packs (Deals, Leads, Ticketing) are installed at boot.
+  On the host a client with no `COS_PACKS` row gets an empty value, so nothing is installed
+  (registry `CLIENT_SETTINGS`, `blank`), never the deployment's `*`.
+- **A deployment records its product** (review of #553). `DeploymentState.product` is the
+  manifest's `product`, written by every install and update; the engine (`installRelease`,
+  `runUpdate`, `runRollback`) refuses another product's release for it before anything is made,
+  and `cos` refuses any command whose `--product` is not the recorded one (install, upgrade,
+  rollback, status, uninstall, every `cos fleet` and `cos client` command), so `--database` can no
+  longer point one product's release at another's deployment. A state written before has no
+  product: `cos` reads it as the default product's, and it gains the field at its next install
+  re-run or upgrade.
 - Tests: `scripts/release/test/hosted-product.test.ts` (the definition, its packs, its manifest
   with the fleet's Workers, the merged release) and `packages/create-composable-os/test/
   hosted-product.test.ts` (a fleet installed as it from a release carrying both products, against

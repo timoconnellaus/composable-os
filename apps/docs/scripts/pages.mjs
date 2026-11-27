@@ -884,7 +884,8 @@ function solutionPages(ctx) {
     return [`[${m?.label ?? id}](/packs/${id}/)`, cell(firstSentence(m?.description ?? ""))];
   };
   const out = [];
-  const products = ctx.facts.products;
+  // A product docs.config.mjs says is no solution (the hosted product) gets no page.
+  const products = ctx.facts.products.filter((p) => !Object.hasOwn(ctx.notSolutions ?? {}, p.id));
   out.push({
     path: "solutions/index.md",
     code: true,

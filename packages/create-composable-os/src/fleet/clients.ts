@@ -216,6 +216,25 @@ export function fleetHostnameProblems(ctx: FleetContext, client: NewClient): str
     );
 }
 
+/**
+ * What is wrong with a new client's packs (review of #553): a client of a fleet has exactly the
+ * packs it is given, so `COS_PACKS` is required, as a list of pack ids (empty for base records
+ * only). `"*"`, the product's whole catalogue with its non-optional packs installed at boot, is
+ * never a client's. Which ids the release carries is checked by the host (`UnknownPackError`).
+ */
+export function packsProblems(client: Pick<NewClient, "settings">): string[] {
+  const packs = client.settings?.COS_PACKS;
+  if (packs === undefined) {
+    return [
+      "--setting COS_PACKS=<pack,pack…> is required: a client has exactly the packs it is given (COS_PACKS= for base records only)",
+    ];
+  }
+  if (packs.split(",").some((id) => id.trim() === "*")) {
+    return ["COS_PACKS=* is the product's whole catalogue, never a client's: list its packs"];
+  }
+  return [];
+}
+
 export function plannedClient(ctx: FleetContext, input: AddInput): NewClient {
   const id = input.id;
   return {
@@ -241,8 +260,8 @@ interface AddState {
 /**
  * `cos client add <id>`: the registry's rows (the client paused, with no schema version), its
  * database placed and migrated inside the object, its schema version recorded, then the client
- * served. No Worker is uploaded. The product's packs are the deployment's (`COS_PACKS` inherited
- * unless set); its own extensions come with its repository's `cos deploy` (step 8).
+ * served. No Worker is uploaded. Its packs are exactly its `COS_PACKS` setting, which is required
+ * (`packsProblems`, review of #553); its own extensions come with its repository's `cos deploy` (step 8).
  *
  * Crash and re-run: after the operation's row and before the client's rows, a re-run writes the
  * rows; after the rows, the client is paused and has no schema version, so the host serves
@@ -257,6 +276,7 @@ export async function addClient(ctx: FleetContext, input: AddInput): Promise<num
   const problems = [
     ...newClientProblems(client, { callbackHostname: ctx.fleet.callbackHostname }),
     ...fleetHostnameProblems(ctx, client),
+    ...packsProblems(client),
   ];
   if (problems.length) throw new FleetError(`Cannot add ${id}: ${problems.join("; ")}`);
   await refuseDuringUpdate(ctx, `add ${id}`);

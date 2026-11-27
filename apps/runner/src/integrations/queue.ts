@@ -619,7 +619,7 @@ export class HostQueue extends RpcTarget {
   }
 
   getGitCache(): never {
-    throw new Error("This CRM hosts no git cache");
+    throw new Error("This host has no git cache");
   }
 
   /** Waits for the auto-applies and hook enables this queue scheduled. */

@@ -22,7 +22,7 @@ import {
   stableStringify,
 } from "@composable-os/release";
 import { describe, expect, it } from "vitest";
-import { collectAssets, productsToBuild } from "../build-release.ts";
+import { collectAssets, productsOfArgs, productsToBuild } from "../build-release.ts";
 import {
   generateManifest,
   readDeployablePackages,
@@ -144,6 +144,41 @@ describe("what a client of the hosted product reads", () => {
     }
     expect(found).toEqual([]);
   });
+
+  /**
+   * Where the host's errors and its dashboards' descriptions are written. Operation descriptions,
+   * the assistant's prompt and the judge's, adjudicator's and summaries' instructions there are
+   * model-facing and still say CRM (left on purpose, docs/deploying.md lists them): only the
+   * message of every error and every dashboard's description is read here.
+   */
+  const HOST_CODE = [
+    "packages/core/src",
+    "packages/auth/src",
+    "apps/app/src",
+    "apps/runner/src",
+    ...repositoryPackIds(ROOT).map((id) => `packs/${id}`),
+  ];
+
+  /** A string literal: "…", '…' or `…`, joined with `+` across lines. */
+  const LITERAL = String.raw`(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|\x60[^\x60]*\x60)(?:\s*\+\s*(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|\x60[^\x60]*\x60))*`;
+
+  it("never says CRM in an error a person can see, nor in a dashboard's description", () => {
+    const found: string[] = [];
+    const errors = new RegExp(String.raw`new \w*Error\(\s*(${LITERAL})`, "g");
+    const descriptions = new RegExp(String.raw`description:\s*(${LITERAL})`, "g");
+    for (const file of HOST_CODE.flatMap(sources)) {
+      const text = code(readFileSync(join(ROOT, file), "utf8")).join("\n");
+      const patterns = /\/dashboards\/|^packs\//.test(file) ? [errors, descriptions] : [errors];
+      for (const pattern of patterns) {
+        for (const match of text.matchAll(pattern)) {
+          if (/\bCRM\b/.test(match[1] as string)) {
+            found.push(`${file}: ${(match[1] as string).replace(/\s+/g, " ").slice(0, 120)}`);
+          }
+        }
+      }
+    }
+    expect(found).toEqual([]);
+  });
 });
 
 describe("the hosted product's release manifest", () => {
@@ -194,6 +229,15 @@ describe("a release of every product (build-release.ts --products all)", () => {
     expect(productsToBuild("composable")).toEqual(["composable"]);
     expect(() => productsToBuild("crm,crm")).toThrow(/twice/);
     expect(() => productsToBuild("nope")).toThrow(/no product nope/);
+    // Every product is built with its own COS_PRODUCT, so never from what a build left (review of #553).
+    expect(productsOfArgs({ products: "all" }, {})).toEqual([undefined, "composable"]);
+    expect(() => productsOfArgs({ products: "all", "skip-build": true }, {})).toThrow(
+      /--skip-build/,
+    );
+    expect(() => productsOfArgs({ products: "all", product: "crm" }, {})).toThrow(/--product/);
+    expect(() => productsOfArgs({ products: "all" }, { COS_PRODUCT: "crm" })).toThrow(
+      /COS_PRODUCT/,
+    );
   });
 
   /** A folder as build-release.ts writes it for one product. */

@@ -95,6 +95,12 @@ export function owned(name, prefix) {
 }
 
 /** The throwaway product: names only, as a product.ts holds them. */
+/**
+ * The packs every client of the check is given: a fleet client has exactly the packs it is given,
+ * and `cos client add` requires them (review of #553). What `"*"` installed at boot before.
+ */
+export const CLIENT_PACKS = Object.freeze(["--setting", "COS_PACKS=deals,leads"]);
+
 export function productDefinition(run, repository = "timoconnellaus/composable-os") {
   const prefix = prefixOf(run);
   return {
@@ -981,9 +987,18 @@ export function checkSteps() {
           ctx.location,
           "--web-hostname",
           ctx.hosts.web,
+          ...CLIENT_PACKS,
           "--yes",
         ]);
-        const second = await must(ctx, ["client", "add", b, "--location", ctx.location, "--yes"]);
+        const second = await must(ctx, [
+          "client",
+          "add",
+          b,
+          "--location",
+          ctx.location,
+          ...CLIENT_PACKS,
+          "--yes",
+        ]);
         const list = await clientList(ctx);
         for (const id of [a, b]) {
           if (list[id]?.status !== "active") fail(`${id} is ${list[id]?.status} after its add`);
@@ -1262,7 +1277,7 @@ export function checkSteps() {
         });
         let firstEnded = null;
         const first = ctx
-          .cos(["client", "add", late, "--yes"], {
+          .cos(["client", "add", late, ...CLIENT_PACKS, "--yes"], {
             onOutput: (out) => {
               if (/registry: /.test(out)) started();
             },

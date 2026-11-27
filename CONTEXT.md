@@ -30,8 +30,12 @@ The operations API inside extension code is the platform's, not the CRM's: `code
 The neutral product a host of many clients is installed as, defined in
 `products/composable/product.ts`: id `composable`, label "Composable OS", so its deployment is
 `composable-app`, `composable-runner`, `composable-client-db` and so on. It offers every built pack;
-each client takes them or a subset (`COS_PACKS`). A client sees its own label where one is set,
-else "Composable OS"; never "CRM". A release carries its bundle beside the CRM's.
+each client has exactly the ones its `COS_PACKS` setting lists, which `cos client add` requires
+(none without one, never the whole catalogue). Every client sees the label "Composable OS" today:
+the label is one for the whole host until a client's own is held in the registry (PR #552). The
+app's screens, the host's mail, its errors and its dashboards' descriptions do not say "CRM"; the
+model-facing instructions still do (docs/deploying.md lists them). A release carries its bundle
+beside the CRM's.
 _Avoid_: the CRM (for a fleet), hosted CRM (stage 10)
 
 **Deployment**

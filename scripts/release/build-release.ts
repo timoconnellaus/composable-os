@@ -173,6 +173,23 @@ export function productsToBuild(value: string): (string | undefined)[] {
   return ids.map((id) => (id === DEFAULT_PRODUCT ? undefined : id));
 }
 
+/** The products a `--products` build makes (`productsToBuild`), after refusing what cannot go with it. */
+export function productsOfArgs(
+  args: Record<string, string | boolean>,
+  env: Record<string, string | undefined>,
+): (string | undefined)[] {
+  if (typeof args.products !== "string") throw new Error("--products needs a value (all)");
+  // Each product is built with its own COS_PRODUCT: without a build, every product's bundle
+  // would be made from whatever the last build left in dist/ (review of #553).
+  if (args["skip-build"]) throw new Error("--products builds every product: not with --skip-build");
+  if (args.product !== undefined || env[PRODUCT_ENV]?.trim()) {
+    throw new Error(
+      `--products builds each product itself: give neither --product nor ${PRODUCT_ENV}`,
+    );
+  }
+  return productsToBuild(args.products);
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const version = String(args.version ?? process.env.RELEASE_VERSION ?? "0.0.0-beta.0").replace(
@@ -183,16 +200,11 @@ async function main() {
     throw new Error(`--version must be X.Y.Z or X.Y.Z-beta.N, got ${version}`);
   const out = resolve(String(args.out ?? "release-out"));
   if (args.products !== undefined) {
-    if (typeof args.products !== "string") throw new Error("--products needs a value (all)");
-    if (args.product !== undefined || process.env[PRODUCT_ENV]?.trim()) {
-      throw new Error(
-        `--products builds each product itself: give neither --product nor ${PRODUCT_ENV}`,
-      );
-    }
+    const ids = productsOfArgs(args, process.env);
     const partsDir = mkdtempSync(join(tmpdir(), "cos-release-parts-"));
     try {
       const parts = [];
-      for (const id of productsToBuild(args.products)) {
+      for (const id of ids) {
         const product = await loadProduct(id ?? DEFAULT_PRODUCT);
         const dir = join(partsDir, product.id);
         await buildOne(args, version, dir, id);

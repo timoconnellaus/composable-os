@@ -1221,7 +1221,8 @@ cos fleet keys --env staging --out ~/fleet-keys/staging.json
 cos fleet install $P --env staging --keys-file ~/fleet-keys/staging.json \
   --callback-hostname callback-staging.<fleet domain> --domain <fleet domain> --location oc
 # A client: its registry rows, its database made and migrated, its hostnames. No upload.
-cos client add gym-a $P --env staging --location oc --web-hostname staging.gym-a.example
+cos client add gym-a $P --env staging --location oc --web-hostname staging.gym-a.example \
+  --setting COS_PACKS=bookings,content,courses,programs,ticketing   # its packs, required
 cos client secret set gym-a GOOGLE_CLIENT_SECRET $P --env staging   # asked for, hidden; sealed
 # Its sender domain: added unverified; verify once it is onboarded to Email Sending in this account.
 cos client sender add gym-a gym-a.example $P --env staging
@@ -1235,11 +1236,29 @@ cos install --import ./gym-a-export          # in the client's own account (the 
 cos client remove gym-a $P                   # export kept 90 days, then erased; id never reused
 ```
 
-- **What a client sees.** The hosted product offers every built pack; a client takes them or a
-  subset with its `COS_PACKS` setting (`cos client add … --setting COS_PACKS=ticketing,content`),
-  and one with none set gets them all, Deals, Leads and Ticketing installed and the rest offered.
-  Its screens and mail name the product by its label, "Composable OS" where the client has none of
-  its own, and never say "CRM".
+- **A client's packs.** The hosted product offers every built pack, and a client has exactly the
+  ones its `COS_PACKS` lists: `cos client add` requires it (`--setting
+  COS_PACKS=bookings,content,courses,programs,ticketing`, or `COS_PACKS=` for base records only)
+  and refuses `*`, the whole catalogue, which would install Deals, Leads and Ticketing at boot. A
+  client whose setting is missing gets none.
+- **Its product.** A deployment's state records the product whose release it runs: a command
+  given another `--product` (with `--database` or not) is refused before anything is made or
+  deleted. A deployment installed before this was recorded is the CRM's until its next upgrade
+  records it.
+- **What a client sees.** Every client of the fleet sees the label "Composable OS": the label is
+  one for the whole host until a client's own label is held in the registry (PR #552). The app's
+  screens, the host's mail, the messages of its errors and its dashboards' descriptions do not say
+  "CRM". **What still says "CRM"**, deliberately (model-facing: changing it is a prompt change and
+  part of the staff contract, left for a later change), and the assistant can repeat it to staff:
+  - the assistant's instructions (`packages/core/src/assistant/prompt.ts`, `agent-profiles.ts`,
+    `loop.ts`) and the AI roles' descriptions (`ai/roles.ts`);
+  - the judge's questions (`judge/questions/*.ts`, `judge/placements.ts`), the adjudicator's
+    instructions (`adjudicator/review.ts`), the extension review (`extensions/proposal.ts`), the
+    summaries (`ai/summaries.ts`), the widget writer (`dashboards/describe.ts`) and the automation
+    explainer (`operations/automation.ts`);
+  - operations' descriptions (`operations/*.ts`, in the staff contract `packages/core/api/v1/
+    staff.json`) and the refusals tools return to the model (`integrations/consent.ts`,
+    `outbound.ts`, `outbound-check.ts`, `approvals/queue.ts`).
 
 - **The keys file** holds the root key, the sealing key pair, the binding key and the props key.
   `cos fleet keys` writes it once, refuses a path inside a git working tree, and never prints a

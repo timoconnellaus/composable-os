@@ -106,6 +106,30 @@ describe("cos fleet install --product composable", () => {
       expect(list.output).toContain("No live host of many clients of Demo");
       const listed = await runIn(world, "client", "list", "--env", "live", "--product", HOSTED.id);
       expect(listed.code, listed.output).toBe(0);
+      // A client has exactly the packs it is given (review of #553): COS_PACKS is required, and
+      // "*" (the product's catalogue, Deals, Leads and Ticketing installed at boot) is refused.
+      const add = (...more: string[]) =>
+        runIn(
+          world,
+          "client",
+          "add",
+          "gym-a",
+          "--product",
+          HOSTED.id,
+          "--env",
+          "live",
+          "--dry-run",
+          ...more,
+        );
+      const none = await add();
+      expect(none.code).not.toBe(0);
+      expect(none.output).toContain("--setting COS_PACKS=<pack,pack…> is required");
+      const all = await add("--setting", "COS_PACKS=*");
+      expect(all.code).not.toBe(0);
+      expect(all.output).toContain("never a client's");
+      const given = await add("--setting", "COS_PACKS=ticketing");
+      expect(given.code, given.output).toBe(0);
+      expect(given.output).toContain("Would add gym-a");
     } finally {
       world.server.close();
     }
@@ -157,5 +181,144 @@ describe("a single-client install from a release that also carries the hosted pr
     const both = await snapshot(false);
     expect(alone.made.scripts).toContain("demo-app");
     expect(both).toEqual(alone);
+  });
+});
+
+describe("a command for another product than the deployment runs (review of #553)", () => {
+  /** Releases 1.0.0 and 1.1.0, each carrying the default product's and the hosted one's. */
+  async function twoReleases(world: World) {
+    for (const version of ["1.0.0", "1.1.0"]) {
+      await world.github.publishProducts([
+        await buildFixtureRelease({ version, fleet: true, clientGatekeepers: true }),
+        await buildFixtureRelease({
+          version,
+          fleet: true,
+          clientGatekeepers: true,
+          product: HOSTED,
+        }),
+      ]);
+    }
+  }
+  const stateOf = async (world: World, name = "demo") => {
+    const db = [...world.cf.d1.values()].find((d) => d.name === name);
+    const rows = await db?.engine.query("SELECT value FROM core_install", []);
+    return JSON.parse(String(rows?.[0]?.value)) as Record<string, unknown>;
+  };
+  const setState = async (world: World, state: Record<string, unknown>, name = "demo") => {
+    const db = [...world.cf.d1.values()].find((d) => d.name === name);
+    await db?.engine.query("UPDATE core_install SET value = ? WHERE key = 'deployment'", [
+      JSON.stringify(state),
+    ]);
+  };
+  const footprint = (world: World) => ({
+    ...made(world),
+    writes: world.cf.calls.filter((c) => c.method !== "GET" && !c.path.endsWith("/query")).length,
+  });
+
+  it("refuses upgrade, rollback and uninstall with --database before anything is made or deleted, for a state that records its product and for one that predates it", async () => {
+    const world = await startWorld();
+    world.products = PRODUCTS;
+    try {
+      await twoReleases(world);
+      const install = await runIn(world, "install", "--yes", "--version", "1.0.0", "--ai", "off");
+      expect(install.code, install.output).toBe(0);
+      expect((await stateOf(world)).product).toBe(DEMO.id);
+      const wrong = ["--product", HOSTED.id, "--database", "demo"];
+      const check = async () => {
+        const before = footprint(world);
+        for (const argv of [
+          ["upgrade", "--yes", "--version", "1.1.0", ...wrong],
+          ["rollback", "--yes", ...wrong],
+          ["uninstall", "--yes", ...wrong],
+          ["install", "--yes", "--version", "1.0.0", ...wrong],
+        ]) {
+          const refused = await runIn(world, ...argv);
+          expect(refused.code, argv.join(" ")).toBe(1);
+          expect(refused.output).toContain("This deployment runs demo, not composable");
+        }
+        expect(footprint(world)).toEqual(before);
+        expect(footprint(world).scripts.some((n) => n.startsWith("composable"))).toBe(false);
+      };
+      await check();
+      // A state written before the product was recorded is the default product's.
+      const { product: _product, ...legacy } = await stateOf(world);
+      await setState(world, legacy);
+      await check();
+      // It gains the field at its next upgrade.
+      const upgrade = await runIn(world, "upgrade", "--yes", "--version", "1.1.0");
+      expect(upgrade.code, upgrade.output).toBe(0);
+      expect((await stateOf(world)).product).toBe(DEMO.id);
+    } finally {
+      world.server.close();
+    }
+  });
+
+  it("refuses the fleet's commands for a fleet whose state records another product", async () => {
+    const world = await startWorld();
+    world.products = PRODUCTS;
+    try {
+      await twoReleases(world);
+      const keysPath = join(mkdtempSync(join(tmpdir(), "hosted-keys-")), "live.json");
+      expect((await runIn(world, "fleet", "keys", "--env", "live", "--out", keysPath)).code).toBe(
+        0,
+      );
+      const args = [
+        "--product",
+        HOSTED.id,
+        "--env",
+        "live",
+        "--keys-file",
+        keysPath,
+        "--callback-hostname",
+        "callback.fleet.example",
+        "--domain",
+        "fleet.example",
+      ];
+      const install = await runIn(world, "fleet", "install", ...args, "--version", "1.0.0");
+      expect(install.code, install.output).toBe(0);
+      expect((await stateOf(world, "composable")).product).toBe(HOSTED.id);
+      await setState(
+        world,
+        { ...(await stateOf(world, "composable")), product: DEMO.id },
+        "composable",
+      );
+      const before = footprint(world);
+      for (const argv of [
+        ["fleet", "install", ...args],
+        [
+          "fleet",
+          "upgrade",
+          "--product",
+          HOSTED.id,
+          "--env",
+          "live",
+          "--keys-file",
+          keysPath,
+          "--version",
+          "1.1.0",
+          "--yes",
+          "--skip-staging",
+        ],
+        ["client", "list", "--product", HOSTED.id, "--env", "live"],
+        [
+          "client",
+          "add",
+          "gym-a",
+          "--product",
+          HOSTED.id,
+          "--env",
+          "live",
+          "--setting",
+          "COS_PACKS=ticketing",
+        ],
+      ]) {
+        const refused = await runIn(world, ...argv);
+        expect(refused.code, argv.join(" ")).not.toBe(0);
+        expect(refused.output).toContain("This deployment runs demo, not composable");
+      }
+      expect(footprint(world)).toEqual(before);
+    } finally {
+      world.server.close();
+    }
   });
 });

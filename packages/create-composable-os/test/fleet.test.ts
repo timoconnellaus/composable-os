@@ -12,7 +12,7 @@ import { listSenderDomains } from "@composable-os/db/registry-senders";
 import { readClient, unfinishedOperation, wasRemoved } from "@composable-os/db/registry-writes";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  addClient,
+  addClient as addClientCommand,
   canonicalDomain,
   exportClient,
   type FleetContext,
@@ -38,6 +38,10 @@ import { registryMigrations } from "../src/fleet/run.ts";
 import { lazyOperator } from "../src/fleet/session.ts";
 import { type FleetUpdateInput, fleetUpdate } from "../src/fleet/update.ts";
 import type { Io } from "../src/io.ts";
+
+/** `cos client add`, with the packs every client must be given (review of #553). */
+const addClient = (c: FleetContext, input: Parameters<typeof addClientCommand>[1]) =>
+  addClientCommand(c, { ...input, settings: { COS_PACKS: "ticketing", ...input.settings } });
 
 const migrations = (n: number): Migration[] =>
   Array.from({ length: n }, (_, i) => ({

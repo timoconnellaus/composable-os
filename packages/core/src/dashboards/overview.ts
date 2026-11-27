@@ -35,7 +35,7 @@ export const OVERVIEW_DASHBOARD: {
 } = {
   id: OVERVIEW_DASHBOARD_ID,
   title: "Overview",
-  description: "People and organisations added, activity, and tasks due, across the CRM.",
+  description: "People and organisations added, activity, and tasks due, across your records.",
   spec: {
     filters: [
       { type: "dateRange", id: "date", label: "Date", default: "last_90_days" },

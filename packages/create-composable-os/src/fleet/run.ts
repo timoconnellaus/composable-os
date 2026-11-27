@@ -43,6 +43,7 @@ import {
   locationChoice,
   parseArgs,
   productOf,
+  refuseOtherProduct,
   type Session,
   session,
   str,
@@ -154,7 +155,7 @@ function databaseName(s: Session, environment: FleetEnvironment): string {
     : s.product.names.database;
 }
 
-async function locateFleet(s: Session, environment: FleetEnvironment) {
+async function locateFleet(s: Session, environment: FleetEnvironment, deps: Deps) {
   const located = await locateDeployment(s.api, s.accountId, databaseName(s, environment));
   const state = located?.state;
   if (!located || !state?.fleet) {
@@ -167,6 +168,7 @@ async function locateFleet(s: Session, environment: FleetEnvironment) {
       `The ${databaseName(s, environment)} deployment is ${state.fleet.environment}'s`,
     );
   }
+  refuseOtherProduct(state, s.product, deps);
   return { databaseId: located.databaseId, state };
 }
 
@@ -223,6 +225,7 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
       "That deployment is a single-client one: a fleet is installed apart from it",
     );
   }
+  refuseOtherProduct(existing?.state, s.product, deps);
   const version =
     str(flags, "version") ?? existing?.state?.version ?? (await latestVersion(s, "stable"));
   const { bundle, digest } = await verified(s, version, deps);
@@ -322,7 +325,7 @@ async function fleetUpgrade(flags: Flags, deps: Deps): Promise<number> {
   const forced = forcedFailure(deps.env, { environment, product: productOf(flags, deps) });
   const keys = await readKeys(flags, deps, environment);
   const s = await session(flags, deps);
-  const { databaseId, state } = await locateFleet(s, environment);
+  const { databaseId, state } = await locateFleet(s, environment, deps);
   const mismatch = keysMismatch(state.fleet as NonNullable<typeof state.fleet>, keys);
   if (mismatch) {
     throw new CliError(
@@ -345,7 +348,11 @@ async function fleetUpgrade(flags: Flags, deps: Deps): Promise<number> {
   }
   const target = await verified(s, to, deps);
   // The new release's fleet gatekeepers (ADR 0618): a fleet installed before them gains them here.
-  const upgraded = { ...state, gatekeepers: fleetGatekeepers(target.bundle.manifest) };
+  const upgraded = {
+    ...state,
+    product: target.bundle.manifest.product,
+    gatekeepers: fleetGatekeepers(target.bundle.manifest),
+  };
   let previous: ReleaseBundle | null = null;
   const fleet = fleetInput(keys, environment);
   return withContext(`fleet upgrade ${environment}`, flags, deps, s, state, async (context) => {
@@ -515,7 +522,7 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
   try {
     const environment = environmentOf(flags);
     const s = await session(flags, deps);
-    const { state } = await locateFleet(s, environment);
+    const { state } = await locateFleet(s, environment, deps);
     return await withContext(`client ${command}`, flags, deps, s, state, async (ctx) => {
       switch (command) {
         case "add":

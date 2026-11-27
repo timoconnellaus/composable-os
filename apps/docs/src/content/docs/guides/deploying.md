@@ -51,7 +51,8 @@ the steps are in [docs/deploying.md](https://github.com/timoconnellaus/composabl
 - `cos fleet keys` makes the deployment's keys file once; `cos fleet install` installs the host,
   its registry and the operator's Worker; `cos fleet upgrade` takes a release across every client,
   staging first.
-- `cos client add` gives a client its database and hostnames with no Worker upload; `pause`,
+- `cos client add` gives a client its database and hostnames with no Worker upload, and exactly
+  the packs its required `--setting COS_PACKS=…` lists; `pause`,
   `resume`, `secret`, `export`, `import` and `remove` follow it through its life.
 - **Email.** Every fleet gets the email-send gatekeeper from `cos fleet install`, kept by each
   upgrade; it is the only gatekeeper on a fleet. It needs no secret: it sends through Cloudflare
