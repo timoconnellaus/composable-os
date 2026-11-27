@@ -29,12 +29,20 @@ function propagatingWorker(copies: number[]) {
       return Response.json({ error: NOT_THE_OPERATOR }, { status: 401 });
     }
     if (action === "fails") return Response.json({ error: "no client x" }, { status: 404 });
+    // A 401 that is not the token's: anything but "not the operator".
+    if (action === "unauthorised") {
+      return Response.json({ error: "session expired" }, { status: 401 });
+    }
     return Response.json({ ok: true, action });
   };
   return { api, fetch: fetch as typeof globalThis.fetch, seen, versions };
 }
 
-const open = (worker: ReturnType<typeof propagatingWorker>, staleMs = 5_000) => {
+const open = (
+  worker: ReturnType<typeof propagatingWorker>,
+  staleMs = 5_000,
+  stillHolds?: () => Promise<boolean>,
+) => {
   const stale: string[] = [];
   return {
     stale,
@@ -49,6 +57,7 @@ const open = (worker: ReturnType<typeof propagatingWorker>, staleMs = 5_000) => 
         staleMs,
         sleep: async () => {},
         onStale: (what) => stale.push(what),
+        ...(stillHolds ? { stillHolds } : {}),
       },
     }),
   };
@@ -89,6 +98,30 @@ describe("an operator session while its token reaches every copy of the Worker",
     const session = await operator;
     await expect(session.op("fails")).rejects.toThrow("fails: no client x");
     expect(worker.seen.filter((s) => s.action === "fails")).toHaveLength(1);
+    expect(stale).toEqual([]);
+  });
+
+  it("tries again only the 'not the operator' answer: any other 401 is final", async () => {
+    const worker = propagatingWorker([]);
+    const { operator, stale } = open(worker);
+    const session = await operator;
+    await expect(session.op("unauthorised")).rejects.toThrow("unauthorised: session expired");
+    expect(worker.seen.filter((s) => s.action === "unauthorised")).toHaveLength(1);
+    expect(stale).toEqual([]);
+  });
+
+  it("stops trying again once another command has taken the session over (review of #546)", async () => {
+    // Every copy refuses after the first answer, as when a --take-over set its own token.
+    const worker = propagatingWorker([0, ...Array(1000).fill(1)]);
+    await worker.api.putSecret("acc", "s", "COS_OPERATOR_TOKEN", "the other command's token");
+    let holds = true;
+    const { operator, stale } = open(worker, 60_000, async () => holds);
+    const session = await operator;
+    holds = false;
+    await expect(session.op("migrate", { client: "bravo" })).rejects.toThrow(
+      "migrate: another operator's command took the operator's Worker over",
+    );
+    expect(worker.seen.filter((s) => s.action === "migrate")).toHaveLength(1);
     expect(stale).toEqual([]);
   });
 });
