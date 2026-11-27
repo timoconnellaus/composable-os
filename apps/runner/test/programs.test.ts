@@ -27,18 +27,25 @@ import { listedPacks } from "../src/extensions/shipped-list.ts";
 import { createAdmin, db, host, newCustomer, run, unique } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
-const files = packFiles("programs");
+const files: Record<string, Record<string, string>> = {
+  bookings: packFiles("bookings"),
+  programs: packFiles("programs"),
+};
 
-/** The extension host of a deployment whose product lists Programs. */
+/** The extension host of a deployment whose product lists Programs (and Bookings, which it requires). */
 const shippedHost: ExtensionHost = {
   ...host,
-  shipped: async () => [...(await host.shipped()), { id: "programs", version: "0.1.0" }],
+  shipped: async () => [
+    ...(await host.shipped()).filter((s) => !(s.id in files)),
+    { id: "bookings", version: "0.1.0" },
+    { id: "programs", version: "0.1.0" },
+  ],
   commitShipped: (id) =>
-    id === "programs"
+    files[id]
       ? host.commit({
           id,
-          files,
-          message: "Shipped programs 0.1.0",
+          files: files[id],
+          message: `Shipped ${id} 0.1.0`,
           author: { name: "Composable OS", email: "release@composableos.dev" },
         })
       : host.commitShipped(id),
@@ -46,7 +53,7 @@ const shippedHost: ExtensionHost = {
 
 const EXERCISE = "programs.exercise";
 const PROGRAM = "programs.program";
-const CLASSTYPE = "programs.classtype";
+const CLASSTYPE = "bookings.classtype";
 const ASSIGNMENT = "programs.assignment";
 const SESSION = "programs.session";
 const LOG = "programs.log";
@@ -223,7 +230,13 @@ beforeAll(async () => {
     code: "unknown_operation",
   });
 
-  // A deployment of a product that lists it installs it as shipped.
+  // A deployment of a product that lists it installs it as shipped, beside Bookings, which it
+  // requires (stage 78, ADR 0980): before Bookings, it is refused and says so.
+  const early = await refusal(
+    run("extension.install", { id: "programs", shipped: true }, staff(admin)),
+  );
+  expect(JSON.stringify(early)).toContain("requires the bookings extension");
+  await run("extension.install", { id: "bookings", shipped: true }, staff(admin));
   await run("extension.install", { id: "programs", shipped: true }, staff(admin));
   await refreshSchemaRegistry(db.query);
 

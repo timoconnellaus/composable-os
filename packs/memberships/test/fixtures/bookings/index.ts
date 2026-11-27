@@ -12,8 +12,15 @@ export default defineExtension({
   contractVersion: 1,
   label: "Bookings (test fixture)",
   description: "A class and a booking that spends a membership or a pass: a test fixture.",
-  requires: ["programs"],
   objects: {
+    // The class type, Bookings' own since stage 78 (ADR 0980): what a plan's or a pass's
+    // `classTypes` relate to.
+    classtype: {
+      label: "Class type",
+      plural: "Class types",
+      titleField: "name",
+      fields: { name: { type: "text", label: "Name", required: true } },
+    },
     // A service (stage 49): what a plan's or a pass's `services` relate to. No appointments here.
     service: {
       label: "Service",
@@ -27,7 +34,7 @@ export default defineExtension({
       titleField: "name",
       fields: {
         name: { type: "text", label: "Name", required: true },
-        classType: { type: "relation", label: "Class type", to: "programs.classtype" },
+        classType: { type: "relation", label: "Class type", to: "bookings.classtype" },
         startsAt: { type: "datetime", label: "Starts" },
         zone: { type: "timezone", label: "Time zone" },
       },
@@ -44,7 +51,7 @@ export default defineExtension({
         classType: {
           type: "relation",
           label: "Class type",
-          to: "programs.classtype",
+          to: "bookings.classtype",
           readOnly: true,
         },
         weekday: { type: "number", label: "Weekday", readOnly: true },

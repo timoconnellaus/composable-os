@@ -37,7 +37,13 @@ interface Envelope<T> {
   success: boolean;
   errors?: { code: number; message: string }[];
   result: T;
-  result_info?: { page?: number; total_pages?: number; cursor?: string; is_truncated?: boolean };
+  result_info?: {
+    page?: number;
+    total_pages?: number;
+    total_count?: number;
+    cursor?: string;
+    is_truncated?: boolean;
+  };
 }
 
 export interface ModulePart {
@@ -213,7 +219,12 @@ export class CloudflareClient {
         `${path}${sep}page=${page}&per_page=50`,
       );
       out.push(...result);
-      if (!info?.total_pages || page >= info.total_pages || result.length === 0) break;
+      // Some listings (Workflows) give `total_count` and no `total_pages` (their API reference):
+      // page until it is reached. With neither, one page, as before.
+      const pages =
+        info?.total_pages ??
+        (info?.total_count !== undefined ? Math.ceil(info.total_count / 50) : undefined);
+      if (result.length === 0 || pages === undefined || page >= pages) break;
     }
     return out;
   }
@@ -771,6 +782,23 @@ export class CloudflareClient {
 
   listWorkflows(accountId: string) {
     return this.all<{ id: string; name: string }>(`/accounts/${accountId}/workflows`);
+  }
+
+  /**
+   * Creates or updates a Workflow (`PUT /accounts/{id}/workflows/{name}`): uploading the Worker
+   * that exports its class does not create it. Wrangler makes this call after each deploy
+   * (workers-sdk `triggersDeploy`); the deploy engine does the same.
+   */
+  async putWorkflow(
+    accountId: string,
+    name: string,
+    definition: { class_name: string; script_name: string },
+  ) {
+    await this.request(
+      "PUT",
+      `/accounts/${accountId}/workflows/${encodeURIComponent(name)}`,
+      definition,
+    );
   }
 
   async deleteWorkflow(accountId: string, name: string) {

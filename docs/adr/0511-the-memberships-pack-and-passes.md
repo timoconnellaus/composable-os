@@ -97,3 +97,11 @@ Plan changes and pauses are [ADR 0530](0530-plan-changes-upgrade-now-downgrade-n
 `pauseMaxDays` (`sellable.recurring.pause`). The dashboard, the new views and the blocks' plan
 change and pause are [ADR 0532](0532-the-memberships-dashboard-and-staff-side.md). The import
 (step 8) is still to come.
+
+## Amended 2026-11-27 (stage 78, ADR 0980): Memberships requires Bookings only
+
+A plan's, a pass type's, a membership's and a pass's `classTypes` relate to Bookings'
+`bookings.classtype` (ADR [0980](0980-general-and-domain-packs.md)), so Memberships no longer
+requires Programs: `requires: ["bookings"]`, which it needed already for `services`. The test
+fixture spender (`packs/memberships/test/fixtures/bookings`) declares its own `classtype` the same
+way. Whether Memberships should stand without Bookings is open (stage 78, questions for the owner).

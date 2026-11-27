@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import { saveResponse } from "../src/screen-host/index.ts";
 import {
   LIVE_KEY,
+  type LocksLike,
+  lockName,
   type PageLike,
   SESSION_KEY,
   type StorageLike,
@@ -83,46 +85,232 @@ const me = {
   signInEmailVerified: true,
 };
 
-describe("the browser build's token store", () => {
+/**
+ * Web Locks as one origin's tabs share them (`navigator.locks`): a lock is held while its
+ * callback's promise is pending, or until the tab holding it is gone (`kill`: closed, discarded,
+ * its process ended), when every lock it held is let go and the next waiter gets it.
+ */
+function fakeLocks() {
+  const held = new Map<string, number>();
+  const waiting: { name: string; grant: () => void }[] = [];
+  const wake = (name: string) => {
+    const at = waiting.findIndex((w) => w.name === name);
+    if (at >= 0) waiting.splice(at, 1)[0]?.grant();
+  };
+  function tab(owner: number) {
+    const mine = new Map<string, () => void>();
+    const locks: LocksLike = {
+      request: (name, options, callback) =>
+        new Promise((resolve, reject) => {
+          const grant = () => {
+            held.set(name, owner);
+            let freed = false;
+            const free = () => {
+              if (freed) return;
+              freed = true;
+              held.delete(name);
+              mine.delete(name);
+              resolve(undefined);
+              wake(name);
+            };
+            mine.set(name, free);
+            Promise.resolve(callback({ name })).then(free, free);
+          };
+          if (!held.has(name)) return grant();
+          if (options.ifAvailable) {
+            Promise.resolve(callback(null)).then(resolve, reject);
+            return;
+          }
+          const waiter = { name, grant };
+          waiting.push(waiter);
+          options.signal?.addEventListener("abort", () => {
+            const at = waiting.indexOf(waiter);
+            if (at >= 0) waiting.splice(at, 1);
+            reject(new Error("AbortError"));
+          });
+        }),
+    };
+    const kill = () => {
+      for (const free of [...mine.values()]) free();
+    };
+    return { locks, kill };
+  }
+  return { tab, holder: (sessionId: string) => held.get(lockName(sessionId)) ?? null };
+}
+
+/** A new page of the same tab, or a copy: its own sessionStorage object with these items. */
+function carried(from: ReturnType<typeof memoryStorage>) {
+  const next = memoryStorage();
+  for (const [key, value] of from.items) next.setItem(key, value);
+  return next;
+}
+
+/** A store with no Web Locks (the mark stands in), and not a discarded tab. */
+const noLocks = (storage: StorageLike | null, page: PageLike | null = null) =>
+  sessionTokenStore(storage, page, { locks: null, wasDiscarded: false });
+
+describe("the browser build's token store, with Web Locks (review of #542, S2)", () => {
+  const WAIT = 50;
+
+  it("starts a copy of a live tab signed out, and leaves the tab it was copied from signed in", async () => {
+    const origin = fakeLocks();
+    const first = origin.tab(1);
+    const storage = memoryStorage();
+    const store = sessionTokenStore(storage, fakePage(), { locks: first.locks, waitMs: WAIT });
+    await store.save(tokens(1));
+    expect(origin.holder("ses_1")).toBe(1);
+    // Duplicate Tab: the browser copies the tab's storage while the first is still open.
+    const copy = carried(storage);
+    const copied = sessionTokenStore(copy, fakePage(), {
+      locks: origin.tab(2).locks,
+      waitMs: WAIT,
+    });
+    expect(await copied.load()).toBeNull();
+    expect(copy.items.has(SESSION_KEY)).toBe(false);
+    expect(await store.load()).toMatchObject({ refreshToken: "refresh-1" });
+    expect(origin.holder("ses_1")).toBe(1);
+    // The copy signs in with a session of its own, which it then holds.
+    await copied.save({ ...tokens(2), sessionId: "ses_2" });
+    expect(origin.holder("ses_2")).toBe(2);
+  });
+
+  it("keeps a tab signed in when the browser discarded it and loads it again (no pagehide)", async () => {
+    const origin = fakeLocks();
+    const before = origin.tab(1);
+    const storage = memoryStorage();
+    await sessionTokenStore(storage, fakePage(), { locks: before.locks, waitMs: WAIT }).save(
+      tokens(1),
+    );
+    before.kill();
+    const again = sessionTokenStore(carried(storage), fakePage(), {
+      locks: origin.tab(2).locks,
+      wasDiscarded: true,
+      waitMs: WAIT,
+    });
+    expect(await again.load()).toMatchObject({ refreshToken: "refresh-1" });
+    expect(origin.holder("ses_1")).toBe(2);
+  });
+
+  it("keeps a tab signed in when it is reopened after its process was killed or crashed", async () => {
+    const origin = fakeLocks();
+    const before = origin.tab(1);
+    const storage = memoryStorage();
+    await sessionTokenStore(storage, fakePage(), { locks: before.locks, waitMs: WAIT }).save(
+      tokens(1),
+    );
+    before.kill();
+    const reopened = sessionTokenStore(carried(storage), fakePage(), {
+      locks: origin.tab(2).locks,
+      wasDiscarded: false,
+      waitMs: WAIT,
+    });
+    expect(await reopened.load()).toMatchObject({ refreshToken: "refresh-1" });
+  });
+
+  it("keeps a reloaded tab signed in, though the page going lets the lock go a moment late", async () => {
+    const origin = fakeLocks();
+    const before = origin.tab(1);
+    const storage = memoryStorage();
+    const page = fakePage();
+    await sessionTokenStore(storage, page, { locks: before.locks, waitMs: WAIT }).save(tokens(1));
+    page.fire("pagehide");
+    const reloaded = sessionTokenStore(carried(storage), fakePage(), {
+      locks: origin.tab(2).locks,
+      waitMs: 500,
+    });
+    setTimeout(before.kill, 20);
+    expect(await reloaded.load()).toMatchObject({ refreshToken: "refresh-1" });
+  });
+
+  it("keeps the session through the back-forward cache: the page and its lock are kept", async () => {
+    const origin = fakeLocks();
+    const page = fakePage();
+    const store = sessionTokenStore(memoryStorage(), page, {
+      locks: origin.tab(1).locks,
+      waitMs: WAIT,
+    });
+    await store.save(tokens(1));
+    page.fire("pagehide");
+    page.fire("pageshow");
+    expect(await store.load()).toMatchObject({ refreshToken: "refresh-1" });
+    expect(origin.holder("ses_1")).toBe(1);
+  });
+
+  it("a second store in the same page shares the session, and does not wipe it (F5)", async () => {
+    const origin = fakeLocks();
+    const tab = origin.tab(1);
+    const storage = memoryStorage();
+    await sessionTokenStore(storage, fakePage(), { locks: tab.locks, waitMs: WAIT }).save(
+      tokens(1),
+    );
+    const second = sessionTokenStore(storage, fakePage(), { locks: tab.locks, waitMs: WAIT });
+    expect(await second.load()).toMatchObject({ refreshToken: "refresh-1" });
+    expect(storage.items.has(SESSION_KEY)).toBe(true);
+  });
+
+  it("lets the lock go when the session is forgotten", async () => {
+    const origin = fakeLocks();
+    const store = sessionTokenStore(memoryStorage(), fakePage(), {
+      locks: origin.tab(1).locks,
+      waitMs: WAIT,
+    });
+    await store.save(tokens(1));
+    await store.save(null);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(origin.holder("ses_1")).toBeNull();
+  });
+});
+
+describe("the browser build's token store, without Web Locks", () => {
   it("keeps the session in this tab's storage, so a reload is still signed in", async () => {
     const storage = memoryStorage();
     const tab = fakePage();
     const session = tokens(1);
-    await sessionTokenStore(storage, tab).save(session);
+    await noLocks(storage, tab).save(session);
     expect(JSON.parse(storage.items.get(SESSION_KEY) ?? "null")).toEqual(session);
     // A reload: the page goes (pagehide), and a new page's store reads the same storage.
     tab.fire("pagehide");
-    const reloaded = fakePage();
-    expect(await sessionTokenStore(storage, reloaded).load()).toMatchObject({
+    const reloaded = carried(storage);
+    expect(await noLocks(reloaded, fakePage()).load()).toMatchObject({
       accessToken: "access-1",
     });
-    reloaded.fire("pagehide");
-    await sessionTokenStore(storage, fakePage()).save(null);
-    expect(storage.items.has(SESSION_KEY)).toBe(false);
   });
 
   it("starts a duplicated tab signed out, and leaves the tab it was copied from signed in (issue #540)", async () => {
     const original = memoryStorage();
-    const store = sessionTokenStore(original, fakePage());
+    const store = noLocks(original, fakePage());
     await store.save(tokens(1));
-    // Duplicate Tab (or a link opened with its opener): the browser copies the tab's storage,
-    // the live mark with it, while the first tab is still open.
-    const copy = memoryStorage();
-    for (const [key, value] of original.items) copy.setItem(key, value);
-    const copied = sessionTokenStore(copy, fakePage());
+    // Duplicate Tab: the browser copies the tab's storage, the live mark with it.
+    const copy = carried(original);
+    const copied = noLocks(copy, fakePage());
     expect(await copied.load()).toBeNull();
     expect(copy.items.has(SESSION_KEY)).toBe(false);
-    // The first tab keeps its session; the copy signs in with its own.
     expect(await store.load()).toMatchObject({ refreshToken: "refresh-1" });
     expect(original.items.has(SESSION_KEY)).toBe(true);
-    await copied.save(tokens(2));
-    expect(JSON.parse(original.items.get(SESSION_KEY) ?? "null").refreshToken).toBe("refresh-1");
+  });
+
+  it("does not count a discarded tab coming back as a copy", async () => {
+    const storage = memoryStorage();
+    await noLocks(storage, fakePage()).save(tokens(1));
+    // Discarded: no pagehide, the mark left in its storage.
+    const again = sessionTokenStore(carried(storage), fakePage(), {
+      locks: null,
+      wasDiscarded: true,
+    });
+    expect(await again.load()).toMatchObject({ refreshToken: "refresh-1" });
+  });
+
+  it("a second store in the same page does not wipe the session (F5)", async () => {
+    const storage = memoryStorage();
+    await noLocks(storage, fakePage()).save(tokens(1));
+    expect(await noLocks(storage, fakePage()).load()).toMatchObject({ refreshToken: "refresh-1" });
+    expect(storage.items.has(SESSION_KEY)).toBe(true);
   });
 
   it("marks the tab live again when the back-forward cache puts the page back", async () => {
     const storage = memoryStorage();
     const tab = fakePage();
-    await sessionTokenStore(storage, tab).save(tokens(1));
+    await noLocks(storage, tab).save(tokens(1));
     tab.fire("pagehide");
     expect(storage.items.has(LIVE_KEY)).toBe(false);
     tab.fire("pageshow");
@@ -141,16 +329,16 @@ describe("the browser build's token store", () => {
         throw new Error("blocked");
       },
     };
-    const store = sessionTokenStore(refusing);
+    const store = noLocks(refusing);
     expect(await store.load()).toBeNull();
     await store.save(tokens(2));
     expect(await store.load()).toMatchObject({ accessToken: "access-2" });
     const junk = memoryStorage();
     junk.setItem(SESSION_KEY, '{"accessToken": 1}');
-    expect(await sessionTokenStore(junk).load()).toBeNull();
+    expect(await noLocks(junk).load()).toBeNull();
     junk.setItem(SESSION_KEY, "not json");
-    expect(await sessionTokenStore(junk).load()).toBeNull();
-    expect(await sessionTokenStore(null).load()).toBeNull();
+    expect(await noLocks(junk).load()).toBeNull();
+    expect(await noLocks(null).load()).toBeNull();
   });
 });
 
@@ -168,7 +356,7 @@ describe("the browser build's ScreenHost", () => {
     const storage = memoryStorage();
     const screens = tokenScreenHost({
       hostUrl: `${HOST}/`,
-      store: sessionTokenStore(storage),
+      store: noLocks(storage),
       fetch: host.fetch,
       deviceName: "Ada's laptop",
     });
@@ -219,7 +407,7 @@ describe("the browser build's ScreenHost", () => {
       }
       return [200, { data: me }];
     });
-    const store = sessionTokenStore(memoryStorage());
+    const store = noLocks(memoryStorage());
     // Good for ten minutes by this browser's clock, ended by the host's.
     await store.save(tokens(1));
     const screens = tokenScreenHost({ hostUrl: HOST, store, fetch: host.fetch });
@@ -243,7 +431,7 @@ describe("the browser build's ScreenHost", () => {
     );
     const screens = tokenScreenHost({
       hostUrl: HOST,
-      store: sessionTokenStore(memoryStorage()),
+      store: noLocks(memoryStorage()),
       fetch: host.fetch,
     });
     expect(await screens.requestCode("ada@example.com")).toBe(false);
@@ -253,7 +441,7 @@ describe("the browser build's ScreenHost", () => {
   it("signs out on the host with the refresh token and forgets the session", async () => {
     const host = fakeHost(() => [200, { data: { ok: true } }]);
     const storage = memoryStorage();
-    const store = sessionTokenStore(storage);
+    const store = noLocks(storage);
     await store.save(tokens(3));
     const screens = tokenScreenHost({ hostUrl: HOST, store, fetch: host.fetch });
     await screens.signOut();
@@ -263,6 +451,90 @@ describe("the browser build's ScreenHost", () => {
     await store.save(tokens(4));
     await screens.forget();
     expect(await store.load()).toBeNull();
+  });
+
+  it("never ends the fresh session over a refusal of the one a refresh replaced (review of #542, S1)", async () => {
+    // A clock behind the host's: access-1 has ended there. The refresh is held a moment, and any
+    // call with access-1 that lands after it is not a token at all (`token_invalid`).
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let refreshAsked = () => {};
+    const refreshStarted = new Promise<void>((resolve) => {
+      refreshAsked = resolve;
+    });
+    let rotated = false;
+    let oldCalls = 0;
+    const host = fakeHost((path, sent) => {
+      if (path === "/api/v1/auth/refresh") return [200, { data: tokens(2) }];
+      if (path === "/api/v1/auth/sign-out") return [200, { data: { ok: true } }];
+      if (sent.headers.authorization === "Bearer access-1") {
+        return [
+          401,
+          {
+            error: {
+              code: "forbidden",
+              message: "No",
+              details: { reason: rotated ? "token_invalid" : "token_expired" },
+            },
+          },
+        ];
+      }
+      return [200, { data: me }];
+    });
+    // The fake host above answers at once; hold the refresh and the second old-token call.
+    const fetch = async (url: string, init?: RequestInit) => {
+      const path = new URL(url).pathname;
+      if (path === "/api/v1/auth/refresh") {
+        refreshAsked();
+        await held;
+        rotated = true;
+      } else if (
+        (init?.headers as Record<string, string> | undefined)?.authorization === "Bearer access-1"
+      ) {
+        oldCalls += 1;
+        if (oldCalls > 1) {
+          await held;
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+      }
+      return host.fetch(url, init);
+    };
+    const store = noLocks(memoryStorage());
+    await store.save(tokens(1));
+    const screens = tokenScreenHost({ hostUrl: HOST, store, fetch });
+    const first = screens.me();
+    const second = screens.me();
+    await refreshStarted;
+    release();
+    expect(await first).toMatchObject({ displayName: "Ada Lovelace" });
+    expect(await second).toMatchObject({ displayName: "Ada Lovelace" });
+    expect(host.sent.some((s) => s.url.endsWith("/api/v1/auth/sign-out"))).toBe(false);
+    expect(await store.load()).toMatchObject({ refreshToken: "refresh-2" });
+  });
+
+  it("asks again, and signs nothing out, when the refused session is not the one the tab now holds", async () => {
+    const store = noLocks(memoryStorage());
+    await store.save(tokens(1));
+    const host = fakeHost((path, sent) => {
+      if (path === "/api/v1/auth/sign-out") return [200, { data: { ok: true } }];
+      if (sent.headers.authorization === "Bearer access-3") return [200, { data: me }];
+      return [
+        401,
+        { error: { code: "forbidden", message: "No", details: { reason: "session_idle" } } },
+      ];
+    });
+    // While the call is out, the tab takes a new session (a sign-in elsewhere in the page).
+    const fetch = async (url: string, init?: RequestInit) => {
+      const answer = await host.fetch(url, init);
+      if (answer.status === 401) await store.save({ ...tokens(3), sessionId: "ses_3" });
+      return answer;
+    };
+    const screens = tokenScreenHost({ hostUrl: HOST, store, fetch });
+    expect(await screens.me()).toMatchObject({ displayName: "Ada Lovelace" });
+    expect(host.sent.some((s) => s.url.endsWith("/api/v1/auth/sign-out"))).toBe(false);
+    expect(await store.load()).toMatchObject({ refreshToken: "refresh-3" });
   });
 
   it("signs out on the host, and forgets, a session the host no longer takes", async () => {
@@ -280,7 +552,7 @@ describe("the browser build's ScreenHost", () => {
             },
           ],
     );
-    const store = sessionTokenStore(memoryStorage());
+    const store = noLocks(memoryStorage());
     await store.save(tokens(5));
     const screens = tokenScreenHost({ hostUrl: HOST, store, fetch: host.fetch });
     expect(await screens.me()).toBeNull();
@@ -294,7 +566,7 @@ describe("the browser build's ScreenHost", () => {
     const host = fakeHost((path) =>
       path === "/api/v1/auth/refresh" ? [200, { data: tokens(7) }] : [200, { data: me }],
     );
-    const store = sessionTokenStore(memoryStorage());
+    const store = noLocks(memoryStorage());
     await store.save(tokens(6, 1_000));
     const screens = tokenScreenHost({ hostUrl: HOST, store, fetch: host.fetch });
     await Promise.all([screens.me(), screens.me()]);
@@ -307,7 +579,7 @@ describe("the browser build's ScreenHost", () => {
       426,
       { error: { code: "upgrade_required", message: "Update", details: { served: ["v2"] } } },
     ]);
-    const store = sessionTokenStore(memoryStorage());
+    const store = noLocks(memoryStorage());
     await store.save(tokens(8));
     const told: unknown[] = [];
     const screens = tokenScreenHost({
@@ -324,7 +596,7 @@ describe("the browser build's ScreenHost", () => {
 
   it("asks for a signed PDF with the bearer token", async () => {
     const sent: { url: string; init: RequestInit }[] = [];
-    const store = sessionTokenStore(memoryStorage());
+    const store = noLocks(memoryStorage());
     await store.save(tokens(9));
     const screens = tokenScreenHost({
       hostUrl: HOST,

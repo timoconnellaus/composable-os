@@ -1,4 +1,4 @@
-// Stage 29 step 5 (ADRs 0723 and 0724) on the shipped packs: Forms beside Programs, Bookings and
+// Stage 29 step 5 (ADRs 0723 and 0724) on the shipped packs: Forms beside Bookings and
 // Memberships in the real host and sandbox, the automations bound to a real email-send connection
 // whose Email Service is the fake outbox.
 //
@@ -43,7 +43,7 @@ const FORM = "forms.form";
 const SUBMISSION = "forms.submission";
 const BOOKING = "bookings.booking";
 const CLASS = "bookings.class";
-const PACKS = ["programs", "bookings", "memberships", "forms"];
+const PACKS = ["bookings", "memberships", "forms"];
 
 const files = Object.fromEntries(PACKS.map((id) => [id, packFiles(id)]));
 const shippedHost: ExtensionHost = {
@@ -248,7 +248,7 @@ beforeAll(async () => {
       staff(),
     );
   }
-  classType = await create("programs.classtype", { name: unique("Strength") });
+  classType = await create("bookings.classtype", { name: unique("Strength") });
   feedback = await makeForm({ answeredBy: "links", kind: "feedback", receipt: false });
   await run(
     "extensionSettings.update",

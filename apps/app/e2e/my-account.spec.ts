@@ -87,7 +87,7 @@ let outbox = "";
 
 async function setUp(page: Page) {
   before = await op(page.request, "customer.settings.get", {});
-  for (const id of ["programs", "bookings", "memberships"]) {
+  for (const id of ["bookings", "memberships"]) {
     await op(page.request, "extension.install", { id, shipped: true }, false);
   }
   await op(page.request, "extension.install", {
@@ -170,7 +170,7 @@ async function publish(page: Page, kind: string, points: string[], extra = {}) {
 async function oneOff(page: Page, startsIn: number) {
   const name = unique("Strength ");
   const classType = await op<{ id: string }>(page.request, "record.create", {
-    object: "programs.classtype",
+    object: "bookings.classtype",
     values: { name },
   });
   const klass = await op<{ id: string }>(page.request, "record.create", {

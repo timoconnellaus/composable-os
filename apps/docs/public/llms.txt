@@ -118,7 +118,7 @@
 - [Offers: operations and tools](https://docs.composableos.dev/packs/offers/tools/)
 - [Programs: data model](https://docs.composableos.dev/packs/programs/data-model/)
 - [Programs: decisions](https://docs.composableos.dev/packs/programs/decisions/)
-- [Programs](https://docs.composableos.dev/packs/programs/): An exercise bank, programs built from it as one layout (weeks, sessions, blocks, items, levels, typed sets), published versions, assignments to a person or a class type as dated sessions, and a log of every set against its target.
+- [Programs](https://docs.composableos.dev/packs/programs/): An exercise bank, programs built from it as one layout (weeks, sessions, blocks, items, levels, typed sets), published versions, assignments to a person or a class type as dated sessions, and a log of every set against its target. Class types are Bookings'.
 - [Programs: messages](https://docs.composableos.dev/packs/programs/messages/)
 - [Programs: permissions and roles](https://docs.composableos.dev/packs/programs/permissions/)
 - [Programs: screens](https://docs.composableos.dev/packs/programs/screens/)

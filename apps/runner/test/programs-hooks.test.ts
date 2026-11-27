@@ -205,7 +205,7 @@ describe("the hooks against the host", () => {
   it("each audience's client reads the class types its own way: a member my.list, staff record.list", async () => {
     await run(
       "record.create",
-      { object: "programs.classtype", values: { name: "Hooks class", order: 1 } },
+      { object: "bookings.classtype", values: { name: "Hooks class", order: 1 } },
       staff(admin),
     );
     // A member's client holds what the customer contract serves, and no record.list.

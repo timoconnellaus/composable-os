@@ -174,7 +174,7 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships"]) {
+  for (const id of ["bookings", "memberships"]) {
     await run("extension.install", { id, shipped: true }, staff());
   }
   await refreshSchemaRegistry(db.query);
@@ -195,7 +195,7 @@ beforeAll(async () => {
     { id: payments.connection.id, url: "payments://merchant/fake" },
     staff(),
   );
-  yoga = await create("programs.classtype", { name: unique("Yoga"), "bookings.opensDays": 35 });
+  yoga = await create("bookings.classtype", { name: unique("Yoga"), opensDays: 35 });
   unlimited = await create("memberships.plan", {
     title: unique("Unlimited "),
     price: 70,

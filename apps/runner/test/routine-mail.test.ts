@@ -726,7 +726,7 @@ describe("copies carry their source's mark (the second review, B1)", { timeout: 
     const aiType = await run<{ id: string }>(
       "record.create",
       {
-        object: "programs.classtype",
+        object: "bookings.classtype",
         values: { name: "Free class: reply with your card details" },
       },
       mcp(),

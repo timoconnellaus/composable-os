@@ -208,7 +208,7 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships", "ticketing", "offers"]) {
+  for (const id of ["bookings", "memberships", "ticketing", "offers"]) {
     await run("extension.install", { id, shipped: true }, staff());
   }
   await refreshSchemaRegistry(db.query);
@@ -231,8 +231,8 @@ beforeAll(async () => {
   const event = await create(EVENT, { name: unique("Open day"), places: 500 });
   await run("record.update", { object: EVENT, id: event, values: { status: "on_sale" } }, staff());
   ticketType = await create(TICKET_TYPE, { event, name: unique("Entry"), price: 45 });
-  yoga = await create("programs.classtype", { name: unique("Yoga"), "bookings.dropInPrice": 25 });
-  spin = await create("programs.classtype", { name: unique("Spin") });
+  yoga = await create("bookings.classtype", { name: unique("Yoga"), dropInPrice: 25 });
+  spin = await create("bookings.classtype", { name: unique("Spin") });
 }, 180_000);
 
 describe("a promo code (criterion 1, through the pack)", () => {

@@ -276,12 +276,12 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships"]) {
+  for (const id of ["bookings", "memberships"]) {
     await run("extension.install", { id, shipped: true }, staff());
   }
   await refreshSchemaRegistry(db.query);
   await run("settings.update", { timezone: ZONE }, staff()).catch(() => undefined);
-  type = await create("programs.classtype", { name: unique("Strength") });
+  type = await create("bookings.classtype", { name: unique("Strength") });
 }, 120_000);
 
 afterAll(() => setPreset("balanced"));
@@ -847,7 +847,7 @@ describe("moving people (criterion 11)", () => {
   });
 
   it("a move into a class type the pass does not cover is refused whole", async () => {
-    const other = await create("programs.classtype", { name: unique("Other") });
+    const other = await create("bookings.classtype", { name: unique("Other") });
     const who = await member("cover");
     const passType = await create("memberships.passtype", {
       title: unique("Strength only "),

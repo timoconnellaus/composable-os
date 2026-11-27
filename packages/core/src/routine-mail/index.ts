@@ -1084,7 +1084,9 @@ async function startedBy(
  * Whether `named` is the run's record, points at it (a class's booking, an order's drop-in), or
  * is a record of the same object pointing, by a relation to one of the extension's own objects,
  * at the same record as the run's (another booking of the same class: a place free to the
- * waiting list). Sharing a class type, a pass or a person is not enough.
+ * waiting list). Sharing a class type, a pass or a person is not enough: a read-only relation (a
+ * value the host copied, like a booking's class type) never ties, even to one of the extension's
+ * own objects (the class type is Bookings' own since stage 78, ADR 0980).
  */
 function tiedToTrigger(
   extensionId: string,
@@ -1100,6 +1102,7 @@ function tiedToTrigger(
     const value = named.values[f.name];
     return (
       typeof to === "string" &&
+      !f.readOnly &&
       to.startsWith(`${extensionId}.`) &&
       to !== named.object &&
       typeof value === "string" &&

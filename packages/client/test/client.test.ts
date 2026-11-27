@@ -351,6 +351,170 @@ describe("token sessions (ADR 0419)", () => {
     });
   });
 
+  describe("calls during a refresh (review of #542, S1 and F1)", () => {
+    // The device's clock is behind the host's: at-1 looks good here and has ended there. The host
+    // rotates the session when the refresh lands: from then on at-1 is not a token at all
+    // (`token_invalid`), and at-2 is the session's.
+    const hostNow = 5_000_000;
+    const deviceNow = hostNow - 60_000;
+    const refusal = (reason: string) => ({
+      status: 401,
+      body: { error: { code: "forbidden", message: reason, details: { reason } } },
+    });
+    const later = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    /**
+     * A host whose refresh is held until `release()`. A call with at-1 is answered at once as
+     * expired while the refresh has not been asked for; once it has, the answer waits for the
+     * rotation and is then `token_invalid`, as a call that reaches the host just after it would.
+     */
+    function rotatingHost() {
+      const log: string[] = [];
+      let asked = false;
+      let oldTokenCalls = 0;
+      let release = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let rotated = false;
+      let refreshAsked = () => {};
+      const refreshStarted = new Promise<void>((resolve) => {
+        refreshAsked = resolve;
+      });
+      const answer = (reply: { status: number; body: unknown }) => ({
+        status: reply.status,
+        headers: { get: () => null },
+        text: async () => JSON.stringify(reply.body),
+      });
+      const fetch: FetchLike = async (url, init) => {
+        const path = url.replace("https://h", "");
+        if (path === "/api/v1/auth/refresh") {
+          log.push("refresh");
+          asked = true;
+          refreshAsked();
+          await held;
+          rotated = true;
+          return answer({ status: 200, body: { data: tokens(2, 600_000, hostNow) } });
+        }
+        if (path === "/api/v1/auth/sign-out") {
+          log.push(`sign-out ${JSON.parse(init.body ?? "{}").refreshToken}`);
+          return answer({ status: 200, body: { data: { ok: true } } });
+        }
+        if (path === "/api/v1/auth/customer/sign-in") {
+          log.push("sign-in");
+          return answer({ status: 200, body: { data: tokens(9, 600_000, hostNow) } });
+        }
+        const auth = init.headers.authorization ?? "";
+        log.push(`${path.replace("/api/v1/op/", "")} ${auth.replace("Bearer ", "")}`);
+        if (auth === "Bearer at-1") {
+          oldTokenCalls += 1;
+          // The first is answered at once; any other is slow, and lands after the rotation.
+          if (!asked && oldTokenCalls === 1) return answer(refusal("token_expired"));
+          await refreshStarted;
+          await held;
+          await later();
+          return answer(refusal(rotated ? "token_invalid" : "token_expired"));
+        }
+        return answer({ status: 200, body: { data: { id: "a", n: 7 } } });
+      };
+      return { fetch, log, release: () => release(), refreshStarted };
+    }
+
+    const setUp = (h: { fetch: FetchLike }) => {
+      const store = memoryStore(tokens(1, 40_000, deviceNow));
+      const session = tokenSession({
+        baseUrl: "https://h",
+        store,
+        fetch: h.fetch,
+        now: () => deviceNow,
+      });
+      const api = createClient<Ops>(specs, {
+        baseUrl: "https://h",
+        fetch: session.fetch,
+        retries: 0,
+        sleep: noWait,
+      });
+      return { store, session, api };
+    };
+
+    it("a call started while a refresh is in flight waits for it, and is never sent with the old token", async () => {
+      const h = rotatingHost();
+      const { api, store } = setUp(h);
+      const first = api.call("thing.get", { id: "a" });
+      await h.refreshStarted;
+      const second = api.call("thing.get", { id: "b" });
+      await later();
+      h.release();
+      expect(await first).toEqual({ id: "a", n: 7 });
+      expect(await second).toEqual({ id: "a", n: 7 });
+      expect(h.log.filter((line) => line === "refresh")).toHaveLength(1);
+      // Only the first call ever left with at-1: the second waited for the refresh.
+      expect(h.log.filter((line) => line === "thing.get at-1")).toHaveLength(1);
+      expect(h.log).not.toContain("sign-out rt-2");
+      expect(store.peek()?.refreshToken).toBe("rt-2");
+    });
+
+    it("a call sent with the old token that lands after the rotation is sent again with the new one", async () => {
+      const h = rotatingHost();
+      const { api } = setUp(h);
+      // Both leave with at-1: the first is refused as expired at once and starts the refresh; the
+      // second reaches the host after it has rotated, and is refused as no token at all.
+      const first = api.call("thing.get", { id: "a" });
+      const second = api.call("thing.get", { id: "b" });
+      await h.refreshStarted;
+      h.release();
+      expect(await first).toEqual({ id: "a", n: 7 });
+      expect(await second).toEqual({ id: "a", n: 7 });
+      expect(h.log).toEqual(
+        expect.arrayContaining(["thing.get at-1", "refresh", "thing.get at-2"]),
+      );
+      expect(h.log.filter((line) => line === "thing.get at-2")).toHaveLength(2);
+    });
+
+    it("a refresh that lands after a sign-out does not bring the session back", async () => {
+      const h = rotatingHost();
+      const { api, session, store } = setUp(h);
+      const call = api.call("thing.get", { id: "a" }).catch((e: unknown) => e);
+      await h.refreshStarted;
+      await session.signOut();
+      h.release();
+      await call;
+      expect(store.peek()).toBeNull();
+    });
+
+    it("a refresh that lands after a new sign-in does not overwrite it", async () => {
+      const h = rotatingHost();
+      const { api, session, store } = setUp(h);
+      const call = api.call("thing.get", { id: "a" }).catch((e: unknown) => e);
+      await h.refreshStarted;
+      await session.signInWithCode("ada@example.com", "123456", "Phone");
+      h.release();
+      await call;
+      expect(store.peek()?.refreshToken).toBe("rt-9");
+    });
+
+    it("hands back a 401 it has read as a real Response (review of #542, F2)", async () => {
+      const h = host(() => refusal("session_idle"));
+      const store = memoryStore(tokens(1, 600_000, deviceNow));
+      const session = tokenSession({
+        baseUrl: "https://h",
+        store,
+        fetch: h.fetch,
+        now: () => deviceNow,
+      });
+      const answer = await session.fetch("https://h/api/v1/op/thing.get", {
+        method: "POST",
+        headers: {},
+        body: "{}",
+      });
+      expect(answer).toBeInstanceOf(Response);
+      expect((answer as Response).ok).toBe(false);
+      expect(await (answer as Response).json()).toMatchObject({
+        error: { details: { reason: "session_idle" } },
+      });
+    });
+  });
+
   it("says why a sign-in failed: not switched on, too many tries, offline (no silent failure)", async () => {
     const failure = async (reply: { status: number; body: unknown } | "drop") => {
       const h = host(() => reply);

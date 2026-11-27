@@ -198,7 +198,7 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships"]) {
+  for (const id of ["bookings", "memberships"]) {
     await run("extension.install", { id, shipped: true }, staff());
   }
   await refreshSchemaRegistry(db.query);
@@ -220,8 +220,8 @@ beforeAll(async () => {
     staff(),
   );
   // Booking opens five weeks ahead for these class types, so the weeks used below are open.
-  yoga = await create("programs.classtype", { name: unique("Yoga"), "bookings.opensDays": 35 });
-  spin = await create("programs.classtype", { name: unique("Spin"), "bookings.opensDays": 35 });
+  yoga = await create("bookings.classtype", { name: unique("Yoga"), opensDays: 35 });
+  spin = await create("bookings.classtype", { name: unique("Spin"), opensDays: 35 });
 }, 120_000);
 
 describe("spending (step 4)", () => {
@@ -341,7 +341,7 @@ describe("spending (step 4)", () => {
 
 describe("the waitlist (step 5)", () => {
   it("joins spend nothing; a freed place is the waitlist's; the first who can pay is moved in, one who cannot is passed over", async () => {
-    const type = await create("programs.classtype", { name: unique("Strength") });
+    const type = await create("bookings.classtype", { name: unique("Strength") });
     const k = await klass(type, new Date(Date.now() + 2 * DAY).toISOString(), 1);
     const [a, b, c, d] = (await Promise.all(["wa", "wb", "wc", "wd"].map((l) => member(l)))) as [
       CustomerPrincipal,
@@ -413,7 +413,7 @@ describe("the waitlist (step 5)", () => {
   });
 
   it("from the cut-off: nobody joins, and a freed place goes to whoever books first", async () => {
-    const type = await create("programs.classtype", { name: unique("Late") });
+    const type = await create("bookings.classtype", { name: unique("Late") });
     // 100 minutes ahead: inside the 2-hour cut-off, before the 1-hour late cancel.
     const k = await klass(type, new Date(Date.now() + 100 * 60_000).toISOString(), 1);
     const [a, b] = await Promise.all([member("ca"), member("cb")]);
@@ -432,7 +432,7 @@ describe("the waitlist (step 5)", () => {
   });
 
   it("12 at once into a class of 4, then a cancel, a direct booking and two promotions at once: never over its places, no place lost", async () => {
-    const type = await create("programs.classtype", { name: unique("Race") });
+    const type = await create("bookings.classtype", { name: unique("Race") });
     const k = await klass(type, new Date(Date.now() + 3 * DAY).toISOString(), 4);
     const people = await Promise.all(Array.from({ length: 13 }, (_, i) => member(`race${i}`)));
     for (const p of people) await givePass(p);
@@ -478,7 +478,7 @@ describe("the waitlist (step 5)", () => {
 
 describe("review findings (PR #248)", () => {
   it("finding 4: waiters who cannot pay ahead of one who can, past a page: the queue is worked down, not given away", async () => {
-    const type = await create("programs.classtype", { name: unique("Long") });
+    const type = await create("bookings.classtype", { name: unique("Long") });
     const k = await klass(type, new Date(Date.now() + 2 * DAY).toISOString(), 1);
     const [a, broke1, broke2, payer] = (await Promise.all(
       ["la", "lb1", "lb2", "lp"].map((l) => member(l)),
@@ -508,7 +508,7 @@ describe("review findings (PR #248)", () => {
   });
 
   it("finding 5: a waiter takes a free place themselves; never one held for the queue", async () => {
-    const type = await create("programs.classtype", { name: unique("Free") });
+    const type = await create("bookings.classtype", { name: unique("Free") });
     const k = await klass(type, new Date(Date.now() + 2 * DAY).toISOString(), 1);
     const [a, b, c] = (await Promise.all(["fa", "fb", "fc"].map((l) => member(l)))) as [
       CustomerPrincipal,
@@ -549,7 +549,7 @@ describe("review findings (PR #248)", () => {
   });
 
   it("round two, finding 2: a waiter passed over for an older place is tried again for a newer one", async () => {
-    const type = await create("programs.classtype", { name: unique("Twice") });
+    const type = await create("bookings.classtype", { name: unique("Twice") });
     const k = await klass(type, new Date(Date.now() + 2 * DAY).toISOString(), 2);
     const [x, y, a, b] = (await Promise.all(["tx", "ty", "ta", "tb"].map((l) => member(l)))) as [
       CustomerPrincipal,
@@ -591,7 +591,7 @@ describe("review findings (PR #248)", () => {
   });
 
   it("round two: a class marked done early takes nobody in from its waitlist, and its holds go back", async () => {
-    const type = await create("programs.classtype", { name: unique("Done") });
+    const type = await create("bookings.classtype", { name: unique("Done") });
     const k = await klass(type, new Date(Date.now() + 2 * DAY).toISOString(), 1);
     const [a, b] = (await Promise.all(["da", "db"].map((l) => member(l)))) as [
       CustomerPrincipal,
@@ -616,7 +616,7 @@ describe("review findings (PR #248)", () => {
   });
 
   it("round two: erasing a waiting member who named a pass takes them out of the queue", async () => {
-    const type = await create("programs.classtype", { name: unique("Erase") });
+    const type = await create("bookings.classtype", { name: unique("Erase") });
     const k = await klass(type, new Date(Date.now() + 2 * DAY).toISOString(), 1);
     const [a, b, c] = (await Promise.all(["ea", "eb", "ec"].map((l) => member(l)))) as [
       CustomerPrincipal,
@@ -651,7 +651,7 @@ describe("review findings (PR #248)", () => {
   });
 
   it("a member cannot read another member's place in the queue", async () => {
-    const type = await create("programs.classtype", { name: unique("Private") });
+    const type = await create("bookings.classtype", { name: unique("Private") });
     const k = await klass(type, new Date(Date.now() + 2 * DAY).toISOString(), 1);
     const [a, b, c] = (await Promise.all(["pa", "pb", "pc"].map((l) => member(l)))) as [
       CustomerPrincipal,

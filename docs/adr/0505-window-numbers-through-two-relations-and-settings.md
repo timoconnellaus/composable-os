@@ -54,3 +54,12 @@ relations away; the setting's default, a stored value, a changed one, and the cl
 winning over it; a customer's create refused for a staff-only type and for a class not scheduled
 (a formula), staff not bound; and the SDK naming each wrong path, number setting and waived field.
 `apps/runner/test/bookings.test.ts` does the same through the Bookings pack on Programs' class type.
+
+## Amended 2026-11-27 (stage 78, ADR 0980)
+
+The worked example above is history: Bookings' rules are no longer fields it adds to
+`programs.classtype` but fields of its own `bookings.classtype` (ADR
+[0980](0980-general-and-domain-packs.md)), and `horizonAtLeast` names the local `classtype`. The
+decision stands as written: a path may still pass through a field an extension adds to another
+pack's object, and `horizonAtLeast` may still name another extension's object it adds a number
+field to.

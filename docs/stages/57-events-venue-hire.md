@@ -100,7 +100,7 @@ share, and puts staff and volunteers on the event's shifts through the roster.
   `capacity` with `pool: "event"`), `ticketing.ticket`. The door pack role; an automation moves an
   on-sale event to `ended` the day after it ends.
 - **Rooms** are Bookings' (`bookings.room`: name, places as "a guide for staff, not a limit",
-  notes; the public reads the name). Bookings requires Programs. A class names its room. Today
+  notes; the public reads the name). Bookings requires nothing since stage 78 (it required Programs when this was written). A class names its room. Today
   nothing stops two classes in one room at once.
 - **The time claim is for people** (ADR 0621, `packages/sdk/src/staffed.ts`,
   `packages/core/src/staffing/`, migration `0811_staff_time.sql`): one row per live covered shift

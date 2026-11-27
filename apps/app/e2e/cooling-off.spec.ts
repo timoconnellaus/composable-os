@@ -61,7 +61,7 @@ const block = (name: string, component: string, props: Record<string, unknown> =
 
 /** Both packs on, the orders' currency, the payments fake bound, 14 days of cooling off. */
 async function setUp(page: Page, baseURL: string): Promise<void> {
-  for (const id of ["programs", "memberships"]) {
+  for (const id of ["bookings", "memberships"]) {
     await op(page.request, "extension.install", { id, shipped: true }, false);
   }
   const origin = new URL(baseURL).origin;

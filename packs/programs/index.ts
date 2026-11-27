@@ -9,12 +9,14 @@
 //   - a program has a working copy and published versions (`publishable`, ADR 0446): coaches
 //     edit freely, a person with the publish permission publishes, and an assignment pins one;
 //   - a person's assignments, sessions and logs are theirs (`customer`), and a class type's are
-//     read by every signed-in member (`signedIn`, ADR 0447); the bank and the class types are
-//     read by every signed-in member; a member writes a log only against a session they can see;
+//     read by every signed-in member (`signedIn`, ADR 0447); the bank is read by every
+//     signed-in member; a member writes a log only against a session they can see;
 //   - an assignment and a session move through fixed states (`states`), each move made from a
 //     current read (ADR 0437);
 //   - a session is an assignment's, or one brought in from before by an import (`source`), whose
 //     writes start no automation and send no message (the import door, ADR 0470).
+// The class types are Bookings' (`bookings.classtype`, stage 78, ADR 0980): Programs is a domain
+// pack for a gym's training and requires Bookings, a general pack; Bookings never requires it.
 // The tools in tools.ts compose the host's operations and add no rules of their own.
 import { defineExtension } from "@composable-os/sdk";
 import { programsDashboards } from "./dashboards.ts";
@@ -79,10 +81,14 @@ export default defineExtension({
   description:
     "An exercise bank, programs built from it as one layout (weeks, sessions, blocks, items, " +
     "levels, typed sets), published versions, assignments to a person or a class type as dated " +
-    "sessions, and a log of every set against its target.",
+    "sessions, and a log of every set against its target. Class types are Bookings'.",
+  // A class program is assigned to Bookings' class type (stage 78, ADR 0980): the host installs
+  // Programs only beside Bookings. A domain pack may require a general one, never the reverse.
+  requires: ["bookings"],
   permissions: {
-    // person.get: the name an assignment is titled with.
-    read: ["person"],
+    // person.get: the name an assignment is titled with. bookings.classtype: the class type a
+    // class program is assigned to, its name on the assignment.
+    read: ["person", "bookings.classtype"],
     modules: ["ops", "ai"],
   },
   objects: {
@@ -251,19 +257,6 @@ export default defineExtension({
       unique: [{ fields: ["importKey"] }],
       indexes: [["kind"]],
     },
-    classtype: {
-      label: "Class type",
-      plural: "Class types",
-      icon: "users",
-      titleField: "name",
-      description: "A kind of class (Mobility, Handstands): what a class program is assigned to.",
-      navigation: "settings",
-      fields: {
-        name: { type: "text", label: "Name", required: true },
-        order: { type: "number", label: "Order" },
-      },
-      signedIn: { read: ["name", "order"] },
-    },
     assignment: {
       label: "Assignment",
       plural: "Assignments",
@@ -285,7 +278,7 @@ export default defineExtension({
         },
         kind,
         person: { type: "relation", label: "Person", to: "person" },
-        classType: { type: "relation", label: "Class type", to: "programs.classtype" },
+        classType: { type: "relation", label: "Class type", to: "bookings.classtype" },
         startDate: { type: "date", label: "Starts", required: true },
         endDate: { type: "date", label: "Ends" },
         sessionCount: { type: "number", label: "Sessions", readOnly: true, min: 0, step: 1 },
@@ -367,7 +360,7 @@ export default defineExtension({
         programVersion: { type: "number", label: "Version", readOnly: true },
         kind,
         person: { type: "relation", label: "Person", to: "person" },
-        classType: { type: "relation", label: "Class type", to: "programs.classtype" },
+        classType: { type: "relation", label: "Class type", to: "bookings.classtype" },
         programTitle: {
           type: "text",
           label: "Program",

@@ -19,7 +19,6 @@ const AHEAD = "2030-06-03T09:00:00.000Z";
 
 function host(operations: Record<string, (input: Record<string, unknown>) => unknown> = {}) {
   return createTestHost(bookings, {
-    validate: { knownObjects: ["programs.classtype"] },
     records: {
       "bookings.service": [{ id: "svc_pt", title: "Personal training", length: 60 }],
       "bookings.coach": [
