@@ -111,3 +111,5 @@ From the owner's answers to stages 75 and 76 the same day:
 - A screen made only of standard blocks is shown in the desktop app from the start. A custom
   block stays out of it until the internal bridge can be closed for a view, as decided above for
   any code that is not ours.
+- What this note says of the admin's screens, regions, custom blocks and the build service is
+  specified in [stage 77](../stages/77-admin-screens.md), moved out of stage 75 the same day.

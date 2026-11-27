@@ -11,7 +11,7 @@ client, Device session, Pack role), ADRs
 `packages/client/src/client.ts` (`onUpgradeRequired`).
 
 Status: **spec agreed (owner interviewed 2026-11-27)**. It loads the admin's staff screens, which
-stage 75 step 8 makes a published version.
+[stage 77](77-admin-screens.md) step 10 makes a published version.
 
 ## Goal
 
@@ -154,7 +154,7 @@ None open. Decisions 5 to 7 answer them.
 Spec agreed (owner interviewed 2026-11-27). No build step is built yet. Each build step changes its own line
 here (CONTRIBUTING.md, Working in parallel).
 
-- **Step 1** — not built — needs: stage 75 step 8 — The wrapper's skeleton
+- **Step 1** — not built — needs: stage 77 step 10 — The wrapper's skeleton
 
 - **Step 2** — not built — needs: step 1, stage 75 step 4 — Screens from the host
 

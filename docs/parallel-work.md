@@ -95,6 +95,7 @@ here is what made parallel PRs conflict.
 | CC | 1450–1469 | 0940–0949 | A rate limit for public operations (`feat/public-rate-limit`): the per-client-address limit, the visitor's address through the client-app binding, wrong guesses counted, promo codes looked up by index | in flight |
 | CD | 1470–1489 | 0950–0959 | Stage 14, Teams and permissions (re-spec 2026-11-25, `docs/stage-14-respec`; spec `docs/stages/14-teams-permissions.md`): migrations 1470 to 1473 and ADRs 0950 to 0955 named in the spec. Migration 1430 is stage 36's, outside its block | specced |
 | CE | 1490–1509 | 0960–0969 | Screen versions and the desktop app (specs `docs/stages/75-screen-versions.md` and `76-desktop-app.md`, `docs/screen-versions-and-desktop`): ADR 0960 written; the stages' build steps take the block's other ADRs and its migrations | specced |
+| CF | 1510–1529 | 0970–0979 | Stage 77, An organisation's own admin screens (spec `docs/stages/77-admin-screens.md`, `docs/stage-77-admin-screens`): regions, the screen record, custom blocks and the build service, edit mode, the admin as a version; each step's numbers are in its Status | specced |
 
 **`core_write_guard` remakes come in order.** Each kind added drops and recreates the table and its
 trigger, carrying every earlier kind. Stage 44 step 2's remake (migration 0851, kind `agreements`)
