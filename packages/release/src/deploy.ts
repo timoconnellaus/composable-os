@@ -550,6 +550,74 @@ export function selectedWorkers(manifest: ReleaseManifest, state: DeploymentStat
   return [...ordered].sort((a, b) => rank(a) - rank(b));
 }
 
+/**
+ * The Workers a Worker's bindings name, as deployed: a service binding's Worker, a Durable Object
+ * or Workflow binding's `script_name` (another Worker's class). Cloudflare refuses an upload, or a
+ * version, whose service binding names a Worker that does not exist (10143).
+ */
+export function boundWorkers(bindings: ManifestBinding[], self: string): string[] {
+  const out = new Set<string>();
+  for (const b of bindings as (ManifestBinding & { service?: unknown; script_name?: unknown })[]) {
+    const target =
+      b.type === "service"
+        ? b.service
+        : b.type === "durable_object_namespace" || b.type === "workflow"
+          ? b.script_name
+          : undefined;
+    if (typeof target === "string" && target && target !== self) out.add(target);
+  }
+  return [...out];
+}
+
+/** The Workflows a Worker's bindings define with its own class (no other `script_name`). */
+export function ownWorkflows(
+  bindings: ManifestBinding[],
+  self: string,
+): { name: string; className: string }[] {
+  const out: { name: string; className: string }[] = [];
+  for (const b of bindings as (ManifestBinding & {
+    workflow_name?: unknown;
+    class_name?: unknown;
+    script_name?: unknown;
+  })[]) {
+    if (b.type !== "workflow" || typeof b.workflow_name !== "string") continue;
+    if (b.script_name !== undefined && b.script_name !== self) continue;
+    out.push({ name: b.workflow_name, className: String(b.class_name) });
+  }
+  return out;
+}
+
+/**
+ * `items` ordered so every Worker comes after the Workers of this deploy it binds (`deps`, by
+ * deployed name), keeping `items`' order otherwise. The release's `dependsOn` knows only the
+ * bindings in each Worker's committed configuration; the engine adds others (a gatekeeper on the
+ * runner, a fleet's client-db on the app), so the order is taken from what is uploaded. A cycle
+ * is refused: no order uploads it (it would need a two-pass upload, which nothing needs today).
+ */
+export function bindingOrder<T extends { deployedName: string; deps: string[] }>(items: T[]): T[] {
+  const byName = new Map(items.map((i) => [i.deployedName, i]));
+  const out: T[] = [];
+  const state = new Map<string, "visiting" | "done">();
+  const visit = (item: T, path: string[]) => {
+    const seen = state.get(item.deployedName);
+    if (seen === "done") return;
+    if (seen === "visiting") {
+      throw new Error(
+        `the Workers bind each other in a cycle (${[...path, item.deployedName].join(" → ")}): no upload order can deploy them`,
+      );
+    }
+    state.set(item.deployedName, "visiting");
+    for (const dep of item.deps) {
+      const target = byName.get(dep);
+      if (target) visit(target, [...path, item.deployedName]);
+    }
+    state.set(item.deployedName, "done");
+    out.push(item);
+  };
+  for (const item of items) visit(item, []);
+  return out;
+}
+
 /** The client for this deployment's scripts: its dispatch namespace, if it has one (ADR 0210). */
 export function scriptsApi(
   api: CloudflareClient,
@@ -594,9 +662,30 @@ export async function deployWorkers(input: DeployInput): Promise<DeployResult> {
   };
   const staged: Staged[] = [];
 
+  // Each Worker's bindings as uploaded, and the order they need: a Worker after every Worker of
+  // this deploy it binds, since Cloudflare refuses a binding to a Worker that does not exist yet.
+  const plans = bindingOrder(
+    workers.map((worker) => {
+      const deployedName = workerName(state, worker.name);
+      const bindings = workerBindings(
+        worker,
+        manifest,
+        state,
+        secrets[worker.name] ?? {},
+        input.fleet,
+      );
+      return { worker, deployedName, bindings, deps: boundWorkers(bindings, deployedName) };
+    }),
+  );
+  // A new Worker that an existing one's new version binds (a gatekeeper added to the runner) is
+  // uploaded while staging, before that version is: nothing routes to it until it is bound.
+  const neededEarly = new Set(
+    plans.filter((p) => scripts.has(p.deployedName)).flatMap((p) => p.deps),
+  );
+  const putEarly = new Set<string>();
+
   // 1. Stage: everything is uploaded and checked before any traffic moves.
-  for (const worker of workers) {
-    const deployedName = workerName(state, worker.name);
+  for (const { worker, deployedName, bindings } of plans) {
     const existing = scripts.get(deployedName);
     const migration =
       state.fleet && hostWorker(worker)
@@ -613,7 +702,7 @@ export async function deployWorkers(input: DeployInput): Promise<DeployResult> {
       main_module: worker.mainModule,
       compatibility_date: worker.compatibilityDate,
       compatibility_flags: worker.compatibilityFlags,
-      bindings: workerBindings(worker, manifest, state, secrets[worker.name] ?? {}, input.fleet),
+      bindings,
       // Secrets not set in this deploy keep their stored values.
       keep_bindings: ["secret_text", "secret_key"],
       ...(worker.observability ? { observability: worker.observability } : {}),
@@ -641,7 +730,13 @@ export async function deployWorkers(input: DeployInput): Promise<DeployResult> {
       staged.push({ worker, deployedName, versionId, metadata, modules });
     } else {
       if (migration) metadata.migrations = migration;
-      log(`  staged ${deployedName} (${existing ? "Durable Object migration" : "new Worker"})`);
+      if (!existing && neededEarly.has(deployedName)) {
+        await scriptApi.putScript(state.accountId, deployedName, metadata, modules);
+        putEarly.add(deployedName);
+        log(`  staged ${deployedName} (new Worker, uploaded now: an existing Worker binds it)`);
+      } else {
+        log(`  staged ${deployedName} (${existing ? "Durable Object migration" : "new Worker"})`);
+      }
       staged.push({ worker, deployedName, metadata, modules });
     }
   }
@@ -649,7 +744,10 @@ export async function deployWorkers(input: DeployInput): Promise<DeployResult> {
   // 2. Switch: back to back, dependencies first.
   const result: DeployResult["workers"] = [];
   for (const item of staged) {
-    if (item.versionId) {
+    if (putEarly.has(item.deployedName)) {
+      result.push({ name: item.worker.name, deployedAs: item.deployedName, via: "upload" });
+      log(`  switched ${item.deployedName} (uploaded while staging)`);
+    } else if (item.versionId) {
       await scriptApi.deployVersion(
         state.accountId,
         item.deployedName,
@@ -670,9 +768,19 @@ export async function deployWorkers(input: DeployInput): Promise<DeployResult> {
     manifest.resources.some((r) => r.type === "queue") || state.fleet
       ? await api.listQueues(state.accountId)
       : [];
-  for (const { worker, deployedName } of staged) {
+  for (const { worker, deployedName, metadata } of staged) {
     // A namespaced deployment's crons are run by the platform's dispatch Worker (ADR 0210).
     if (!namespaced) await api.putSchedules(state.accountId, deployedName, worker.crons);
+    // Each Workflow whose class this Worker exports: uploading the Worker does not create it
+    // (the Workflows API reference; wrangler's deploy makes this call too, `triggersDeploy`).
+    if (!namespaced) {
+      for (const flow of ownWorkflows(metadata.bindings as ManifestBinding[], deployedName)) {
+        await api.putWorkflow(state.accountId, flow.name, {
+          class_name: flow.className,
+          script_name: deployedName,
+        });
+      }
+    }
     // A fleet's own queues and every dead-letter queue (ADR 0615), named as deployed.
     const fleetQueues = fleetConsumers(worker, manifest, state).map((c) => ({
       ...c,
