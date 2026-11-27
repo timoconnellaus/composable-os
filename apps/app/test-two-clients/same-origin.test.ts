@@ -70,7 +70,7 @@ beforeAll(async () => {
       .bind(B, b.id),
     registry
       .prepare(
-        "INSERT INTO registry_settings (client, name, value) VALUES (?, 'API_ALLOWED_ORIGINS', ?)",
+        "INSERT INTO registry_settings (client, name, value) VALUES (?, 'API_ALLOWED_ORIGINS', ?) ON CONFLICT (client, name) DO UPDATE SET value = excluded.value",
       )
       .bind(a.id, `https://partner.gym-a.test, https://${B}`),
   ]);
