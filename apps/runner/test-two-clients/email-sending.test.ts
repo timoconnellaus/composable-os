@@ -21,9 +21,22 @@ import {
   signInMailCall,
   staffInviteEmail,
 } from "@composable-os/core";
-import { createCrmDb } from "@composable-os/db";
+import { CORE_SCHEMA_VERSION, createCrmDb, type Migration } from "@composable-os/db";
+import type { ClientDb } from "@composable-os/db/client-db";
 import { gatekeeperOffered } from "@composable-os/db/client-entries";
 import { environmentFor, REGISTRY_REFRESH_MS } from "@composable-os/db/client-environment";
+import type { ClientId } from "@composable-os/db/registry";
+import {
+  addSenderDomain,
+  listSenderDomains,
+  verifySenderDomain,
+} from "@composable-os/db/registry-senders";
+import {
+  addClientRows,
+  recordSchemaVersion,
+  removeClientRows,
+  setClientStatus,
+} from "@composable-os/db/registry-writes";
 import {
   SENDER_DOMAINS,
   setUpTwoClients,
@@ -406,5 +419,131 @@ describe("once the operator unverifies gym-a's only sender domain", () => {
         .bind(domain)
         .run();
     }
+  }, 40_000);
+});
+
+// A client the operator pauses, then removes (ADR 0618, "A fleet's gatekeepers"; issue #529): its
+// integration host refuses every send and apply as soon as the registry's change is read, even
+// from an environment taken while it was served; a send it queued before is not sent while it is
+// paused (once resumed it may be approved again) and never after it is removed. A
+// third client of this file's own, added and removed as `cos client add` and `cos client remove`
+// write the registry, so gym-a's and gym-b's rows stay as the other tests need them.
+describe("a client paused, then removed, by the operator", () => {
+  const c = { id: "gym-c-stopped", hostname: "gym-c-stopped.test", domain: "mail.gym-c.test" };
+  const bindings = env as unknown as {
+    OPERATOR_CLIENT_DB: DurableObjectNamespace<ClientDb>;
+    TEST_MIGRATIONS: Migration[];
+  };
+  /** Past the directory's stamp check: a running host has read the registry's change. */
+  const afterRefresh = () =>
+    new Promise((resolve) => setTimeout(resolve, REGISTRY_REFRESH_MS + 500));
+
+  let clientC: Client;
+  let connectionC: string;
+
+  beforeAll(async () => {
+    await addClientRows(host.REGISTRY, {
+      id: c.id,
+      environment: "live",
+      tier: "standard",
+      hostnames: [{ hostname: c.hostname, surface: "staff" }],
+    });
+    const operator = bindings.OPERATOR_CLIENT_DB;
+    await operator.get(operator.idFromName(c.id)).migrate(bindings.TEST_MIGRATIONS);
+    await recordSchemaVersion(host.REGISTRY, c.id as ClientId, CORE_SCHEMA_VERSION);
+    await addSenderDomain(host.REGISTRY, c.id, c.domain);
+    await verifySenderDomain(host.REGISTRY, c.id, c.domain);
+    await setClientStatus(host.REGISTRY, c.id as ClientId, "active");
+    // The runner's objects read the registry at their next stamp check, as a running host does.
+    await afterRefresh();
+    const cEnv = await clientEnv(c.id, freshHost());
+    clientC = client(cEnv, await adminIn(cEnv));
+    await clientC.op("integration.setVendor", { vendor: "email-send", enabled: true });
+    connectionC = await emailConnection(clientC);
+    await clientC.op("connection.bindResource", {
+      id: connectionC,
+      url: senderUrl(`hello@${c.domain}`),
+    });
+    await clientC.op("customer.settings.update", { emailConnectionId: connectionC });
+    await clientC.op("outbound.setAutoApprove", { tag: "email.signin", enabled: true });
+  });
+
+  const signInCode = async (from: Client, to: string) => {
+    const target = await customerCodeTarget(createCrmDb(from.env.DB).query);
+    if ("problem" in target) throw new Error(target.problem);
+    await sendCustomerCode(
+      signInMailCall(from.integrations, "system.customer-mail"),
+      target.target,
+      { to, code: "305118" },
+    );
+  };
+
+  it("sends from its own domain while served, and never as gym-a", async () => {
+    const to = someone("customer.test");
+    await signInCode(clientC, to);
+    expect((await outboxTo(to)).map((m) => m.from)).toEqual([`hello@${c.domain}`]);
+    const id = await emailConnection(clientC);
+    await expect(
+      clientC.op("connection.bindResource", { id, url: senderUrl("hello@mail.gym-a.test") }),
+    ).rejects.toThrow(/not one of this business's verified sender domains \(mail\.gym-c\.test\)/);
+  });
+
+  it("sends nothing while paused, a send queued before included, and sends again once resumed", async () => {
+    const queuedTo = someone("paused.test");
+    const target = await customerCodeTarget(createCrmDb(clientC.env.DB).query);
+    if ("problem" in target) throw new Error(target.problem);
+    await sendEmail(
+      hostMailCall(clientC.integrations, "Admin invited a staff member", STAFF_MAIL_ORIGIN),
+      target.target,
+      {
+        to: queuedTo,
+        ...staffInviteEmail("The CRM", "Admin", `${clientC.env.APP_ORIGIN}/sign-in`),
+      },
+    );
+    const pending = await clientC.env.DB.prepare(
+      "SELECT id FROM core_pending_action WHERE connection_id = ? AND status = 'pending' ORDER BY created_at DESC",
+    )
+      .bind(connectionC)
+      .first<{ id: string }>();
+    expect(pending?.id).toBeTruthy();
+    expect(await setClientStatus(host.REGISTRY, c.id as ClientId, "paused")).toBe(true);
+    try {
+      // No entry serves it: a fresh environment is refused.
+      expect(await environmentFor(freshHost(), c.id)).toMatchObject({
+        served: false,
+        refused: "paused",
+      });
+      await afterRefresh();
+      // From the environment taken while it was served (a warm object, a message in flight): its
+      // integration host refuses a new send and the queued one alike.
+      const to = someone("paused.test");
+      await expect(signInCode(clientC, to)).rejects.toThrow(/not served now \(paused\)/);
+      const decided = await clientC
+        .op("approval.approve", { actionIds: [pending?.id] })
+        .catch((error: unknown) => error);
+      const said = decided instanceof Error ? decided.message : JSON.stringify(decided);
+      expect(said).toMatch(/not served now \(paused\)/);
+      expect(await outboxTo(to)).toEqual([]);
+      expect(await outboxTo(queuedTo)).toEqual([]);
+    } finally {
+      await setClientStatus(host.REGISTRY, c.id as ClientId, "active");
+    }
+    await afterRefresh();
+    const to = someone("resumed.test");
+    await signInCode(clientC, to);
+    expect((await outboxTo(to)).map((m) => m.from)).toEqual([`hello@${c.domain}`]);
+  }, 60_000);
+
+  it("sends nothing once removed, and its sender domain goes with it", async () => {
+    await removeClientRows(host.REGISTRY, c.id as ClientId);
+    expect((await listSenderDomains(host.REGISTRY)).map((d) => d.domain)).not.toContain(c.domain);
+    expect(await environmentFor(freshHost(), c.id)).toMatchObject({
+      served: false,
+      refused: "unknown",
+    });
+    await afterRefresh();
+    const to = someone("removed.test");
+    await expect(signInCode(clientC, to)).rejects.toThrow(/not served now \(unknown\)/);
+    expect(await outboxTo(to)).toEqual([]);
   }, 40_000);
 });

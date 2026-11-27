@@ -1306,7 +1306,8 @@ A deployment of the host for many clients: its state says so (`fleet`: its envir
 hostname, domain, its zone and how its hostnames are attached, and public sealing key), and the deploy engine adds the bindings, keys, queues and
 Workers a host of many clients needs (ADR 0615's list), never to the committed configuration. Live
 and staging are two fleet deployments. Its keys live in the operator's keys file, never in the
-state.
+state. Its gatekeepers are a list fixed by the platform, not chosen by the operator: email sending
+alone, today.
 _Avoid_: tenant (stage 10's hosted CRM), cluster
 
 ### Derived secret

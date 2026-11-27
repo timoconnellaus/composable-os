@@ -808,6 +808,40 @@ async function deployedVersion(ctx) {
   return bindings.find((b) => b.name === "COS_RELEASE_VERSION")?.text ?? null;
 }
 
+/**
+ * What is wrong with the staging fleet's email sending as deployed (ADR 0618, "A fleet's
+ * gatekeepers"), one line each; none when the email-send gatekeeper Worker is there with
+ * `SENDER_DOMAINS_PER_CLIENT=true` and the runner binds it as `GATEKEEPER_EMAIL_SEND`. Reads only
+ * the run's own Workers, by their exact names.
+ */
+export async function emailGatekeeperProblems(api, accountId, prefix) {
+  const gatekeeper = workerName(prefix, "gatekeeper-email-send");
+  const runner = workerName(prefix, "runner");
+  if (!owned(gatekeeper, prefix) || !owned(runner, prefix)) throw new Error("not the run's names");
+  const problems = [];
+  const scripts = (await api.listScripts(accountId)).map((s) => s.id);
+  if (!scripts.includes(gatekeeper)) {
+    problems.push(`no ${gatekeeper} Worker is deployed`);
+  } else {
+    const own = await api.scriptBindings(accountId, gatekeeper);
+    const flag = own.find((b) => b.name === "SENDER_DOMAINS_PER_CLIENT");
+    if (flag?.text !== "true") {
+      problems.push(
+        `${gatekeeper} has SENDER_DOMAINS_PER_CLIENT=${JSON.stringify(flag?.text ?? null)}, not "true"`,
+      );
+    }
+  }
+  const bound = (await api.scriptBindings(accountId, runner)).find(
+    (b) => b.name === "GATEKEEPER_EMAIL_SEND",
+  );
+  if (bound?.type !== "service" || bound.service !== gatekeeper) {
+    problems.push(
+      `${runner} does not bind GATEKEEPER_EMAIL_SEND to ${gatekeeper} (${bound ? `${bound.type} ${bound.service ?? ""}`.trim() : "no binding"})`,
+    );
+  }
+  return problems;
+}
+
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
 /**
@@ -1167,14 +1201,27 @@ export function checkSteps() {
       },
     },
     {
+      id: "gatekeeper",
+      needs: ["install"],
+      name: "4a. The fleet's email-send gatekeeper: deployed, sending per client, bound",
+      async run(ctx) {
+        const problems = await emailGatekeeperProblems(ctx.api, ctx.accountId, ctx.prefix);
+        if (problems.length) fail(problems.join("; "));
+        return {
+          note: `${workerName(ctx.prefix, "gatekeeper-email-send")} is deployed with SENDER_DOMAINS_PER_CLIENT=true, and the runner binds it as GATEKEEPER_EMAIL_SEND`,
+        };
+      },
+    },
+    {
       id: "send",
       name: "4b. A send (refused unverified, or real)",
       async run(ctx) {
-        // `cos fleet install` installs no gatekeeper (a fleet's state lists none), so there is no
-        // email-send Worker to send from, verified domain or not.
+        // `cos fleet install` installs the email-send gatekeeper (step 4a), but a real send needs
+        // a domain onboarded to Email Sending in this account and a client's admin to connect it in
+        // the app (docs/deploying.md, "A host of many clients"): not automated here.
         return {
           status: "not checked",
-          note: `a fleet is installed with no gatekeepers, so no email-send Worker is deployed to send from; ${ctx.sendingDomain ? `the sending domain ${ctx.sendingDomain} was given and not used` : "no sending domain was given"}`,
+          note: `the gatekeeper is checked in step 4a; a real send needs a domain onboarded to Email Sending and the client's in-app set-up, which this check does not do; ${ctx.sendingDomain ? `the sending domain ${ctx.sendingDomain} was given and not used` : "no sending domain was given"}`,
         };
       },
     },
@@ -1259,7 +1306,12 @@ export function checkSteps() {
           const answer = await page(ctx, id);
           if (!answer.ok) fail(`${id}'s sign-in page answers ${answer.status} after the upgrade`);
         }
+        const gatekeeper = await emailGatekeeperProblems(ctx.api, ctx.accountId, ctx.prefix);
+        if (gatekeeper.length) fail(`after the upgrade: ${gatekeeper.join("; ")}`);
         ctx.upgraded = true;
+        notes.push(
+          "the email-send gatekeeper still deployed, sending per client and bound after the upgrade",
+        );
         notes.push(
           `then ${VERSIONS.from} → ${VERSIONS.to} (${(three.ms / 1000).toFixed(0)} s): both clients at schema ${STAGING_MIGRATION.schema} and served, ${VERSIONS.to} answers`,
         );

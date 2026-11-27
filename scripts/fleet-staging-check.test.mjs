@@ -81,12 +81,29 @@ async function seed(cf, api, prefix = PREFIX) {
     `${prefix}-app-staging`,
     script(`${prefix}-app-staging`, [ownClass("ParkingLedger")]),
   );
-  cf.scripts.set(`${prefix}-runner-staging`, script(`${prefix}-runner-staging`));
+  cf.scripts.set(
+    `${prefix}-runner-staging`,
+    script(`${prefix}-runner-staging`, [
+      {
+        type: "service",
+        name: "GATEKEEPER_EMAIL_SEND",
+        service: `${prefix}-gatekeeper-email-send-staging`,
+      },
+    ]),
+  );
   cf.scripts.set(
     `${prefix}-client-db-staging`,
     script(`${prefix}-client-db-staging`, [ownClass("ClientDb")]),
   );
   cf.scripts.set(`${prefix}-operator-staging`, script(`${prefix}-operator-staging`));
+  // The fleet's email-send gatekeeper (ADR 0618, "A fleet's gatekeepers"), with its own class.
+  cf.scripts.set(
+    `${prefix}-gatekeeper-email-send-staging`,
+    script(`${prefix}-gatekeeper-email-send-staging`, [
+      ownClass("EmailSendGatekeeper"),
+      { type: "plain_text", name: "SENDER_DOMAINS_PER_CLIENT", text: "true" },
+    ]),
+  );
   cf.scripts.set("crm-app", script("crm-app", [ownClass("ParkingLedger")]));
   await api.createD1(ACCOUNT, `${prefix}-registry-staging`);
   await api.createD1(ACCOUNT, `${prefix}-staging`);
@@ -197,12 +214,14 @@ test("the inventory lists every kind the run made, its Durable Object namespaces
     "domain alpha-admin.cosstg-123.fleet.example",
     "durable_object cosstg-123-app-staging_ParkingLedger",
     "durable_object cosstg-123-client-db-staging_ClientDb",
+    "durable_object cosstg-123-gatekeeper-email-send-staging_EmailSendGatekeeper",
     "kv cosstg-123-oauth-staging",
     "queue cosstg-123-app-fanout-staging",
     "r2 cosstg-123-blobs-staging",
     "r2 cosstg-123-exports-staging",
     "worker cosstg-123-app-staging",
     "worker cosstg-123-client-db-staging",
+    "worker cosstg-123-gatekeeper-email-send-staging",
     "worker cosstg-123-operator-staging",
     "worker cosstg-123-runner-staging",
     "workflow cosstg-123-automation-staging",
@@ -219,7 +238,7 @@ test("teardown deletes all of it (buckets emptied first, namespaces with their W
   assert.deepEqual(result.unlisted, []);
   // The namespaces are not deleted on their own: they went with their Workers.
   assert.ok(!result.deleted.some((d) => d.kind === "durable_object"));
-  assert.equal(result.deleted.length, 12);
+  assert.equal(result.deleted.length, 13);
   // In order: the domain before its Worker, the Workers before what they bound.
   assert.equal(result.deleted[0].kind, "domain");
   assert.ok(
@@ -456,6 +475,8 @@ test("a run that fails half-way: the later steps are skipped, the summary says w
     requests: "skipped",
     front: "skipped",
     sender: "skipped",
+    // The install's gatekeeper is checked on the account, apart from the failed add.
+    gatekeeper: "pass",
     send: "not checked",
     upgrade: "skipped",
     export: "skipped",
@@ -585,8 +606,28 @@ const listing = (rows) =>
     .map(([id, [status, schema]]) => `  ${id}  ${status}  standard  schema ${schema}`)
     .join("\n")}`;
 
+/** The fleet's email-send gatekeeper and runner as deployed, each changeable by a test. */
+function gatekeeperBindings({ deployed = true, flag = "true", bound = true } = {}) {
+  const gatekeeper = `${PREFIX}-gatekeeper-email-send-staging`;
+  const scripts = {
+    [`${PREFIX}-runner-staging`]: bound
+      ? [{ type: "service", name: "GATEKEEPER_EMAIL_SEND", service: gatekeeper }]
+      : [],
+  };
+  if (deployed) {
+    scripts[gatekeeper] = [{ type: "plain_text", name: "SENDER_DOMAINS_PER_CLIENT", text: flag }];
+  }
+  return { scripts };
+}
+
 /** A context for one step: cos answering from `answer(args, env)`, the app Worker at `version`. */
-function stepCtx({ answer, version = () => VERSIONS.from, fetch, zone = true }) {
+function stepCtx({
+  answer,
+  version = () => VERSIONS.from,
+  fetch,
+  zone = true,
+  gatekeeper = gatekeeperBindings(),
+}) {
   const hosts = hostnamesOf(PREFIX, zone ? "fleet.example" : "");
   return {
     prefix: PREFIX,
@@ -596,9 +637,11 @@ function stepCtx({ answer, version = () => VERSIONS.from, fetch, zone = true }) 
     keysFile: "/nonexistent/keys.json",
     accountId: ACCOUNT,
     api: {
-      scriptBindings: async () => [
-        { type: "plain_text", name: "COS_RELEASE_VERSION", text: version() },
-      ],
+      listScripts: async () => Object.keys(gatekeeper.scripts).map((id) => ({ id })),
+      scriptBindings: async (_account, name) =>
+        gatekeeper.scripts[name] ?? [
+          { type: "plain_text", name: "COS_RELEASE_VERSION", text: version() },
+        ],
     },
     cos: async (args, options = {}) => answer(args, options.env ?? {}),
     fetch: fetch ?? (async () => new Response("{}", { status: 200 })),
@@ -771,6 +814,76 @@ test("the cos-front step: an unknown hostname's 404, a sibling's change refused,
     "client hostname verify",
     "client hostname remove",
   ]);
+});
+
+test("the gatekeeper step: the fleet's email-send Worker deployed, sending per client and bound to the runner (ADR 0618)", async () => {
+  const ctx = (over) => stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }), ...over });
+  const ok = await step("gatekeeper").run(ctx({}));
+  assert.equal(ok.status, undefined, ok.note);
+  assert.match(
+    ok.note,
+    /gatekeeper-email-send-staging is deployed with SENDER_DOMAINS_PER_CLIENT=true/,
+  );
+  await assert.rejects(
+    step("gatekeeper").run(ctx({ gatekeeper: gatekeeperBindings({ deployed: false }) })),
+    /no cosstg-123-gatekeeper-email-send-staging Worker is deployed/,
+  );
+  await assert.rejects(
+    step("gatekeeper").run(ctx({ gatekeeper: gatekeeperBindings({ flag: "" }) })),
+    /SENDER_DOMAINS_PER_CLIENT="", not "true"/,
+  );
+  await assert.rejects(
+    step("gatekeeper").run(ctx({ gatekeeper: gatekeeperBindings({ bound: false }) })),
+    /does not bind GATEKEEPER_EMAIL_SEND/,
+  );
+  // The upgrade fails too when the gatekeeper is not bound after it.
+  const good = upgradeCos();
+  await assert.rejects(
+    step("upgrade").run(
+      stepCtx({
+        answer: good.answer,
+        version: () => good.state.version,
+        fetch: healthFetch(good.state),
+        gatekeeper: gatekeeperBindings({ bound: false }),
+      }),
+    ),
+    /after the upgrade: .*does not bind GATEKEEPER_EMAIL_SEND/,
+  );
+});
+
+test("teardown removes the email-send gatekeeper's Worker with its namespace, and fails if the namespace outlives it", async () => {
+  const { cf, api } = world();
+  await seed(cf, api);
+  const result = await teardown(api, ACCOUNT, PREFIX);
+  assert.ok(
+    result.deleted.some(
+      (d) => d.kind === "worker" && d.name === `${PREFIX}-gatekeeper-email-send-staging`,
+    ),
+  );
+  assert.deepEqual(result.remaining, []);
+  // Its Worker refuses deletion: the Worker and its namespace are left, and the command fails.
+  const left = world();
+  await seed(left.cf, left.api);
+  left.cf.failOn = (method, path) =>
+    method === "DELETE" && path.endsWith(`/scripts/${PREFIX}-gatekeeper-email-send-staging`)
+      ? refuse(10000, "internal error", 500)
+      : undefined;
+  let written = "";
+  const code = await teardownCommand(PREFIX, {
+    api: left.api,
+    accountId: ACCOUNT,
+    dir: null,
+    secrets: [TOKEN, ACCOUNT],
+    log: () => {},
+    writeSummary: (t) => {
+      written += t;
+    },
+  });
+  assert.equal(code, 1);
+  assert.match(
+    written,
+    /durable_object `cosstg-123-gatekeeper-email-send-staging_EmailSendGatekeeper`/,
+  );
 });
 
 test("the requests step: B's password at A must be the wrong-password answer, not any refusal (review of #541, F5)", async () => {
