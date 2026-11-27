@@ -37,7 +37,7 @@ interface Envelope<T> {
   success: boolean;
   errors?: { code: number; message: string }[];
   result: T;
-  result_info?: { page?: number; total_pages?: number; cursor?: string };
+  result_info?: { page?: number; total_pages?: number; cursor?: string; is_truncated?: boolean };
 }
 
 export interface ModulePart {
@@ -351,6 +351,29 @@ export class CloudflareClient {
 
   async deleteR2(accountId: string, name: string) {
     await this.request("DELETE", `/accounts/${accountId}/r2/buckets/${name}`);
+  }
+
+  /** One page of a bucket's object keys, and the cursor of the next (null at the end). */
+  async listR2Objects(
+    accountId: string,
+    bucket: string,
+    cursor: string | null = null,
+  ): Promise<{ keys: string[]; cursor: string | null }> {
+    const { result, info } = await this.request<{ key: string }[]>(
+      "GET",
+      `/accounts/${accountId}/r2/buckets/${bucket}/objects?per_page=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+    );
+    return {
+      keys: result.map((o) => o.key),
+      cursor: info?.is_truncated && info.cursor ? info.cursor : null,
+    };
+  }
+
+  async deleteR2Object(accountId: string, bucket: string, key: string) {
+    await this.request(
+      "DELETE",
+      `/accounts/${accountId}/r2/buckets/${bucket}/objects/${key.split("/").map(encodeURIComponent).join("/")}`,
+    );
   }
 
   listKv(accountId: string) {
@@ -669,7 +692,51 @@ export class CloudflareClient {
     });
   }
 
+  /** The account's Workers Custom Domains: each hostname and the Worker it serves. */
+  listDomains(accountId: string) {
+    return this.all<{ id: string; hostname: string; service: string; zone_id: string }>(
+      `/accounts/${accountId}/workers/domains`,
+    );
+  }
+
+  /** Detaches a Custom Domain (Cloudflare removes the DNS record and certificate it made). */
+  async deleteDomain(accountId: string, id: string) {
+    await this.request("DELETE", `/accounts/${accountId}/workers/domains/${id}`);
+  }
+
+  /** The account's Durable Object namespaces, each with the Worker that defines its class. */
+  listDurableObjectNamespaces(accountId: string) {
+    return this.all<{ id: string; name: string; script?: string; class?: string }>(
+      `/accounts/${accountId}/workers/durable_objects/namespaces`,
+    );
+  }
+
+  /** A Worker's deployed bindings (a plain var with its text; a secret by name only). */
+  async scriptBindings(accountId: string, name: string) {
+    return (
+      await this.request<{ bindings: { type: string; name: string; text?: string }[] }>(
+        "GET",
+        `${this.scripts(accountId)}/${name}/settings`,
+      )
+    ).result.bindings;
+  }
+
+  // ---- Workflows ------------------------------------------------------------------------------
+
+  listWorkflows(accountId: string) {
+    return this.all<{ id: string; name: string }>(`/accounts/${accountId}/workflows`);
+  }
+
+  async deleteWorkflow(accountId: string, name: string) {
+    await this.request("DELETE", `/accounts/${accountId}/workflows/${encodeURIComponent(name)}`);
+  }
+
   // ---- AI Gateway (ADR 0180) -----------------------------------------------------------------
+
+  /** The account's gateways (their ids). Needs AI Gateway Read or Edit. */
+  listAiGateways(accountId: string) {
+    return this.all<{ id: string }>(`/accounts/${accountId}/ai-gateway/gateways`);
+  }
 
   /** A gateway by id, or null when there is none. Needs AI Gateway Read or Edit. */
   async getAiGateway(accountId: string, id: string): Promise<AiGateway | null> {

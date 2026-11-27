@@ -3,6 +3,7 @@
 //
 //   cos fleet keys --env <live|staging> --out <file>
 //   cos fleet install --env <e> --keys-file <file> --callback-hostname <h> --domain <d> [--version]
+//                     [--location <hint>] [--ai on|off]
 //   cos fleet upgrade --env <e> --keys-file <file> [--version] [--skip-staging] [--dry-run] [--yes]
 //   cos client add <id> [--env] [--tier] [--repository] [--location] [--staff-hostname]
 //                  [--web-hostname] [--setting NAME=VALUE]… [--dry-run]
@@ -34,11 +35,14 @@ import {
   writeDeploymentState,
 } from "@composable-os/release";
 import {
+  aiChoice,
   CliError,
   type Deps,
   type Flags,
   latestVersion,
+  locationChoice,
   parseArgs,
+  productOf,
   type Session,
   session,
   str,
@@ -60,6 +64,7 @@ import {
   setSecret,
 } from "./clients.ts";
 import { d1OverRest } from "./d1-rest.ts";
+import { FORCE_FAILURE_VAR, forcedFailure, withForcedMigration } from "./forced-failure.ts";
 import {
   type KeysFile,
   keysFingerprint,
@@ -87,6 +92,7 @@ export const CLIENT_COMMANDS = [
 export const FLEET_USAGE = `cos fleet: a host of many clients (stage 66, docs/deploying.md "A host of many clients")
   cos fleet keys --env <live|staging> --out <file>     the deployment's keys, into <file> (0600, outside any repository)
   cos fleet install --env <e> --keys-file <file> --callback-hostname <h> --domain <d> [--version x.y.z]
+                    [--location <hint>] [--ai on|off]   (both at the first install only)
   cos fleet upgrade --env <e> --keys-file <file> [--version x.y.z] [--dry-run] [--yes] [--skip-staging]
 cos client: the clients of a host of many clients (each takes --env <live|staging>, default live)
   cos client add <id> [--tier standard|bespoke] [--repository o/r] [--location oc] [--staff-hostname h]
@@ -223,6 +229,15 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
   if (!app) throw new CliError("The release has no app Worker.");
   const names = fleetDeploymentNames(manifest, environment);
   const subdomain = await s.api.workersSubdomain(s.accountId);
+  // Chosen at the first install only, as for a single-client one: a store's place is where it was
+  // made, and AI's resources are made or not then (a later `--ai` or `--location` is refused).
+  const ai = aiChoice(flags, deps.env);
+  const location = locationChoice(flags);
+  if (existing?.state && (str(flags, "ai") !== undefined || location !== undefined)) {
+    throw new CliError(
+      "--ai and --location are chosen at the first install of a fleet: this one exists, and nothing was changed",
+    );
+  }
   const state: DeploymentState = existing?.state ?? {
     version,
     accountId: s.accountId,
@@ -237,6 +252,8 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
     resources: {},
     bundleDigest: digest,
     installedAt: new Date().toISOString(),
+    ...(ai === false ? { ai: false } : {}),
+    ...(location && location !== "none" ? { locationHint: location } : {}),
   };
   // The keys file must be the one this deployment was installed with (S2): never re-keyed here.
   if (state.fleet) {
@@ -297,6 +314,8 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
 
 async function fleetUpgrade(flags: Flags, deps: Deps): Promise<number> {
   const environment = environmentOf(flags);
+  // The staging check's forced failure, refused before anything is read anywhere else.
+  const forced = forcedFailure(deps.env, { environment, product: productOf(flags, deps) });
   const keys = await readKeys(flags, deps, environment);
   const s = await session(flags, deps);
   const { databaseId, state } = await locateFleet(s, environment);
@@ -323,7 +342,14 @@ async function fleetUpgrade(flags: Flags, deps: Deps): Promise<number> {
   const target = await verified(s, to, deps);
   let previous: ReleaseBundle | null = null;
   const fleet = fleetInput(keys, environment);
-  return withContext(`fleet upgrade ${environment}`, flags, deps, s, state, async (ctx) => {
+  return withContext(`fleet upgrade ${environment}`, flags, deps, s, state, async (context) => {
+    let ctx = context;
+    if (forced?.kind === "migration") {
+      deps.io.err(
+        `  ${FORCE_FAILURE_VAR}: ${forced.client}'s migration is made to fail (the staging check)`,
+      );
+      ctx = { ...context, operator: withForcedMigration(context.operator, forced.client) };
+    }
     const outcome = await fleetUpdate(ctx, {
       from: state.version,
       to,
@@ -350,12 +376,17 @@ async function fleetUpgrade(flags: Flags, deps: Deps): Promise<number> {
           log: (l) => deps.io.out(l),
         });
       },
-      smoke: (hostname) =>
-        healthSmoke(hostname, to, {
+      smoke: async (hostname) => {
+        await healthSmoke(hostname, to, {
           ...(deps.fetch ? { fetch: deps.fetch } : {}),
           ...(deps.env.COS_HEALTH_ORIGIN ? { origin: deps.env.COS_HEALTH_ORIGIN } : {}),
           ...(deps.smokeDelayMs !== undefined ? { delayMs: deps.smokeDelayMs } : {}),
-        }),
+        });
+        // After the real check, so the run shows the new Workers answered before the rollback.
+        if (forced?.kind === "smoke") {
+          throw new Error(`${FORCE_FAILURE_VAR}=smoke: made to fail (the staging check)`);
+        }
+      },
       recordVersion: async (version) => {
         await writeDeploymentState(s.api, databaseId, {
           ...state,
