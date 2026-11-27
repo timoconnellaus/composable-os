@@ -351,7 +351,8 @@ export class FakeCloudflare {
       if (!this.fallbackOrigins.delete(fallback[1] as string)) {
         return fail(404, 1551, "no fallback origin");
       }
-      return ok({ id: fallback[1] });
+      // The documented example: the envelope, its result the fallback origin being removed.
+      return ok({ origin: "", status: "pending_deletion", errors: [] });
     }
     const chOne = /^\/zones\/([^/]+)\/custom_hostnames\/([^/]+)$/.exec(path);
     if (chOne && method === "DELETE") {
@@ -360,7 +361,8 @@ export class FakeCloudflare {
       );
       if (at === -1) return fail(404, 1436, "custom hostname not found");
       this.customHostnames.splice(at, 1);
-      return ok({ id: chOne[2] });
+      // The documented 200 body: `{id}` alone, no envelope (the API reference).
+      return json(200, { id: chOne[2] });
     }
     const ch = /^\/zones\/([^/]+)\/custom_hostnames$/.exec(path);
     if (ch) {
@@ -397,11 +399,18 @@ export class FakeCloudflare {
         this.customHostnames.push(entry);
         return ok(entry);
       }
-      // `hostname` matches as a part of the name, and the list comes a page at a time (20 by
-      // default), as the documented API's does: a caller wanting one hostname reads every page.
-      const wanted = url.searchParams.get("hostname");
+      // The documented filters only: `hostname.exact`, `hostname.contain` (a part of the name),
+      // `hostname.startsWith`; a plain `hostname`, undocumented, filters nothing. The list comes
+      // a page at a time (20 by default): a caller wanting one hostname reads every page.
+      const exact = url.searchParams.get("hostname.exact");
+      const contain = url.searchParams.get("hostname.contain");
+      const starts = url.searchParams.get("hostname.startsWith");
       const found = this.customHostnames.filter(
-        (h) => (h.zone_id ?? zone) === zone && (!wanted || h.hostname.includes(wanted)),
+        (h) =>
+          (h.zone_id ?? zone) === zone &&
+          (exact === null || h.hostname === exact) &&
+          (contain === null || h.hostname.includes(contain)) &&
+          (starts === null || h.hostname.startsWith(starts)),
       );
       const perPage = Math.max(1, Number(url.searchParams.get("per_page") ?? 20));
       const page = Math.max(1, Number(url.searchParams.get("page") ?? 1));
@@ -495,8 +504,24 @@ export class FakeCloudflare {
         this.dnsRecords.push(entry);
         return ok(entry);
       }
-      const name = url.searchParams.get("name");
-      return ok(this.dnsRecords.filter((r) => r.zone_id === zone && (!name || r.name === name)));
+      // The documented `name.exact` filter (case-insensitive); a plain `name`, undocumented,
+      // filters nothing. A page at a time (100 by default here; the reference gives no default).
+      const exact = url.searchParams.get("name.exact")?.toLowerCase();
+      const found = this.dnsRecords.filter(
+        (r) => r.zone_id === zone && (exact === undefined || r.name.toLowerCase() === exact),
+      );
+      const perPage = Math.max(1, Number(url.searchParams.get("per_page") ?? 100));
+      const page = Math.max(1, Number(url.searchParams.get("page") ?? 1));
+      return ok(
+        found.slice((page - 1) * perPage, page * perPage).map((r) => ({ ...r })),
+        {
+          page,
+          per_page: perPage,
+          count: Math.min(perPage, Math.max(0, found.length - (page - 1) * perPage)),
+          total_count: found.length,
+          total_pages: Math.max(1, Math.ceil(found.length / perPage)),
+        },
+      );
     }
     const dnsOne = /^\/zones\/([^/]+)\/dns_records\/([^/]+)$/.exec(path);
     if (dnsOne && method === "DELETE") {
@@ -510,7 +535,8 @@ export class FakeCloudflare {
         );
       }
       this.dnsRecords.splice(at, 1);
-      return ok({ id: dnsOne[2] });
+      // The documented 200 example: `{result: {id}}`, no `success`.
+      return json(200, { result: { id: dnsOne[2] } });
     }
     if (path === `${a}/workers/subdomain`) {
       if (method === "PUT") {
@@ -909,7 +935,7 @@ export class FakeCloudflare {
       );
     }
     if (path === `${a}/workers/domains` && method === "PUT") {
-      const existing = this.domains.find((d) => d.hostname === b.hostname);
+      let existing = this.domains.find((d) => d.hostname === b.hostname);
       if (existing) Object.assign(existing, b);
       else {
         // "You cannot create a Custom Domain on a hostname with an existing CNAME DNS record."
@@ -920,10 +946,11 @@ export class FakeCloudflare {
         ) {
           return fail(409, 100117, "Hostname already has an existing CNAME DNS record");
         }
-        this.domains.push({
+        existing = {
           ...(b as { hostname: string; service: string; zone_id: string }),
           id: this.id("dom"),
-        });
+        };
+        this.domains.push(existing);
         // Cloudflare makes the Custom Domain's DNS record itself, read-only, gone with it.
         this.dnsRecords.push({
           id: this.id("dns"),
@@ -935,7 +962,8 @@ export class FakeCloudflare {
           readOnly: true,
         });
       }
-      return ok(b);
+      // The documented result: the domain with its id, as the listing gives it.
+      return ok({ ...existing });
     }
     if (path === `${a}/workers/domains` && method === "GET") {
       return ok(
@@ -953,7 +981,8 @@ export class FakeCloudflare {
         (r) => r.readOnly && r.name === gone?.hostname && r.zone_id === gone?.zone_id,
       );
       if (record !== -1) this.dnsRecords.splice(record, 1);
-      return ok(null);
+      // As the real API answers (staging check 46022687687): 204, no body, no envelope.
+      return new Response(null, { status: 204 });
     }
     // The Durable Object namespaces: one per class a Worker of the account defines (a binding
     // with no script_name), gone with its Worker.
