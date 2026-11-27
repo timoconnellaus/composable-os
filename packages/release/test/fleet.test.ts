@@ -240,6 +240,10 @@ describe("a fleet deployment", () => {
     expect(named(app, "CLIENT_DB_QUERIES")).toMatchObject({ service: "demo-client-db-staging" });
     expect(named(app, "CLIENT_FANOUT")).toMatchObject({ queue_name: "demo-app-fanout-staging" });
     expect(named(app, "RUNNER")).toMatchObject({ service: "demo-runner-staging" });
+    // The runner's Workflows exist, by their staging names: uploading the runner makes none.
+    expect(cf.workflows.get("demo-automation-staging")).toMatchObject({
+      script: "demo-runner-staging",
+    });
   });
 });
 
