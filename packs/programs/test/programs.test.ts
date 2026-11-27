@@ -132,8 +132,12 @@ function layout(): Layout {
   };
 }
 
+/** Bookings' class type (stage 78, ADR 0980), which Programs requires. */
+const BOOKINGS = { knownObjects: ["bookings.classtype"] };
+
 function hostWith() {
   const host = createTestHost(programs, {
+    validate: BOOKINGS,
     records: {
       "programs.exercise": [
         { id: pike, name: "Pike compression", measure: "reps" },
@@ -143,7 +147,7 @@ function hostWith() {
       "programs.program": [
         { id: "rec_prog", title: "Handstand basics", kind: "class", layout: layout() },
       ],
-      "programs.classtype": [{ id: "rec_hand", name: "Handstands" }],
+      "bookings.classtype": [{ id: "rec_hand", name: "Handstands" }],
       person: [{ id: "per_ada", displayName: "Ada" }],
     },
     operations: {
@@ -154,8 +158,13 @@ function hostWith() {
 }
 
 describe("the pack", () => {
-  it("passes the contract", () => {
-    expect(createTestHost(programs).issues).toEqual([]);
+  it("passes the contract and requires Bookings, whose class types a class program is assigned to", () => {
+    const host = createTestHost(programs, { validate: BOOKINGS });
+    expect(host.issues).toEqual([]);
+    // A domain pack requires a general one (stage 78, ADR 0980); the class type is Bookings'.
+    expect(host.manifest.requires).toEqual(["bookings"]);
+    expect(Object.keys(host.manifest.objects)).not.toContain("classtype");
+    expect(host.manifest.objects.assignment?.fields.classType?.to).toBe("bookings.classtype");
   });
 
   it("has one layout schema for a class program with levels and a client program with sets", () => {

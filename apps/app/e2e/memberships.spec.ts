@@ -43,7 +43,7 @@ const block = (name: string, component: string, props: Record<string, unknown> =
 
 /** Both packs on, the orders' currency and the payments fake bound. */
 async function setUp(page: Page, baseURL: string): Promise<void> {
-  for (const id of ["programs", "memberships"]) {
+  for (const id of ["bookings", "memberships"]) {
     await op(page.request, "extension.install", { id, shipped: true }, false);
   }
   const origin = new URL(baseURL).origin;

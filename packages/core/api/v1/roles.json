@@ -340,9 +340,9 @@
     }
   ],
   "requires": {
-    "bookings": ["programs"],
     "courses": ["programs", "content"],
-    "memberships": ["programs", "bookings"]
+    "memberships": ["bookings"],
+    "programs": ["bookings"]
   },
   "owner": {
     "operations": [

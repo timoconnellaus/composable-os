@@ -1225,7 +1225,7 @@ function allProgramsHooks(
      */
     useClassTypes() {
       const input: ListInput = {
-        object: "programs.classtype",
+        object: "bookings.classtype",
         sort: { field: "order", direction: "asc" },
       };
       return useQuery(api.query(holds("record.list") ? "record.list" : "my.list", input));

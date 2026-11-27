@@ -28,11 +28,11 @@ type Account = (typeof team)[number]["account"];
 const nameOf = (account: Account) => team.find((p) => p.account === account)?.name ?? "";
 
 const kinds = {
-  hiit: { object: "programs.classtype", id: "ct_hiit", name: "HIIT", objectLabel: "Class type" },
-  spin: { object: "programs.classtype", id: "ct_spin", name: "Spin", objectLabel: "Class type" },
-  yoga: { object: "programs.classtype", id: "ct_yoga", name: "Yoga", objectLabel: "Class type" },
+  hiit: { object: "bookings.classtype", id: "ct_hiit", name: "HIIT", objectLabel: "Class type" },
+  spin: { object: "bookings.classtype", id: "ct_spin", name: "Spin", objectLabel: "Class type" },
+  yoga: { object: "bookings.classtype", id: "ct_yoga", name: "Yoga", objectLabel: "Class type" },
   strength: {
-    object: "programs.classtype",
+    object: "bookings.classtype",
     id: "ct_strength",
     name: "Strength",
     objectLabel: "Class type",

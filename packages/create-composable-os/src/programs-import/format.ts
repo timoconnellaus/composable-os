@@ -4,7 +4,8 @@
 //
 //   exercises.csv    key, name, measure, video, cues, theme, level, equipment, body_areas, easier,
 //                    harder (a list is split by ";"; easier and harder name other rows' keys)
-//   classtypes.csv   key, name, order
+//   classtypes.csv   key, name, order: Bookings' class types (`bookings.classtype`, stage 78,
+//                    ADR 0980), which Programs requires and a class program is assigned to
 //   programs/*.txt   one program each in the pack's shorthand (x.programs.importText's), its file
 //                    name (without .txt) its import key; a `Kind:` line says class, client or course
 //   training.csv     past training, one row per set: email, date, session, exercise, set, reps,
@@ -19,7 +20,8 @@ import type { Problem } from "../import-door/records.ts";
 import { realDate } from "../rostering-import/engine.ts";
 
 export const EXERCISE = "programs.exercise";
-export const CLASSTYPE = "programs.classtype";
+/** Bookings' class type since stage 78 (ADR 0980): still read from this folder's classtypes.csv. */
+export const CLASSTYPE = "bookings.classtype";
 export const PROGRAM = "programs.program";
 export const SESSION = "programs.session";
 export const LOG = "programs.log";

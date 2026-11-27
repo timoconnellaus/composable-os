@@ -35,7 +35,7 @@ const GYM: Record<string, Record<string, string>> = {
   memberships: packFiles("memberships"),
 };
 
-/** The extension host of a deployment whose product lists Programs, Bookings and Memberships. */
+/** The extension host of a deployment whose product lists Bookings, Memberships and Programs. */
 export const gymHost: ExtensionHost = {
   ...host,
   shipped: async () => [

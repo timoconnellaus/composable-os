@@ -162,7 +162,7 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships"]) {
+  for (const id of ["bookings", "memberships"]) {
     await run("extension.install", { id, shipped: true }, staff());
   }
   await refreshSchemaRegistry(db.query);
@@ -183,8 +183,8 @@ beforeAll(async () => {
     staff(),
   );
   // A class type with its own drop-in price, and one with none (the organisation's, below).
-  yoga = await create("programs.classtype", { name: unique("Yoga"), "bookings.dropInPrice": 25 });
-  free = await create("programs.classtype", { name: unique("Open gym") });
+  yoga = await create("bookings.classtype", { name: unique("Yoga"), dropInPrice: 25 });
+  free = await create("bookings.classtype", { name: unique("Open gym") });
 }, 120_000);
 
 afterAll(async () => {
@@ -665,10 +665,10 @@ describe("the place and the clock", () => {
   it("the booking's rules hold: not open yet, and a class booked by staff only", async () => {
     const later = await klass(yoga, 10 * DAY);
     expect(await buyAsGuest(later)).toMatchObject({ result: "refused", reason: "not_open" });
-    const squad = await create("programs.classtype", {
+    const squad = await create("bookings.classtype", {
       name: unique("Squad"),
-      "bookings.staffOnly": true,
-      "bookings.dropInPrice": 30,
+      staffOnly: true,
+      dropInPrice: 30,
     });
     const id = await klass(squad, 5 * HOUR);
     expect(await buyAsGuest(id)).toMatchObject({ result: "refused", reason: "staff_only" });

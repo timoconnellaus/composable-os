@@ -69,7 +69,6 @@ const bookings = packFiles("bookings");
 const index = bookings["index.ts"] as string;
 if (!index.includes("  dashboards: bookingsDashboards,\n")) throw new Error("Bookings moved");
 const PACKS: Record<string, Record<string, string>> = {
-  programs: packFiles("programs"),
   bookings: {
     ...bookings,
     "index.ts": index.replace(
@@ -205,7 +204,7 @@ beforeAll(async () => {
   await refreshSchemaRegistry(db.query);
   forgetSchemaNames();
   await run("settings.update", { timezone: ZONE }, staff()).catch(() => undefined);
-  type = await create("programs.classtype", { name: unique("Strength") });
+  type = await create("bookings.classtype", { name: unique("Strength") });
   duty = await create("rostering.duty", { name: unique("Cleaning"), place: "Main floor" });
   coach = await fixedRole("Coach Kim", "bookings.coach");
   // Today's class, with nobody coaching it (a shift with nobody on it), two who came, one booked.

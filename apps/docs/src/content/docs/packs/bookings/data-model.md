@@ -6,7 +6,53 @@ sidebar:
 editUrl: false
 ---
 
-Requires [programs](/packs/programs/): the host refuses to install it while one is missing.
+It requires no other pack.
+
+## Class type (`bookings.classtype`)
+
+A kind of class (Strength, Yoga, Kids): what a series and its classes are of, with its booking rules when they differ from the organisation's.
+
+|  |  |
+| --- | --- |
+| Plural | Class types |
+| Title field | `name` |
+| Listed in | settings |
+| Behaviours | [`signedIn`](/reference/behaviours/#signedin) |
+
+### Fields
+
+| Field | Type | Label | Required | Details | Description |
+| --- | --- | --- | --- | --- | --- |
+| `name` | `text` | Name | yes |   |   |
+| `order` | `number` | Order |   |   |   |
+| `colour` | `text` | Colour |   |   | How its classes show on the timetable, e.g. #2f6fed. |
+| `opensDays` | `number` | Booking opens (days before) |   | min 0; max 365; a person's to change | Members may book this many days before a class, at the same time of day. Empty: the organisation's setting. |
+| `closesMinutes` | `number` | Booking closes (minutes before) |   | min 0; max 10080; a person's to change | Members may book until this many minutes before a class starts (0: until it starts). Empty: the organisation's setting. |
+| `lateMinutes` | `number` | Late cancel from (minutes before) |   | min 0; max 10080; a person's to change | A cancel this close to the start or closer is late and keeps the class it used. Empty: the organisation's setting. |
+| `promotionMinutes` | `number` | Waitlist stops (minutes before) |   | min 0; max 10080; a person's to change | Nobody is moved in from the waitlist after this: a place freed later goes to whoever books first. Empty: the organisation's setting. |
+| `reminderMinutes` | `number` | Reminder (minutes before) |   | min 0; max 2880; a person's to change | When members booked into a class are emailed a reminder, at most two days before. Empty: the organisation's setting. |
+| `dropInPrice` | `number` | Drop-in price |   | min 0; max 100000; a person's to change | What one class costs someone paying for it on the website, in the organisation's currency. Empty: the organisation's setting; empty there too, no drop-ins. |
+| `staffOnly` | `boolean` | Booked by staff only |   | a person's to change | Members cannot book its classes themselves; staff book them in. |
+| `rosterBeforeMinutes` | `number` | Set-up minutes (pay) |   | min 0; max 240; a person's to change | Minutes before each class counted in its coach's pay hours (set-up). Empty: none. They never stop a coach taking the class before. |
+| `rosterAfterMinutes` | `number` | Pack-down minutes (pay) |   | min 0; max 240; a person's to change | Minutes after each class counted in its coach's pay hours (pack-down). Empty: none. They never stop a coach taking the class after. |
+
+### Behaviour declarations
+
+<details>
+<summary>The declarations as the manifest gives them</summary>
+
+```json
+{
+  "signedIn": {
+    "read": [
+      "name",
+      "order"
+    ]
+  }
+}
+```
+
+</details>
 
 ## Room (`bookings.room`)
 
@@ -109,7 +155,7 @@ One line of the timetable: a class type on chosen weekdays at a local time, from
 | Field | Type | Label | Required | Details | Description |
 | --- | --- | --- | --- | --- | --- |
 | `title` | `text` | Title |   |   |   |
-| `classType` | `relation` | Class type | yes | to `programs.classtype` |   |
+| `classType` | `relation` | Class type | yes | to `bookings.classtype` |   |
 | `weekdays` | `multiSelect` | Weekdays | yes | one of `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun` |   |
 | `time` | `text` | Starts at (local time) | yes |   | HH:MM in the series' time zone, e.g. 06:00. |
 | `length` | `number` | Length (minutes) | yes | min 5; max 1440 |   |
@@ -123,7 +169,7 @@ One line of the timetable: a class type on chosen weekdays at a local time, from
 
 ### Relations
 
-- `classType` → `programs.classtype`
+- `classType` → `bookings.classtype`
 - `room` → `bookings.room`
 - `coach` → `bookings.coach`
 
@@ -186,7 +232,7 @@ One line of the timetable: a class type on chosen weekdays at a local time, from
     },
     "horizonDays": 57,
     "horizonAtLeast": {
-      "object": "programs.classtype",
+      "object": "classtype",
       "field": "opensDays"
     }
   }
@@ -213,7 +259,7 @@ One dated class: made by a series, or a one-off. Members book its places; its re
 | --- | --- | --- | --- | --- | --- |
 | `title` | `text` | Title |   |   |   |
 | `series` | `relation` | Series |   | to `bookings.series`; read-only | The series that made it. Empty for a one-off class. |
-| `classType` | `relation` | Class type | yes | to `programs.classtype` |   |
+| `classType` | `relation` | Class type | yes | to `bookings.classtype` |   |
 | `startsAt` | `datetime` | Starts | yes |   |   |
 | `endsAt` | `datetime` | Ends | yes |   |   |
 | `timezone` | `timezone` | Time zone | yes |   |   |
@@ -229,7 +275,7 @@ One dated class: made by a series, or a one-off. Members book its places; its re
 ### Relations
 
 - `series` → `bookings.series`
-- `classType` → `programs.classtype`
+- `classType` → `bookings.classtype`
 - `room` → `bookings.room`
 - `coach` → `bookings.coach`
 
@@ -393,7 +439,7 @@ One person's place in one class.
 | `person` | `relation` | Person |   | to `person` |   |
 | `state` | `select` | State |   | one of `booked`, `pending`, `waiting`, `left`, `cancelled`, `late_cancelled`, `excused`, `attended`, `no_show`, `cancelled_by_us`, `moved`, `expired` |   |
 | `holder` | `text` | Paid from |   |   | The membership or pass the booking spent a use of (its id). Left empty, the host chooses the one whose use would lapse first. |
-| `classType` | `relation` | Class type |   | to `programs.classtype`; read-only | The class's type, copied by the host: what a membership's limits read. |
+| `classType` | `relation` | Class type |   | to `bookings.classtype`; read-only | The class's type, copied by the host: what a membership's limits read. |
 | `weekday` | `number` | Weekday |   | read-only | The class's local weekday (1 Monday to 7 Sunday), set by the host. |
 | `minute` | `number` | Local minute |   | read-only | The class's local start, in minutes after midnight, set by the host. |
 | `paidOtherwise` | `boolean` | Paid another way |   | read-only | Paid at the desk (a walk-in staff booked) or as a drop-in on the website: it spends no use. Set when it is made. |
@@ -414,7 +460,7 @@ One person's place in one class.
 
 - `class` → `bookings.class`
 - `person` → `person`
-- `classType` → `programs.classtype`
+- `classType` → `bookings.classtype`
 - `madeBy` → `person`
 - `movedFrom` → `bookings.booking`
 
@@ -1240,23 +1286,6 @@ One booked one-to-one session: a client, a coach, a service, a start and an end,
 ```
 
 </details>
-
-## Fields on other objects
-
-### On `programs.classtype`
-
-| Field | Type | Label | Required | Details | Description |
-| --- | --- | --- | --- | --- | --- |
-| `colour` | `text` | Colour |   |   | How its classes show on the timetable, e.g. #2f6fed. |
-| `opensDays` | `number` | Booking opens (days before) |   | min 0; max 365; a person's to change | Members may book this many days before a class, at the same time of day. Empty: the organisation's setting. |
-| `closesMinutes` | `number` | Booking closes (minutes before) |   | min 0; max 10080; a person's to change | Members may book until this many minutes before a class starts (0: until it starts). Empty: the organisation's setting. |
-| `lateMinutes` | `number` | Late cancel from (minutes before) |   | min 0; max 10080; a person's to change | A cancel this close to the start or closer is late and keeps the class it used. Empty: the organisation's setting. |
-| `promotionMinutes` | `number` | Waitlist stops (minutes before) |   | min 0; max 10080; a person's to change | Nobody is moved in from the waitlist after this: a place freed later goes to whoever books first. Empty: the organisation's setting. |
-| `reminderMinutes` | `number` | Reminder (minutes before) |   | min 0; max 2880; a person's to change | When members booked into a class are emailed a reminder, at most two days before. Empty: the organisation's setting. |
-| `dropInPrice` | `number` | Drop-in price |   | min 0; max 100000; a person's to change | What one class costs someone paying for it on the website, in the organisation's currency. Empty: the organisation's setting; empty there too, no drop-ins. |
-| `staffOnly` | `boolean` | Booked by staff only |   | a person's to change | Members cannot book its classes themselves; staff book them in. |
-| `rosterBeforeMinutes` | `number` | Set-up minutes (pay) |   | min 0; max 240; a person's to change | Minutes before each class counted in its coach's pay hours (set-up). Empty: none. They never stop a coach taking the class before. |
-| `rosterAfterMinutes` | `number` | Pack-down minutes (pay) |   | min 0; max 240; a person's to change | Minutes after each class counted in its coach's pay hours (pack-down). Empty: none. They never stop a coach taking the class after. |
 
 ## Views
 

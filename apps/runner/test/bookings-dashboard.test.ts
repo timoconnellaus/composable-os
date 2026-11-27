@@ -85,15 +85,15 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships"]) {
+  for (const id of ["bookings", "memberships"]) {
     await run("extension.install", { id, shipped: true });
   }
   await refreshSchemaRegistry(db.query);
   for (const name of ["Ann", "Ben", "Cara", "Dan", "Eve"]) {
     people[name] = (await run<{ id: string }>("person.create", { givenName: name })).id;
   }
-  const strength = await create("programs.classtype", { name: "Strength" });
-  const yoga = await create("programs.classtype", { name: "Yoga" });
+  const strength = await create("bookings.classtype", { name: "Strength" });
+  const yoga = await create("bookings.classtype", { name: "Yoga" });
   const kim = await create("bookings.coach", { name: "Kim" });
   const lee = await create("bookings.coach", { name: "Lee" });
   classes.P1 = await klass({ classType: strength, coach: kim, startsAt: at(-3, 6), places: 4 });

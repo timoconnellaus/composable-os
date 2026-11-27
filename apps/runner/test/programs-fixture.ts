@@ -13,18 +13,28 @@ import { packFiles } from "./pack-files.ts";
 
 export { run };
 
-const files = packFiles("programs");
+const files: Record<string, Record<string, string>> = {
+  bookings: packFiles("bookings"),
+  programs: packFiles("programs"),
+};
 
-/** The extension host of a deployment whose product lists Programs. */
+/**
+ * The extension host of a deployment whose product lists Programs, with Bookings, which it
+ * requires: a class program is assigned to Bookings' class type (stage 78, ADR 0980).
+ */
 export const shippedHost: ExtensionHost = {
   ...host,
-  shipped: async () => [...(await host.shipped()), { id: "programs", version: "0.1.0" }],
+  shipped: async () => [
+    ...(await host.shipped()).filter((s) => !(s.id in files)),
+    { id: "bookings", version: "0.1.0" },
+    { id: "programs", version: "0.1.0" },
+  ],
   commitShipped: (id) =>
-    id === "programs"
+    files[id]
       ? host.commit({
           id,
-          files,
-          message: "Shipped programs 0.1.0",
+          files: files[id],
+          message: `Shipped ${id} 0.1.0`,
           author: { name: "Composable OS", email: "release@composableos.dev" },
         })
       : host.commitShipped(id),
@@ -32,7 +42,7 @@ export const shippedHost: ExtensionHost = {
 
 export const EXERCISE = "programs.exercise";
 export const PROGRAM = "programs.program";
-export const CLASSTYPE = "programs.classtype";
+export const CLASSTYPE = "bookings.classtype";
 export const ASSIGNMENT = "programs.assignment";
 export const SESSION = "programs.session";
 export const LOG = "programs.log";
@@ -68,6 +78,8 @@ export async function refusal(call: Promise<unknown>) {
 }
 
 export async function installPrograms(admin: ActingUser): Promise<void> {
+  // Bookings first: Programs requires it (its class types).
+  await run("extension.install", { id: "bookings", shipped: true }, staff(admin));
   await run("extension.install", { id: "programs", shipped: true }, staff(admin));
   await refreshSchemaRegistry(db.query);
 }

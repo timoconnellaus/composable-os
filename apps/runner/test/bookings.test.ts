@@ -1,5 +1,5 @@
-// Stage 31a, build step 3: the Bookings pack (packs/bookings) in the real host, beside Programs,
-// installed as shipped, with real D1 and the sandbox. The holders that pay for a booking are the
+// Stage 31a, build step 3: the Bookings pack (packs/bookings) in the real host, on its own (its
+// class types are its own since stage 78, ADR 0980), installed as shipped, with real D1 and the sandbox. The holders that pay for a booking are the
 // Memberships pack's; here a fixture holder stands in for them (`bkfixture.pass`, a runtime
 // extension, never the real pack's id, so both can share a database), and this file installs a
 // test variant of the pack whose `paidBy` also names the fixture (the shipped declaration names
@@ -8,7 +8,8 @@
 // the host's allowance behaviour on its own; bookings-memberships.test.ts proves it with the real
 // holder. `cos ext test`'s harness does not simulate allowances (ADR 0493), hence this file.
 //
-// What it shows: Bookings is refused before Programs; a series makes its classes in local time,
+// What it shows: Bookings installs without Programs, and Programs is refused before Bookings (a
+// domain pack requires a general one, never the reverse); a series makes its classes in local time,
 // titled after their class type, and far enough ahead for a class type that opens booking 70 days
 // before; a member books on the web's tool with their pass, which spends a use counted at the
 // class's time with its class type and local time copied; before booking opens, after it closes,
@@ -79,7 +80,7 @@ const shippedHost: ExtensionHost = {
 const CLASS = "bookings.class";
 const BOOKING = "bookings.booking";
 const SERIES = "bookings.series";
-const CLASS_TYPE = "programs.classtype";
+const CLASS_TYPE = "bookings.classtype";
 const PASS = "bkfixture.pass";
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -154,12 +155,16 @@ beforeAll(async () => {
   admin = await createAdmin();
   // The default policy: an AI's destructive call waits for a person.
   await setPreset("balanced");
-  // Bookings requires Programs: installed first, it is refused and says so.
+  // Programs requires Bookings (stage 78, ADR 0980): installed first, it is refused and says so.
   await refreshSchemaRegistry(db.query);
-  const early = await refusal(run("extension.install", { id: "bookings", shipped: true }, staff()));
-  expect(JSON.stringify(early)).toContain("requires the programs extension");
-  await run("extension.install", { id: "programs", shipped: true }, staff());
+  const early = await refusal(run("extension.install", { id: "programs", shipped: true }, staff()));
+  expect(JSON.stringify(early)).toContain("requires the bookings extension");
+  // Bookings installs on its own, with its class types, and nothing of Programs'.
   await run("extension.install", { id: "bookings", shipped: true }, staff());
+  await refreshSchemaRegistry(db.query);
+  expect(getObject("bookings.classtype")?.fields.map((f) => f.name)).toContain("opensDays");
+  expect(getObject("programs.assignment")).toBeUndefined();
+  await run("extension.install", { id: "programs", shipped: true }, staff());
   // The fixture holder: what the Memberships pack's pass will be.
   await run(
     "extension.install",
@@ -177,7 +182,7 @@ beforeAll(async () => {
               per: { type: "select", label: "Per", options: [
                 { value: "total", label: "Total" }, { value: "week", label: "Week" },
               ] },
-              classTypes: { type: "relation", label: "Class types", to: "programs.classtype", many: true },
+              classTypes: { type: "relation", label: "Class types", to: "bookings.classtype", many: true },
             },
             allowance: {
               holds: {
@@ -203,16 +208,16 @@ beforeAll(async () => {
   classType = await create(CLASS_TYPE, { name: unique("Strength") });
   staffOnlyType = await create(CLASS_TYPE, {
     name: unique("Kids"),
-    "bookings.staffOnly": true,
+    staffOnly: true,
   });
   // Its own rules: late from 4 hours before, booking closes 2 hours before.
   lateType = await create(CLASS_TYPE, {
     name: unique("Yoga"),
-    "bookings.lateMinutes": 240,
-    "bookings.closesMinutes": 120,
+    lateMinutes: 240,
+    closesMinutes: 120,
   });
   // Booking opens 70 days ahead: the timetable must reach that far.
-  farType = await create(CLASS_TYPE, { name: unique("Camp"), "bookings.opensDays": 70 });
+  farType = await create(CLASS_TYPE, { name: unique("Camp"), opensDays: 70 });
 });
 
 describe("the timetable", () => {
@@ -774,7 +779,7 @@ describe("the desk: who is booked, and who may give a use back", () => {
       await refusal(
         run(
           "record.update",
-          { object: CLASS_TYPE, id: type, values: { "bookings.lateMinutes": 5 } },
+          { object: CLASS_TYPE, id: type, values: { lateMinutes: 5 } },
           staff({ actor: "assistant" }),
         ),
       ),
@@ -790,10 +795,10 @@ describe("the desk: who is booked, and who may give a use back", () => {
     ).toMatchObject({ code: "pending_approval" });
     await run(
       "record.update",
-      { object: CLASS_TYPE, id: type, values: { "bookings.lateMinutes": 90 } },
+      { object: CLASS_TYPE, id: type, values: { lateMinutes: 90 } },
       staff(),
     );
-    expect((await get(CLASS_TYPE, type)).values["bookings.lateMinutes"]).toBe(90);
+    expect((await get(CLASS_TYPE, type)).values.lateMinutes).toBe(90);
   });
 
   it("a trashed class type does not open its classes to members", async () => {

@@ -8,11 +8,11 @@
     ".": "./index.ts",
     "./client": "./client/index.ts"
   },
-  "description": "Memberships: membership plans sold as subscriptions (unlimited, or N classes a week or month), memberships that follow their subscription, pass types sold once (class packs that expire, drop-ins, a one-per-person intro offer) and the passes they grant, each an allowance a booking spends (stage 32b). Requires Programs (class types). Installed in every deployment of a product that lists it. Bundled as source into cos-runner.",
+  "description": "Memberships: membership plans sold as subscriptions (unlimited, or N classes a week or month), memberships that follow their subscription, pass types sold once (class packs that expire, drop-ins, a one-per-person intro offer) and the passes they grant, each an allowance a booking spends (stage 32b). Requires Bookings (its class types and services, and what a holder pays for). Installed in every deployment of a product that lists it. Bundled as source into cos-runner.",
   "composableOs": {
     "optional": true,
     "label": "Memberships",
-    "description": "Membership plans paid every month and class passes bought once, with what each allows and what is left. Requires Programs."
+    "description": "Membership plans paid every month and class passes bought once, with what each allows and what is left. Requires Bookings."
   },
   "scripts": {
     "typecheck": "tsc --noEmit && tsc --noEmit -p blocks/tsconfig.web.json && tsc --noEmit -p blocks/tsconfig.native.json",

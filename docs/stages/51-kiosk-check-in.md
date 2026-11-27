@@ -306,7 +306,7 @@ Stage 44 step 6 is about to be built. To keep one device:
 | `core_device_handle` | A short-lived handle from `doorNow`: its HMAC, the device, the Person and the choices offered, expiring after 60 seconds, used once |
 | `core_device_event` (`dve_…`) | The door log: the device, when, the outcome (`checked_in`, `see_desk`, `not_found`, `locked`, `already`), the reason category for `see_desk`, the Person and booking when identified. No code, no PIN, no name typed |
 | `bookings.booking` (existing) | Unchanged fields. A door check-in sets `markedBy` to the device id and `markedByName` to the device's name |
-| `programs.classtype` (Bookings' fields, existing) | New: **walk in at the door** (yes or no) |
+| `bookings.classtype` (Bookings' own since stage 78, ADR 0980; existing) | New: **walk in at the door** (yes or no) |
 
 ### Identifying a person
 

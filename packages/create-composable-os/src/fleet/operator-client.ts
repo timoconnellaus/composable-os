@@ -45,6 +45,12 @@ export interface HttpOperatorOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Told each time a call is tried again, with the call's name (never a token). */
   onStale?: (what: string, attempt: number) => void;
+  /**
+   * Whether this command still holds the operator's session (the registry's row, session.ts),
+   * read before each try again: "not the operator" may also mean another command took the session
+   * over (`--take-over`) and set its own token, and then trying again for a minute is wrong.
+   */
+  stillHolds?: () => Promise<boolean>;
 }
 
 /** An operator over HTTP at `origin` with `bearer`. */
@@ -73,6 +79,11 @@ export function httpOperator(
         return response;
       }
       if (Date.now() >= deadline) return response;
+      if (options.stillHolds && !(await options.stillHolds())) {
+        throw new OperatorError(
+          `${what}: another operator's command took the operator's Worker over; this one stops, nothing more sent`,
+        );
+      }
       options.onStale?.(what, attempt);
       await sleep(Math.min(2_000, 250 * attempt));
     }

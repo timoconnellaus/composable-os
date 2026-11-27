@@ -28,7 +28,6 @@ import { createAdmin, db, host, newCustomer, refusal, run, unique } from "./help
 import { filesByName, packFiles } from "./pack-files.ts";
 
 const files: Record<string, Record<string, string>> = {
-  programs: packFiles("programs"),
   memberships: packFiles("memberships"),
   bookings: filesByName(
     import.meta.glob<string>("../../../packs/memberships/test/fixtures/bookings/*.ts", {
@@ -44,7 +43,6 @@ const shippedHost: ExtensionHost = {
   ...host,
   shipped: async () => [
     ...(await host.shipped()).filter((s) => !OURS.has(s.id)),
-    { id: "programs", version: "0.1.0" },
     { id: "memberships", version: "0.1.0" },
     { id: "bookings", version: "0.0.1" },
   ],
@@ -167,7 +165,7 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships"]) {
+  for (const id of ["bookings", "memberships"]) {
     await run("extension.install", { id, shipped: true }, staff(admin));
   }
   await refreshSchemaRegistry(db.query);
@@ -198,7 +196,7 @@ beforeAll(async () => {
   });
   unlimited = await create(PLAN, { ...base, title: "Unlimited", price: 70 });
   one = await create(PLAN, { ...base, title: "One a week", price: 15, uses: 1 });
-  yoga = await create("programs.classtype", { name: "Yoga" });
+  yoga = await create("bookings.classtype", { name: "Yoga" });
 });
 
 afterAll(async () => {

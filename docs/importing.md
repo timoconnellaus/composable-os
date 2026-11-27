@@ -480,8 +480,9 @@ A CSV with a header row; columns in any order, extra ones ignored. Each row is a
 
 A gym's programming usually lives in documents and spreadsheets. This command brings the Programs
 pack's records in (stage 41, [ADR 0448](adr/0448-programs-the-layout-assignments-and-the-log.md),
-amended): the **exercise bank**, the **class types**, **programs** written in the pack's shorthand
-(the same text `x.programs.importText` reads, read by the same code), and **past training**, each
+amended): the **exercise bank**, the **class types** (Bookings' since stage 78,
+[ADR 0980](adr/0980-general-and-domain-packs.md); Programs requires Bookings, so they are always
+there to write), **programs** written in the pack's shorthand (the same text `x.programs.importText` reads, read by the same code), and **past training**, each
 set someone did before, with the session it was done in. The same door as the others: the folder is
 checked before anyone signs in, the sign-in lasts for the run, every record is written with
 `record.import` and its import key, and a person's edit since is a conflict, never overwritten.
@@ -513,7 +514,10 @@ programs/
 `equipment` and `body_areas` (lists split by `;`, the pack's options), and `easier` and `harder`
 (other rows' keys, split by `;`).
 
-**`classtypes.csv`**: `name` (required), `key` (the name when left out), `order`.
+**`classtypes.csv`**: `name` (required), `key` (the name when left out), `order`. They are written
+as Bookings' class types (`bookings.classtype`), the ones a timetable's series and a class
+program's assignment both name; the rest of a class type (its colour and booking rules) is set
+in Bookings afterwards.
 
 **`programs/*.txt`**: the shorthand coaches type, as `x.programs.importText` documents it
 (`packs/programs/authoring.ts`): `Title:`, `Kind:` (`class`, `client` or `course`; `class` when
