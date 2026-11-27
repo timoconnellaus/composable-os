@@ -15,8 +15,7 @@ Environment, Registry), ADRs
 `apps/app/src/server/http/bound.ts`, `packages/client/src/client.ts`,
 `packages/release/src/deploy.ts`.
 
-Status: **spec proposed (2026-11-27)**. Not built until its interview settles the questions at its
-end.
+Status: **spec agreed (owner interviewed 2026-11-27)**.
 
 ## Goal
 
@@ -46,6 +45,9 @@ app (stage 76) downloads.
 | 4 | Both a client's own web app and the admin's staff screens become published versions (interview, 2026-11-27) |
 | 5 | A person at the client who holds the publish permission may publish for a hosted client |
 | 6 | Changes come from the client's repository and from inside the product (an editor or the assistant), both from the start |
+| 7 | An organisation can have its own admin screens. A screen is code (HTML and script), not a saved description of blocks, and we build it |
+| 8 | A standard block a screen uses is ours and is not copied into the organisation's code: when the block is updated, the screens that use it get the update. A custom block is the organisation's own |
+| 9 | A change made inside the product is built by a build service of ours, in a sandbox |
 
 ## The design in one page
 
@@ -78,6 +80,14 @@ app (stage 76) downloads.
   permission. It runs on the client's live data: what is done in a preview is real.
 - **Old versions are kept** so a page open at the moment of publishing still loads its files, and
   so the pointer can move back. How many is in "Decided by this spec".
+- **Standard and custom blocks.** A screen imports blocks. A standard block comes from the
+  release and is named, never copied, so an organisation's screens always use the release's
+  current one. A custom block is code in the organisation's version. (A block copied into a
+  client's website with `cos add` stays the client's, as today, unless it is named this way.)
+- **The build service** takes a screen's source, written in the product by the assistant or an
+  editor, or pushed from a repository, and makes a version from it: it bundles in a sandbox
+  with no network and no secrets, against the release's standard blocks and typed client, and
+  stores the result as a draft. It never publishes.
 - **Serving on the web** is step 1's finding: `cos-front` loads the published version under
   Worker Loader (id from the client and the version) and serves its files from the store, or
   uploads it to the client's namespace Worker at publish.
@@ -123,8 +133,10 @@ Block CE: migrations 1490–1509, ADRs 0960–0969 (ADR 0960 written).
 7. **Docs, the skill and `cos`:** building and uploading a version from a client's repository.
 8. **The admin's screens as a version:** `apps/app`'s staff screens build as a browser-only app
    over `/api/v1`, stored and published like any other version. What stage 76 loads.
-9. **Changes from inside the product:** the assistant or an editor makes a draft version, by the
-   route question 2 settles.
+9. **The build service:** a spike first (bundling an organisation's screen in a sandbox, its
+   time and its limits; Cloudflare's runtime bundler is marked experimental), then the service.
+10. **An organisation's own admin screens:** written in the product or in its repository, built
+    by the service into a draft, previewed and published; standard blocks named, not copied.
 
 ## Decided by this spec, open to override
 
@@ -133,27 +145,21 @@ Block CE: migrations 1490–1509, ADRs 0960–0969 (ADR 0960 written).
 - **The last ten versions are kept,** and any version published in the last 90 days.
 - **Versions are built outside the host** (the client's repository and CI). The host stores and
   checks; it does not build.
+- **Every organisation's screens are rebuilt at each release** against the new standard blocks,
+  on staging first. A screen that no longer builds stops the update before live, as a client's
+  extension that fails the release's checks does (stage 66, decision 7).
+- **An organisation's own screens are not shown in the desktop app** until Electrobun's internal
+  bridge can be closed for a view (ADR 0960): they are its own code, not ours.
 - **The store does not depend on Cloudflare's loader,** so a second target can serve the same
   versions.
 
 ## Questions for the owner
 
-Asked after the interview of 2026-11-27, whose answers are decisions 4 to 6.
-
-1. **Can an organisation change its own admin screens, or is the admin one version for
-   everyone?** Recommended: one version of the admin, published by us, for every organisation at
-   first. An organisation's own changes to the admin come through extensions (lists, tabs,
-   dashboards), which need no screen code. A version of the admin per organisation means each
-   one can fall behind the host and has to be checked at every release.
-2. **How does a change made inside the product get built?** The host cannot build an app.
-   Recommended: the assistant writes the change to the organisation's repository and CI builds
-   it into a draft version, so there is one build path and every version is reviewed code. The
-   other answers are a build service of ours that bundles in a sandbox, or screens described as
-   data that need no build.
+None open. Decisions 4 to 9 answer them (the interview of 2026-11-27 and its chat).
 
 ## Status
 
-Spec proposed (2026-11-27). No build step is built yet. Each build step changes its own line
+Spec agreed (owner interviewed 2026-11-27). No build step is built yet. Each build step changes its own line
 here (CONTRIBUTING.md, Working in parallel).
 
 - **Step 1** — not built — needs: stage 66 — The serving spike: the first client's built web app under Worker Loader, measured
@@ -172,4 +178,6 @@ here (CONTRIBUTING.md, Working in parallel).
 
 - **Step 8** — not built — needs: step 4 — The admin's screens as a version
 
-- **Step 9** — not built — needs: step 6, an owner decision — Changes from inside the product
+- **Step 9** — not built — needs: step 3 — The build service
+
+- **Step 10** — not built — needs: step 6, step 8, step 9 — An organisation's own admin screens

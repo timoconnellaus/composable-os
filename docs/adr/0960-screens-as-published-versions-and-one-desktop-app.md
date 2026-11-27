@@ -95,3 +95,16 @@ What was known or found:
   per client as the default; Electrobun's `appdata://`; a local web server in the wrapper as the
   default (it works, and is kept as the fallback for a client that needs cookies or history
   routes).
+
+## Amended 2026-11-27: the interview's answers
+From the owner's answers to stages 75 and 76 the same day:
+- **The desktop app is for staff first,** on macOS first. So the admin's staff screens build as
+  a browser-only app and are a published version too, not only a client's web app.
+- **An organisation can have its own admin screens.** A screen is code, built by a build service
+  of ours in a sandbox, from a change made in the product or in a repository. A saved
+  description of blocks was offered and not chosen.
+- **A standard block is named, not copied,** so a screen that uses one gets the block's updates.
+  Screens are rebuilt at each release, and one that no longer builds stops the update.
+- **A person at the client with the publish permission may publish.**
+- An organisation's own screens stay out of the desktop app until the internal bridge can be
+  closed for a view, as decided above for any code that is not ours.
