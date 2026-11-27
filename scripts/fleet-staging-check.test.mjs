@@ -1992,3 +1992,113 @@ test("a removed client's address has stopped answering when it answers 404 or no
   await assert.rejects(run([200], 0), /alpha's address still answers 200/);
   await assert.rejects(run([unresolved, 200], 0), /alpha's address still answers 200/);
 });
+
+test("the duplicate scan's writes on a live client are allowed, each as narrowly as it writes (staging run 46047280283)", async () => {
+  const pair = (a, b, status, at = "2026-11-27T16:30") =>
+    `INSERT INTO "core_duplicate_pair" ("object", "a_id", "b_id", "rules", "status", "updated_at") VALUES ('person', '${a}', '${b}', '[]', '${status}', '${at}')`;
+  const keyed = (id, name, key) =>
+    `INSERT INTO "core_person" ("id", "name", "name_key") VALUES ('${id}', '${name}', ${key === null ? "NULL" : `'${key}'`})`;
+  const base = [
+    ...ALPHA.filter((s) => s !== person("p1", "Ada")),
+    keyed("p1", "Ada", null),
+    setting("duplicate_scan", '{"needsFull":true}'),
+    pair("p1", "p2", "dismissed"),
+    pair("p1", "p3", "open"),
+  ];
+  const one = facts(base);
+  const swapped = (from, to) => base.map((s) => (s === from ? to : s));
+  // The run's own difference: the scan's state saved, one audit row per call.
+  const scanned = compareExports(
+    one,
+    facts([
+      ...swapped(
+        setting("duplicate_scan", '{"needsFull":true}'),
+        setting("duplicate_scan", '{"needsFull":false}'),
+      ),
+      audit("7", "duplicate.scan"),
+      audit("8", "duplicate.scan"),
+    ]),
+  );
+  assert.deepEqual([...scanned], []);
+  assert.deepEqual(scanned.allowed, [
+    "core_settings: 1 changed (key duplicate_scan)",
+    "core_audit: +2 (operation duplicate.scan ×2)",
+  ]);
+  // Open pairs found, refreshed or dropped; a name key filled from NULL.
+  const pairs = compareExports(
+    one,
+    facts([
+      ...swapped(pair("p1", "p3", "open"), pair("p1", "p3", "open", "2026-11-27T16:50")).map((s) =>
+        s === keyed("p1", "Ada", null) ? keyed("p1", "Ada", "ada") : s,
+      ),
+      pair("p4", "p5", "open"),
+    ]),
+  );
+  assert.deepEqual([...pairs], []);
+  assert.deepEqual(pairs.allowed.sort(), [
+    "core_duplicate_pair: +1 (object/a_id/b_id person/p4/p5), 1 changed (object/a_id/b_id person/p1/p3)",
+    "core_person: 1 filled by the duplicate scan's backfill: p1 (columns name_key)",
+  ]);
+  assert.deepEqual(
+    [...compareExports(one, facts(base.filter((s) => s !== pair("p1", "p3", "open"))))],
+    [],
+  );
+  // What the scan never does: a dismissed pair changed or gone, a pair added as dismissed, a name
+  // key replaced, another column of a person, an audit row of another operation.
+  for (const [statements, why] of [
+    [
+      swapped(pair("p1", "p2", "dismissed"), pair("p1", "p2", "open")),
+      /core_duplicate_pair: 1 of the export's 2 rows not in the import \(object\/a_id\/b_id person\/p1\/p2\)|core_duplicate_pair: 1 rows changed/,
+    ],
+    [
+      base.filter((s) => s !== pair("p1", "p2", "dismissed")),
+      /core_duplicate_pair: 1 of the export's 2 rows not in the import/,
+    ],
+    [
+      [...base, pair("p6", "p7", "dismissed")],
+      /core_duplicate_pair: 1 rows in the import that were not in the export/,
+    ],
+    [
+      swapped(keyed("p1", "Ada", null), keyed("p1", "Eve", "eve")),
+      /core_person: 1 rows changed by id: p1 \(columns name, name_key\)/,
+    ],
+    [
+      [...base, audit("9", "duplicate.merge")],
+      /core_audit: 1 rows in the import that were not in the export \(operation duplicate\.merge\)/,
+    ],
+  ]) {
+    const problems = [...compareExports(one, facts(statements))];
+    assert.ok(
+      problems.some((p) => why.test(p)),
+      `${why}: ${problems.join(" | ")}`,
+    );
+  }
+  const filledBefore = facts(
+    base.map((s) => (s === keyed("p1", "Ada", null) ? keyed("p1", "Ada", "ada") : s)),
+  );
+  assert.deepEqual(
+    [
+      ...compareExports(
+        filledBefore,
+        facts(base.map((s) => (s === keyed("p1", "Ada", null) ? keyed("p1", "Ada", "other") : s))),
+      ),
+    ],
+    ["core_person: 1 rows changed by id: p1 (columns name_key)"],
+  );
+
+  // A failure says what was allowed too, so one run shows the whole difference.
+  const ctx = (a, b) => ({
+    ...stepCtx({ answer: () => ({ code: 0, out: "", ms: 1 }), zone: false }),
+    exportDir: a,
+    reexportDir: b,
+  });
+  await assert.rejects(
+    step("export").run(
+      ctx(
+        exportWithRows(base),
+        exportWithRows([...base, audit("7", "duplicate.scan"), person("p9", "M")]),
+      ),
+    ),
+    /core_person: 1 rows in the import that were not in the export \(id p9\); allowed, the host's own since: core_audit: \+1 \(operation duplicate\.scan\)/,
+  );
+});

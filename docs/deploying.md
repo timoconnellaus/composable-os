@@ -1746,14 +1746,19 @@ no zone says first which steps are not proved.
    by itself, each allowed in its narrowest way (`HOST_WRITTEN` in the script, with the code that
    writes each): the runner's every-minute scan markers in `core_automation_counters` (`~…`, added
    or, by retention, deleted); the `core_settings` keys its crons write (`embedding_backfill`,
-   `customer_signup_subscribers_state`: added or changed); `core_audit` rows of customer sign-up's
-   watch (`customer.signupOpened`); `core_meta`'s `shipped_install` stamp; and a shipped pack of
+   `customer_signup_subscribers_state`, `duplicate_scan`: added or changed); `core_audit` rows of
+   customer sign-up's watch (`customer.signupOpened`) and of the duplicate scan (`duplicate.scan`,
+   the runner's minute tick, on any tick while its work is pending and nightly from 02:00: a
+   client's first scan is a full one); the scan's open pairs in `core_duplicate_pair` (added,
+   refreshed or dropped; a dismissed or merged pair never) and its backfill's `name_key` on people
+   and organisations (filled from NULL only); `core_meta`'s `shipped_install` stamp; and a shipped pack of
    the client's `COS_PACKS` installed again on this host (`REINSTALL`: on an imported client's
    first operation its workspace is new, so the unchanged pack gets a new commit), with exactly
    what that install writes: its `core_extensions` row and its automations' rows changed in
    `commit_oid` and `updated_at` only, one `core_extension_versions` row for the new commit and
    one `extension.install` audit row naming the pack. A changed row that is not allowed is named
-   by its key (the rule's, the table's primary key, or its id) and the columns that differ. Each
+   by its key (the rule's, the table's primary key, or its id) and the columns that differ, and
+   a failure lists what was allowed besides, so one run shows the whole difference. Each
    record of the export's `core_embedding` must be in the re-export's `core_embedding` or its
    queue (an import queues them again). The step's note names each allowed difference by table,
    count and key, operation or marker, never a value; anything else fails, named the same way
