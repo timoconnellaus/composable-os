@@ -10,6 +10,11 @@ How releases are built (ADR 0053, ADR 0160, ADR 0161). Deploying them is `packag
   assets and the core migrations, generates the manifest and writes `composable-os-<product>-<v>.tar.gz`,
   `composable-os-<product>-<v>.manifest.json` and `SHA256SUMS`. Two builds of one commit are byte-identical; the release
   workflow builds twice and compares.
+- `--products all` (what the release workflow runs) builds every product in `products/index.ts`,
+  the CRM and the hosted product a host of many clients is installed as, each into a folder of its
+  own exactly as it would be built alone, then merges them (`merge.ts`): each product's bundle and
+  manifest under its own name and one `SHA256SUMS` listing every file, refused if a part's files
+  are not what its own `SHA256SUMS` lists.
 - `manifest-lib.ts` turns each `wrangler.jsonc` into the manifest (bindings, resources, secrets,
   crons, Durable Object migrations, queue consumers), with placeholders for account values. An
   unknown wrangler key fails the build: decide how installed deployments get it, then extend the

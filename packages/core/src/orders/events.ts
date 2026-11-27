@@ -341,7 +341,7 @@ async function applyPayment(
     done("unknown_checkout");
     await tellAdmins(
       ctx,
-      "A payment arrived for a checkout this CRM did not open",
+      "A payment arrived for a checkout this host did not open",
       `The ${event.provider} payment ${event.paymentRef ?? event.eventId} of ` +
         `${formatMoney(event.amount, event.currency)} names a checkout (${event.checkoutRef}) ` +
         "that no order has. Nothing was changed. Check it with the provider.",
@@ -425,7 +425,7 @@ async function confirmRefund(
       ctx,
       "A refund was made that no order here matches",
       `The ${event.provider} refund ${event.refundRef} of ` +
-        `${formatMoney(event.amount, event.currency)} does not match a payment this CRM ` +
+        `${formatMoney(event.amount, event.currency)} does not match a payment this host ` +
         "recorded. Nothing was changed.",
       null,
       `order.unknown_refund:${event.provider}:${event.eventId}`,

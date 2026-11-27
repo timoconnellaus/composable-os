@@ -65,10 +65,22 @@ export async function fetchVerifiedRelease(
   return { info, bundle, digest };
 }
 
-/** The release manifest alone (for preflight), without downloading the bundle. */
-export async function fetchReleaseManifest(info: ReleaseInfo, options: RequestOptions = {}) {
+/**
+ * The release manifest alone (for preflight), without downloading the bundle. It must be the
+ * product's own (review of #553): a release carries one manifest per product.
+ */
+export async function fetchReleaseManifest(
+  info: ReleaseInfo,
+  options: RequestOptions & { product: string },
+) {
   if (!info.assets.manifest) throw new Error(`release ${info.tag} has no manifest asset`);
-  return parseManifest(
+  const manifest = parseManifest(
     new TextDecoder().decode(await downloadAsset(info.assets.manifest, options)),
   );
+  if (manifest.product !== options.product) {
+    throw new VerificationError(
+      `the manifest of ${info.tag} is ${manifest.product}'s, not ${options.product}'s`,
+    );
+  }
+  return manifest;
 }

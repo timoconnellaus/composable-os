@@ -153,6 +153,15 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   upgrade` (pause, bookmark and migrate each client, upload once, smoke, resume; a failed migration
   restores and uploads nothing), `cos client export`/`import`/`remove`, and `cos install --import`
   for a client leaving to its own account. Each records its progress in `registry_operations`.
+  A fleet is installed as the **hosted product** (`products/composable/product.ts`, the owner's
+  decision of 2026-11-27), not the CRM: `cos fleet install --product composable` takes that
+  product's bundle (`composable-os-composable-<version>.tar.gz`) from a published, attested
+  release, so its Workers are `composable-app`, `composable-runner`, `composable-client-db`,
+  `composable-operator`, `composable-front` and `composable-gatekeeper-email-send`; every later `cos fleet` and
+  `cos client` command names the product too. A tag's release carries a bundle of every product
+  in `products/index.ts` (`build-release.ts --products all`), each built as it would be alone, with
+  one `SHA256SUMS`; `npm create composable-os` and a single-client `cos install` still take the
+  CRM's by its name.
 
 - **Hostnames and cos-front** (stage 66 step 8,
   [ADR 0619](adr/0619-hostnames-and-cos-front.md)): `cos fleet install` learns the zone the fleet's

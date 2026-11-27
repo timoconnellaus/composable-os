@@ -1186,9 +1186,12 @@ says the deployment is from source and does not offer in-app updates.
 ```sh
 node scripts/release/build-release.ts --version 1.2.3 --out release-out
 node scripts/release/inspect-bundle.ts release-out/composable-os-crm-1.2.3.tar.gz
+# Every product (the CRM and the hosted product), as a tag's release carries them:
+node scripts/release/build-release.ts --version 1.2.3 --products all --out release-out
 ```
 
-Releases are built by `.github/workflows/release.yml` on a `vX.Y.Z` / `vX.Y.Z-beta.N` tag; see
+Releases are built by `.github/workflows/release.yml` on a `vX.Y.Z` / `vX.Y.Z-beta.N` tag, with a
+bundle and manifest for every product in `products/index.ts` and one `SHA256SUMS`; see
 [`scripts/release/README.md`](../scripts/release/README.md).
 
 ## A host of many clients (stage 66 steps 7 and 8)
@@ -1200,31 +1203,73 @@ every command below is proved locally and against the fake API only, until the s
 ([Proving a host of many clients on Cloudflare](#proving-a-host-of-many-clients-on-cloudflare-stage-66))
 is run.
 
+A fleet is installed as **the hosted product** (`products/composable/product.ts`, "Composable OS"),
+not the CRM: every `cos fleet` and `cos client` command below takes `--product composable`. It
+installs from that product's bundle in a published, attested release
+(`composable-os-composable-<version>.tar.gz`, beside the CRM's), so the fleet's Workers are
+`composable-app`, `composable-runner`, `composable-client-db`, `composable-operator`,
+`composable-front` and `composable-gatekeeper-email-send` (staging adds `-staging`). A command without `--product`
+looks for the CRM's fleet, finds none, and changes nothing.
+
 ```sh
+# Every command here is the hosted product's.
+P="--product composable"
 # Once per environment: the deployment's keys, into a file outside any repository (mode 0600).
 cos fleet keys --env staging --out ~/fleet-keys/staging.json
 # The host, its registry (migrated), cos-client-db, the operator's Worker, cos-front, every fleet
 # binding; the zone the domain is on, the callback hostname and clients.<domain> attached.
 # --location <hint> and --ai off are chosen here, at the first install only.
-cos fleet install --env staging --keys-file ~/fleet-keys/staging.json \
+cos fleet install $P --env staging --keys-file ~/fleet-keys/staging.json \
   --callback-hostname callback.staging.<fleet domain> --domain staging.<fleet domain> --location oc
 # A client: its registry rows, its database made and migrated, its staff (and desk) hostnames
 # attached. No upload. Its own domain is recorded unverified, and the DNS records it needs printed.
-cos client add gym-a --env staging --location oc --desk --web-hostname staging.gym-a.example
+cos client add gym-a $P --env staging --location oc --desk --web-hostname staging.gym-a.example \
+  --setting COS_PACKS=bookings,content,courses,programs,ticketing   # its packs, required
 # Once the client has added them: verified and served by cos-front (refused until Cloudflare says so).
-cos client hostname verify gym-a staging.gym-a.example --env staging
-cos client secret set gym-a GOOGLE_CLIENT_SECRET --env staging   # asked for, hidden; sealed
+cos client hostname verify gym-a staging.gym-a.example $P --env staging
+cos client secret set gym-a GOOGLE_CLIENT_SECRET $P --env staging   # asked for, hidden; sealed
 # Its sender domain: added unverified; verify once it is onboarded to Email Sending in this account.
-cos client sender add gym-a gym-a.example --env staging
-cos client sender verify gym-a gym-a.example --env staging
+cos client sender add gym-a gym-a.example $P --env staging
+cos client sender verify gym-a gym-a.example $P --env staging
 # A release across every client: staging first, then live.
-cos fleet upgrade --env staging --keys-file ~/fleet-keys/staging.json --version 1.4.0
-cos fleet upgrade --env live --keys-file ~/fleet-keys/live.json --version 1.4.0
+cos fleet upgrade $P --env staging --keys-file ~/fleet-keys/staging.json --version 1.4.0
+cos fleet upgrade $P --env live --keys-file ~/fleet-keys/live.json --version 1.4.0
 # A leaving client takes its data and its secrets; its own install keeps them.
-cos client export gym-a --out ./gym-a-export --leaving
-cos install --import ./gym-a-export          # in the client's own account
-cos client remove gym-a                      # export kept 90 days, then erased; id never reused
+cos client export gym-a $P --out ./gym-a-export --leaving
+cos install --import ./gym-a-export          # in the client's own account (the CRM by default)
+cos client remove gym-a $P                   # export kept 90 days, then erased; id never reused
 ```
+
+- **A client's packs.** The hosted product offers every built pack, and a client has exactly the
+  ones its `COS_PACKS` lists: `cos client add` requires it (`--setting
+  COS_PACKS=bookings,content,courses,programs,ticketing`, or `COS_PACKS=` for base records only)
+  and refuses `*`, the whole catalogue, which would install Deals, Leads and Ticketing at boot.
+  Every pack named must be one the installed release carries (a typo is refused, naming the
+  packs it does carry), and every pack a named one requires must be named too (`programs` needs
+  `bookings`; `courses` needs `programs`, `bookings` and `content`): `cos` says what is missing
+  and adds nothing itself. An export carries the client's `COS_PACKS` and an import gives the new
+  client the same, checked the same way; an export made before exports carried them needs
+  `--setting COS_PACKS=…` on the import. A client whose setting is missing gets none. A pack
+  taken off a client's list later stays installed with its data: nothing is deleted.
+- **Its product.** A deployment's state records the product whose release it runs: a command
+  given another `--product` (with `--database` or not) is refused before anything is made or
+  deleted. A deployment installed before this was recorded is the product whose database it is in
+  (`composable`, `composable-staging`: the hosted product), else the CRM's, until its next
+  upgrade records it.
+- **What a client sees.** Every client of the fleet sees the label "Composable OS": the label is
+  one for the whole host until a client's own label is held in the registry (PR #552). The app's
+  screens, the host's mail, the messages of its errors and its dashboards' descriptions do not say
+  "CRM". **What still says "CRM"**, deliberately (model-facing: changing it is a prompt change and
+  part of the staff contract, left for a later change), and the assistant can repeat it to staff:
+  - the assistant's instructions (`packages/core/src/assistant/prompt.ts`, `agent-profiles.ts`,
+    `loop.ts`) and the AI roles' descriptions (`ai/roles.ts`);
+  - the judge's questions (`judge/questions/*.ts`, `judge/placements.ts`), the adjudicator's
+    instructions (`adjudicator/review.ts`), the extension review (`extensions/proposal.ts`), the
+    summaries (`ai/summaries.ts`), the widget writer (`dashboards/describe.ts`) and the automation
+    explainer (`operations/automation.ts`);
+  - operations' descriptions (`operations/*.ts`, in the staff contract `packages/core/api/v1/
+    staff.json`) and the refusals tools return to the model (`integrations/consent.ts`,
+    `outbound.ts`, `outbound-check.ts`, `approvals/queue.ts`).
 
 - **The keys file** holds the root key, the sealing key pair, the binding key and the props key.
   `cos fleet keys` writes it once, refuses a path inside a git working tree, and never prints a
@@ -1579,7 +1624,8 @@ no zone says first which steps are not proved.
      `0.1.1`.
 6. `cos client export alpha --out`, `cos client import charlie` from it, and an export of charlie.
    Each export's part and file hashes are recomputed from its bytes on disk; the two exports'
-   row counts and file hashes must be alike, the export must count rows, carry the picture of
+   row counts and file hashes must be alike, the export must carry alpha's packs and the
+   import charlie the same (`COS_PACKS`), the export must count rows, carry the picture of
    step 3 and, after a successful upgrade, the migration's row.
 7. `cos client add delta`, and `cos client export bravo` started while the add holds the
    operator's Worker: the second is refused ("Another operator's command"), the first finishes. If

@@ -426,7 +426,7 @@ export const connectionCreate = defineOperation({
     if (!entry) throw new NotFoundError("gatekeeper", input.vendor);
     const setting = await enabledVendor(ctx.db, input.vendor);
     if (setting?.enabled !== 1) {
-      throw new ValidationError(`${entry.title} is not enabled for this CRM. Ask an admin.`, {
+      throw new ValidationError(`${entry.title} is not enabled here. Ask an admin.`, {
         vendor: input.vendor,
       });
     }

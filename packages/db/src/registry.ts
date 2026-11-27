@@ -289,7 +289,12 @@ export type SettingAbsent =
   /** The deployment's own value: the product's default, set when the host was deployed. */
   | "inherit"
   /** Nothing: the setting is only ever the client's own. */
-  | "empty";
+  | "empty"
+  /**
+   * An empty value, never the deployment's: for a setting whose absence would mean "all" below
+   * (`COS_PACKS`, where no value is the product's whole catalogue, `"*"`).
+   */
+  | "blank";
 
 /**
  * The deploy-time settings a client has in the registry, by the env name each stands for. These
@@ -302,7 +307,9 @@ export const CLIENT_SETTINGS: Readonly<Record<string, { absent: SettingAbsent; w
   APPROVAL_EXPIRY_DAYS: { absent: "inherit", what: "days before a pending action expires" },
   IDENTITY_PROVIDER: { absent: "inherit", what: "the identity provider" },
   AUTH_ALLOW_SIGNUP: { absent: "inherit", what: "whether staff may sign up" },
-  COS_PACKS: { absent: "inherit", what: "the product's packs, or a subset" },
+  // A client has exactly the packs it is given (review of #553): with none, none, never the
+  // deployment's `"*"` (every pack its product offers, some installed at boot).
+  COS_PACKS: { absent: "blank", what: "the packs the client has, of those its release carries" },
   COS_ORG_EXTENSIONS: { absent: "empty", what: "the hash of the client's own extensions" },
   AI_MODEL_ROLES: { absent: "inherit", what: "the model roles" },
   AI_PROVIDERS: { absent: "inherit", what: "the optional AI providers" },

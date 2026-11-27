@@ -9,6 +9,7 @@ import type { ReleaseBundle } from "./bundle.ts";
 import type { CloudflareClient } from "./cloudflare.ts";
 import {
   applyBundleMigrations,
+  assertSameProduct,
   type DeploymentState,
   type DeployResult,
   d1ApiMigrations,
@@ -46,6 +47,7 @@ export async function installRelease(input: InstallReleaseInput): Promise<Instal
   const { api, bundle } = input;
   const log = input.log ?? (() => {});
   const manifest = bundle.manifest;
+  assertSameProduct(input.state, manifest.product);
   const resources = {
     ...input.state.resources,
     ...(await provisionResources(
@@ -59,7 +61,7 @@ export async function installRelease(input: InstallReleaseInput): Promise<Instal
     // A fleet's own: the registry, the exports bucket, its queues (stage 66 step 7).
     ...(input.state.fleet ? await provisionFleet(api, manifest, input.state, log) : {}),
   };
-  const base: DeploymentState = { ...input.state, resources };
+  const base: DeploymentState = { ...input.state, product: manifest.product, resources };
   const gateway = await provisionAiGateway({
     api,
     manifest,

@@ -44,6 +44,12 @@ import type { Channel } from "./semver.ts";
 
 /** What an install chose, kept in D1 (`core_install`) so upgrades redeploy the same way. */
 export interface DeploymentState {
+  /**
+   * The product whose release this deployment runs (the manifest's `product`), recorded by every
+   * install and update. Absent in a state written before it was recorded: the default product's
+   * (`cos` reads it so). A release of another product is refused for it before anything is made.
+   */
+  product?: string;
   version: string;
   accountId: string;
   hostname: string;
@@ -205,6 +211,19 @@ export async function readDeploymentState(
   } catch (error) {
     if (error instanceof CloudflareApiError && /no such table/i.test(error.message)) return null;
     throw error;
+  }
+}
+
+/**
+ * Refuses a release of another product than the one a deployment's state records (review of
+ * #553): deployed over it, it would make a second set of Workers and stores beside the first. A
+ * state that records none is let through here; `cos` decides it is the default product's.
+ */
+export function assertSameProduct(state: Pick<DeploymentState, "product">, product: string): void {
+  if (state.product !== undefined && state.product !== product) {
+    throw new Error(
+      `This deployment runs ${state.product}'s release, not ${product}'s: nothing was changed.`,
+    );
   }
 }
 

@@ -336,7 +336,8 @@ export function withoutFleetOrigins(value: string, callback: string | undefined)
  *
  * - `DB` is `clientDatabaseService(CLIENT_DB_QUERIES, client)`, at the client's location hint.
  * - Each setting in `CLIENT_SETTINGS` is the client's from the registry; with no row, the
- *   deployment's own value (`inherit`) or nothing (`empty`).
+ *   deployment's own value (`inherit`), nothing (`empty`) or an empty value (`blank`: no
+ *   `COS_PACKS` is no pack, never the deployment's `"*"`).
  * - A shared value (`shared`) is the same object as in `env`, so a cache keyed by it (a WeakMap
  *   on `env.LOADER`, `env.AI`, a `GATEKEEPER_*` binding) is one cache for every client.
  * - A kept-apart binding is its wrapper's result, frozen, or left out when it has none.
@@ -384,7 +385,12 @@ export function buildClientEnvironment<E extends HostBindings>(env: E, part: Cli
   for (const [name, { absent }] of Object.entries(CLIENT_SETTINGS)) {
     const own = Object.hasOwn(settings, name) ? settings[name] : undefined;
     const value =
-      own ?? (absent === "inherit" ? (env as unknown as Record<string, unknown>)[name] : undefined);
+      own ??
+      (absent === "inherit"
+        ? (env as unknown as Record<string, unknown>)[name]
+        : absent === "blank"
+          ? ""
+          : undefined);
     if (typeof value === "string") out[name] = value;
   }
   // No origin under the fleet's registrable domain is ever a client's allowed origin (stage 66

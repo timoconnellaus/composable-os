@@ -760,12 +760,53 @@ function refuseFleet(
   );
 }
 
+/**
+ * The product whose deployment database this is, by its name: the product's `names.database`,
+ * or that with `-staging` (a fleet's staging). The product asked for first, then every known one;
+ * the default product when none matches (a client product's own names, `cos deploy`'s
+ * `--database`, run the default product's release).
+ */
+export function productOfDatabase(
+  database: string,
+  asked: ProductDefinition,
+  deps: Pick<Deps, "products">,
+): string {
+  const known = deps.products ?? { all: products, default: DEFAULT_PRODUCT };
+  const named = (p: ProductDefinition) =>
+    database === p.names.database || database === `${p.names.database}-staging`;
+  if (named(asked)) return asked.id;
+  return Object.values(known.all).find(named)?.id ?? known.default;
+}
+
+/**
+ * Refuses a command for another product than the one the deployment runs (review of #553):
+ * `--database` can point any product's command at any deployment, and an upgrade of it from
+ * another product's release made a second set of Workers and stores beside it. A state written
+ * before the product was recorded is the product whose database it was found in (`database`:
+ * its own name, or with `-staging`), else the default product's (re-review of #553); it gains the
+ * field at its next install re-run or upgrade. Before anything is written or made.
+ */
+export function refuseOtherProduct(
+  state: DeploymentState | null | undefined,
+  product: ProductDefinition,
+  deps: Pick<Deps, "products">,
+  database: string,
+): void {
+  if (!state) return;
+  const recorded = state.product ?? productOfDatabase(database, product, deps);
+  if (recorded === product.id) return;
+  throw new CliError(
+    `This deployment runs ${recorded}, not ${product.id}: nothing was changed. Run the command with --product ${recorded}.`,
+  );
+}
+
 export async function install(flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
   const s = await session(flags, deps);
   const existing = await locateDeployment(s.api, s.accountId, deploymentDatabase(flags, s));
   const found = existing?.state ?? null;
   refuseFleet(found, "install");
+  refuseOtherProduct(found, s.product, deps, deploymentDatabase(flags, s));
   const names = found ? null : firstInstallNames(flags);
   const channelFlag = str(flags, "channel");
   if (channelFlag && !CHANNELS.includes(channelFlag as Channel))
@@ -1106,6 +1147,7 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
     )),
   };
   const base: DeploymentState = {
+    product: manifest.product,
     version,
     accountId: s.accountId,
     hostname,
@@ -1228,13 +1270,14 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
 
 // ---- upgrade ------------------------------------------------------------------------------------
 
-async function locate(s: Session, flags: Flags = {}) {
+async function locate(s: Session, flags: Flags, deps: Pick<Deps, "products">) {
   const located = await locateDeployment(s.api, s.accountId, deploymentDatabase(flags, s));
   if (!located?.state) {
     throw new CliError(
       `No ${s.product.label} installed from a release was found in this account. Run \`npx @composable-os/cli install\` first.`,
     );
   }
+  refuseOtherProduct(located.state, s.product, deps, deploymentDatabase(flags, s));
   return { databaseId: located.databaseId, state: located.state };
 }
 
@@ -1272,7 +1315,7 @@ async function currentManifest(s: Session, version: string) {
 export async function upgrade(flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
   const s = await session(flags, deps);
-  const { databaseId, state: found } = await locate(s, flags);
+  const { databaseId, state: found } = await locate(s, flags, deps);
   refuseFleet(found, "upgrade");
   const locationFlag = locationChoice(flags);
   if (locationFlag !== undefined) {
@@ -1385,7 +1428,7 @@ export async function upgrade(flags: Flags, deps: Deps): Promise<number> {
 async function rollback(flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
   const s = await session(flags, deps);
-  const { databaseId, state } = await locate(s, flags);
+  const { databaseId, state } = await locate(s, flags, deps);
   // A fleet's update is undone by cos fleet upgrade itself; this would restore one database.
   refuseFleet(state, "rollback");
   const runs = await runsViaApi(s.api, s.accountId, databaseId, 20);
@@ -1444,7 +1487,7 @@ async function rollback(flags: Flags, deps: Deps): Promise<number> {
 async function status(flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
   const s = await session(flags, deps);
-  const { state, databaseId } = await locate(s, flags);
+  const { state, databaseId } = await locate(s, flags, deps);
   const releases = await listReleases(state.channel, s.github).catch(() => []);
   const newer = releases.filter((r) => compareVersions(r.version, state.version) > 0);
   const runs = await runsViaApi(s.api, s.accountId, databaseId, 5);
@@ -1485,7 +1528,7 @@ async function status(flags: Flags, deps: Deps): Promise<number> {
 async function uninstall(flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
   const s = await session(flags, deps);
-  const { state } = await locate(s, flags);
+  const { state } = await locate(s, flags, deps);
   // A fleet's deployment holds the registry and what every client shares: never this command's.
   refuseFleet(state, "uninstall");
   if (!flags.yes) {

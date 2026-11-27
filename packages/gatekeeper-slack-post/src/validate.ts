@@ -34,7 +34,7 @@ const text = z
   .max(MAX_TEXT_LENGTH)
   .refine((value) => value.trim() !== "", "must not be empty");
 const relatedRecords = z
-  .array(z.string().regex(RECORD_ID, "must be a CRM record id"))
+  .array(z.string().regex(RECORD_ID, "must be a record id"))
   .max(MAX_RELATED_RECORDS)
   .optional();
 

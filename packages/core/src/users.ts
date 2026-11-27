@@ -82,7 +82,7 @@ export async function resolveActingUser(db: CrmDb, principal: PrincipalLike): Pr
       if (row) await recordInviteAccount(db.query, grant.inviteId, row.id);
     }
   }
-  if (!row) throw new Error(`Could not resolve a CRM user for ${email}`);
+  if (!row) throw new Error(`Could not resolve a user for ${email}`);
   // A deactivated person cannot act (user.deactivate, ADR 0170), whichever identity provider let
   // the request in.
   if (row.deactivated_at) throw new ForbiddenError("This account has been deactivated");

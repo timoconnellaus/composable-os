@@ -14,10 +14,16 @@
 //
 // Usage: node scripts/release/build-release.ts --version 1.2.3 [--product crm] [--out release-out]
 //          [--repository owner/repo] [--skip-build]
+//        node scripts/release/build-release.ts --version 1.2.3 --products all [--out release-out]
 //
 // --product is a product id (products/<id>/product.ts) or the path of a product.ts; the default is
 // the repository's default product. The Workers, their resources, the release files and the
 // strings the UI shows are named from it, and nothing else about the build changes.
+//
+// --products all (what a tag's release builds) builds every product in products/index.ts, each
+// into a folder of its own exactly as --product would, then merges them into <out> with one
+// SHA256SUMS listing every file (merge.ts). The default product is built as it is with neither
+// flag (no COS_PRODUCT set), so its bundle is the same bytes either way.
 import { execFileSync } from "node:child_process";
 import {
   mkdirSync,
@@ -34,7 +40,7 @@ import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { loadProduct, PRODUCT_ENV, productFile } from "@composable-os/product/node";
 import { repositoryPackIds } from "@composable-os/product/packs";
-import { DEFAULT_PRODUCT } from "@composable-os/products";
+import { DEFAULT_PRODUCT, products } from "@composable-os/products";
 import {
   assertUnresolved,
   assetHash,
@@ -55,6 +61,7 @@ import {
   readMigrations,
   type WorkerBuild,
 } from "./manifest-lib.ts";
+import { mergeReleaseParts } from "./merge.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -149,6 +156,40 @@ function parseArgs(argv: string[]) {
   return args;
 }
 
+/**
+ * The products `--products` names, in order, each as `--product` would take it: `all` is every
+ * product in products/index.ts. The default product is given as undefined, so it is built exactly
+ * as a build with neither flag builds it (no COS_PRODUCT set).
+ */
+export function productsToBuild(value: string): (string | undefined)[] {
+  const ids = value === "all" ? Object.keys(products) : value.split(",").map((id) => id.trim());
+  if (!ids.length || ids.some((id) => !id)) throw new Error("--products names no product");
+  if (new Set(ids).size !== ids.length) throw new Error("--products names a product twice");
+  for (const id of ids) {
+    if (!products[id]) {
+      throw new Error(`--products: no product ${id} (${Object.keys(products).join(", ")})`);
+    }
+  }
+  return ids.map((id) => (id === DEFAULT_PRODUCT ? undefined : id));
+}
+
+/** The products a `--products` build makes (`productsToBuild`), after refusing what cannot go with it. */
+export function productsOfArgs(
+  args: Record<string, string | boolean>,
+  env: Record<string, string | undefined>,
+): (string | undefined)[] {
+  if (typeof args.products !== "string") throw new Error("--products needs a value (all)");
+  // Each product is built with its own COS_PRODUCT: without a build, every product's bundle
+  // would be made from whatever the last build left in dist/ (review of #553).
+  if (args["skip-build"]) throw new Error("--products builds every product: not with --skip-build");
+  if (args.product !== undefined || env[PRODUCT_ENV]?.trim()) {
+    throw new Error(
+      `--products builds each product itself: give neither --product nor ${PRODUCT_ENV}`,
+    );
+  }
+  return productsToBuild(args.products);
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const version = String(args.version ?? process.env.RELEASE_VERSION ?? "0.0.0-beta.0").replace(
@@ -158,7 +199,37 @@ async function main() {
   if (!isVersion(version))
     throw new Error(`--version must be X.Y.Z or X.Y.Z-beta.N, got ${version}`);
   const out = resolve(String(args.out ?? "release-out"));
+  if (args.products !== undefined) {
+    const ids = productsOfArgs(args, process.env);
+    const partsDir = mkdtempSync(join(tmpdir(), "cos-release-parts-"));
+    try {
+      const parts = [];
+      for (const id of ids) {
+        const product = await loadProduct(id ?? DEFAULT_PRODUCT);
+        const dir = join(partsDir, product.id);
+        await buildOne(args, version, dir, id);
+        parts.push({ product: product.id, dir });
+      }
+      const sums = await mergeReleaseParts(parts, version, out);
+      console.log(
+        `\n${parts.map((p) => p.product).join(", ")} ${version} -> ${relative(process.cwd(), out)}\n${sums}`,
+      );
+    } finally {
+      rmSync(partsDir, { recursive: true, force: true });
+    }
+    return;
+  }
   const chosen = typeof args.product === "string" ? args.product : process.env[PRODUCT_ENV]?.trim();
+  await buildOne(args, version, out, chosen || undefined);
+}
+
+/** Builds one product's release into `out`: `chosen` as --product takes it, else the default. */
+async function buildOne(
+  args: Record<string, string | boolean>,
+  version: string,
+  out: string,
+  chosen: string | undefined,
+) {
   const product = await loadProduct(chosen || DEFAULT_PRODUCT);
   // Every build step below bundles the chosen product's definition (packages/product/src/node.ts).
   const productEnv: Record<string, string> = chosen ? { [PRODUCT_ENV]: productFile(chosen) } : {};

@@ -102,6 +102,12 @@ export function owned(name, prefix) {
   return typeof name === "string" && (name === prefix || name.startsWith(`${prefix}-`));
 }
 
+/**
+ * The packs every client of the check is given: a fleet client has exactly the packs it is given,
+ * and `cos client add` requires them (review of #553). What `"*"` installed at boot before.
+ */
+export const CLIENT_PACKS = Object.freeze(["--setting", "COS_PACKS=deals,leads"]);
+
 /** The throwaway product: names only, as a product.ts holds them. */
 export function productDefinition(run, repository = "timoconnellaus/composable-os") {
   const prefix = prefixOf(run);
@@ -1019,6 +1025,8 @@ export function exportFacts(dir) {
   return {
     counts: manifest.database?.counts ?? {},
     files: (manifest.files ?? []).map((f) => `${f.key} ${f.sha256}`).sort(),
+    // The client's COS_PACKS (re-review of #553), absent from an export made before it was carried.
+    packs: manifest.packs,
     problems,
   };
 }
@@ -1037,6 +1045,11 @@ export function compareExports(a, b) {
     if (!fb.has(f)) problems.push(`file ${f.split(" ")[0]} not imported as it was`);
   for (const f of fb)
     if (!fa.has(f)) problems.push(`file ${f.split(" ")[0]} was not in the export`);
+  if (a.packs !== b.packs) {
+    problems.push(
+      `packs: COS_PACKS=${a.packs ?? "(none carried)"}, then ${b.packs ?? "(none carried)"}`,
+    );
+  }
   return problems;
 }
 
@@ -1168,7 +1181,16 @@ export function checkSteps() {
         // hostname on a domain nobody can prove (`.example`).
         // `--no-wait`: the check measures each hostname's wait itself, below.
         const add = (id) =>
-          must(ctx, ["client", "add", id, "--location", ctx.location, "--no-wait", "--yes"]);
+          must(ctx, [
+            "client",
+            "add",
+            id,
+            "--location",
+            ctx.location,
+            "--no-wait",
+            ...CLIENT_PACKS,
+            "--yes",
+          ]);
         const first = await add(a);
         const second = await add(b);
         const list = await clientList(ctx);
@@ -1548,6 +1570,9 @@ export function checkSteps() {
         const rows = Object.values(first.counts).reduce((x, y) => x + y, 0);
         if (!Object.keys(first.counts).length || rows === 0)
           problems.push(`${a}'s export counts no rows`);
+        // The packs it was given go with it, and come in with the import (re-review of #553).
+        if (`COS_PACKS=${first.packs}` !== CLIENT_PACKS[1])
+          problems.push(`${a}'s export carries COS_PACKS=${first.packs}, not ${CLIENT_PACKS[1]}`);
         if (ctx.upgraded && first.counts[STAGING_MIGRATION.table] !== 1)
           problems.push(`${STAGING_MIGRATION.table} (the upgrade's row) is not in the export`);
         if (ctx.uploaded && !first.files.some((f) => f.endsWith(` ${ctx.uploaded}`)))
@@ -1557,7 +1582,7 @@ export function checkSteps() {
             `the export or the import is not as it should be: ${problems.slice(0, 5).join("; ")}`,
           );
         const notes = [
-          `${a} exported (${Object.keys(first.counts).length} tables, ${rows} rows, ${first.files.length} files, every hash recomputed from the bytes), imported as ${imported}, exported again: the same row counts and file hashes`,
+          `${a} exported (${Object.keys(first.counts).length} tables, ${rows} rows, ${first.files.length} files, every hash recomputed from the bytes), imported as ${imported}, exported again: the same row counts, file hashes and packs (COS_PACKS=${first.packs})`,
         ];
         if (!ctx.zoneId) {
           return {
@@ -1582,7 +1607,7 @@ export function checkSteps() {
         });
         let firstEnded = null;
         const first = ctx
-          .cos(["client", "add", late, "--yes"], {
+          .cos(["client", "add", late, ...CLIENT_PACKS, "--yes"], {
             onOutput: (out) => {
               if (/registry: /.test(out)) started();
             },

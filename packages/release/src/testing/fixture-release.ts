@@ -86,6 +86,45 @@ export interface FixtureOptions {
   clientGatekeepers?: boolean;
   /** Also carry the fleet Workers (cos-client-db and cos-operator, stage 66 step 7). */
   fleet?: boolean;
+  /**
+   * The product the release is of, in place of the fixture's `demo`: its id and label, and every
+   * Worker and resource named from its names, as a real release build names them.
+   */
+  product?: ProductDefinition;
+}
+
+/** A fixture name (`demo`, `demo-…`) as `product` names it (packages/product `deployedName`). */
+function renamed(product: ProductDefinition, name: string): string {
+  if (name === FIXTURE_PRODUCT) return product.names.database;
+  const rest = name.slice(`${FIXTURE_PRODUCT}-`.length);
+  if (rest === "app") return product.names.app;
+  if (rest === "runner") return product.names.runner;
+  if (rest.startsWith("gatekeeper-")) {
+    return `${product.names.gatekeeperPrefix}${rest.slice("gatekeeper-".length)}`;
+  }
+  return `${product.names.resourcePrefix}${rest}`;
+}
+
+/** Every fixture name inside a manifest's strings, renamed for `product` (the repository kept). */
+function renameManifest(manifest: ReleaseManifest, product: ProductDefinition): ReleaseManifest {
+  const NAME = /(?<![\w/.-])demo(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?(?![\w/.])/g;
+  const walk = (value: unknown, key?: string): unknown => {
+    if (typeof value === "string") {
+      return key === "repository" ? value : value.replace(NAME, (n) => renamed(product, n));
+    }
+    if (Array.isArray(value)) return value.map((v) => walk(v));
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value).map(([k, v]) => [walk(k, "key") as string, walk(v, k)]),
+      );
+    }
+    return value;
+  };
+  return {
+    ...(walk(manifest) as ReleaseManifest),
+    product: product.id,
+    productLabel: product.label,
+  };
 }
 
 /** The AI Gateway set-up fixture releases carry (the shape of apps/app/deploy-inputs.json). */
@@ -388,7 +427,7 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
     migrations.push({ name, sha256: await sha256Hex(sql) });
   }
   const contract = options.contract ?? { version: 1, supported: [1] };
-  const manifest: ReleaseManifest = {
+  const fixture: ReleaseManifest = {
     manifestVersion: MANIFEST_VERSION,
     product: FIXTURE_PRODUCT,
     productLabel: "Demo",
@@ -508,7 +547,8 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
     ...(options.aiGateway === false ? {} : { aiGateway: FIXTURE_AI_GATEWAY }),
   };
   const client = new Map(Object.entries(options.client ?? {}).map(([p, t]) => [p, enc.encode(t)]));
-  if (client.size) manifest.client = await clientKitEntry(client);
+  if (client.size) fixture.client = await clientKitEntry(client);
+  const manifest = options.product ? renameManifest(fixture, options.product) : fixture;
   const { bytes, manifestText } = await writeBundle({
     manifest,
     modules,

@@ -104,6 +104,7 @@ export async function generate({ root, markdownOnly = false, config = defaultCon
     problems,
     packIds,
     pending: config.overviewsPending,
+    notSolutions: config.notSolutions ?? {},
     packOverviews: sources.packOverviews(root),
     capabilityOverviews: sources.capabilityOverviews(root),
     guides: sources.guides(root),
