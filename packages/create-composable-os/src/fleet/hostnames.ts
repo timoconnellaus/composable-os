@@ -201,9 +201,14 @@ export async function setUpFleetZone(input: EdgeInput, log: (line: string) => vo
   }
   const target = fleetClientTarget(fleet.domain);
   const made = await api.ensureProxiedPlaceholder(zone.id, target);
-  await api.putFallbackOrigin(zone.id, target);
+  // A zone's fallback origin is the zone's, not the fleet's alone: one already set to something
+  // else is left as it is (a route on each verified hostname reaches cos-front before any origin).
+  const fallback = await api.getFallbackOrigin(zone.id);
+  if (!fallback || fallback === target) await api.putFallbackOrigin(zone.id, target);
   await api.putRoute(zone.id, `${target}/*`, frontWorker);
   log(
-    `  clients' own domains: CNAME to ${target} (${made}), the zone's fallback origin, routed to ${frontWorker}`,
+    `  clients' own domains: CNAME to ${target} (${made}), routed to ${frontWorker}; the zone's fallback origin ${
+      !fallback || fallback === target ? `is ${target}` : `stays ${fallback} (not changed)`
+    }`,
   );
 }

@@ -28,7 +28,7 @@ import {
   senderCommand,
   setSecret,
 } from "../src/fleet/clients.ts";
-import { cloudflareEdge } from "../src/fleet/hostnames.ts";
+import { cloudflareEdge, setUpFleetZone } from "../src/fleet/hostnames.ts";
 import {
   keysFingerprint,
   keysMismatch,
@@ -1103,6 +1103,32 @@ describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
     expect(cf.customHostnames.map((h) => h.hostname)).toEqual(["gym-a.example"]);
     expect(await removeClient(edged({ yes: true }, "wildcard"), "gym-a")).toBe(0);
     expect(cf.customHostnames).toEqual([]);
+  });
+
+  it("sets the zone up once, and never changes a fallback origin the zone already has for something else", async () => {
+    const api = new CloudflareClient({ token: "t", apiBase: "https://cf.test", fetch: cf.fetch });
+    const input = {
+      api,
+      accountId: "acct",
+      fleet: fleetOn(),
+      appWorker: "demo-app",
+      frontWorker: "demo-front",
+    };
+    await setUpFleetZone(input, () => {});
+    await setUpFleetZone(input, () => {});
+    expect(cf.fallbackOrigins.get(ZONE)).toBe("clients.fleet.example");
+    expect(cf.routes.map((r) => r.pattern)).toEqual(["clients.fleet.example/*"]);
+    expect(cf.dnsRecords.length).toBe(1);
+    expect(cf.domains.map((d) => d.hostname)).toEqual(["callback.fleet.example"]);
+    cf.fallbackOrigins.set(ZONE, "proxy-fallback.other.example");
+    const lines: string[] = [];
+    await setUpFleetZone(input, (l) => lines.push(l));
+    expect(cf.fallbackOrigins.get(ZONE)).toBe("proxy-fallback.other.example");
+    expect(lines.join("\n")).toContain("stays proxy-fallback.other.example (not changed)");
+    // The wildcard: one record and one route for every name, nothing per client.
+    await setUpFleetZone({ ...input, fleet: fleetOn("wildcard") }, () => {});
+    expect(cf.routes.map((r) => [r.pattern, r.script])).toContainEqual(["*.fleet.example/*", "demo-app"]);
+    expect(cf.dnsRecords.map((r) => r.name)).toContain("*.fleet.example");
   });
 
   it("writes the registry and says so when the fleet's zone is not known", async () => {

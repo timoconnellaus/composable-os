@@ -626,6 +626,17 @@ export class CloudflareClient {
     await unless404(this.request("DELETE", `/zones/${zoneId}/custom_hostnames/${id}`));
   }
 
+  /** The zone's Cloudflare for SaaS fallback origin, or null when none is set. */
+  async getFallbackOrigin(zoneId: string): Promise<string | null> {
+    const found = await unless404(
+      this.request<{ origin?: string } | null>(
+        "GET",
+        `/zones/${zoneId}/custom_hostnames/fallback_origin`,
+      ),
+    );
+    return found?.result?.origin ?? null;
+  }
+
   /** The zone's Cloudflare for SaaS fallback origin: where custom hostnames' traffic is sent. */
   async putFallbackOrigin(zoneId: string, origin: string) {
     await this.request("PUT", `/zones/${zoneId}/custom_hostnames/fallback_origin`, { origin });

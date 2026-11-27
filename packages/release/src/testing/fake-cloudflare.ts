@@ -289,6 +289,10 @@ export class FakeCloudflare {
       this.fallbackOrigins.set(fallback[1] as string, String(b.origin));
       return ok({ origin: b.origin, status: "pending_deployment" });
     }
+    if (fallback && method === "GET") {
+      const origin = this.fallbackOrigins.get(fallback[1] as string);
+      return origin ? ok({ origin, status: "active" }) : fail(404, 1551, "no fallback origin");
+    }
     const chOne = /^\/zones\/([^/]+)\/custom_hostnames\/([^/]+)$/.exec(path);
     if (chOne && method === "DELETE") {
       const at = this.customHostnames.findIndex((h) => h.id === chOne[2]);
