@@ -1295,15 +1295,14 @@ cos client remove gym-a $P                   # export kept 90 days, then erased;
   while clients are paused) and resumes. A client whose migration fails is restored, and so
   is every client migrated before it; nothing is uploaded. A client's own extension on a contract
   the new release does not run stops the update before anything changes.
-- **Export and import** carry the database, files and secrets, not videos: an import re-stamps the
-  client's videos this account's Stream holds with its creator, and names any it does not (copying
-  videos is issue #525). It re-stamps only a video with no creator (a single-client deployment's
-  uploads carry none) or the client's own; a video any other client created is **not taken**: the
-  import stops, naming them, with none re-stamped, and the client stays paused (`cos client
-  remove <id>` drops it). A client moving between this account's environments or fleets names the
-  stamp its videos carry where it was, explicitly: `--videos-from <environment>:<client>` (never a
-  client of this deployment). `cos client import <id> --from <dir>` adds a new client only; an
-  existing id is refused, and so is an import while an update is unfinished.
+- **Export and import** carry the database, files and secrets, not videos. **An import re-stamps
+  no video:** each video the imported database names must already be the importing client's (its
+  creator `<environment>:<client>`), or not be in this account's Stream at all (named; it does not
+  play here). A video with no creator, any other creator, or one whose creator cannot be read
+  refuses the import, naming each video and its stamp; the client is left paused, never served,
+  and `cos client remove <id>` drops it. Moving a client's videos between deployments is not built
+  yet (copying them is issue #525). `cos client import <id> --from <dir>` adds a new client only;
+  an existing id is refused, and so is an import while an update is unfinished.
 - **What an export's checks catch:** its hashes catch a damaged or cut-short part or file, not a
   folder someone edited on purpose (the manifest is not signed): **import only an export you
   trust**. An import filters the SQL it carries (no view, no virtual table, nothing that names a

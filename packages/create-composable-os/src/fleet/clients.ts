@@ -75,11 +75,11 @@ export interface FleetContext {
   dryRun: boolean;
   now?: () => Date;
   /**
-   * Stamps a Stream video of the account with its creator (Stream's API, with the account's
-   * token); false when the account has no such video. Absent: videos are left as they are.
+   * Reads a Stream video's creator (Stream's API, with the account's token): what an import checks
+   * each video it names against. Absent: they are not checked, and play only if already the
+   * client's.
    */
   videos?: {
-    setCreator(uid: string, creator: string): Promise<boolean>;
     /** The video's creator now: its stamp, null for none, undefined when there is no video. */
     creatorOf(uid: string): Promise<string | null | undefined>;
   };
@@ -922,63 +922,42 @@ export interface ImportInput extends Omit<AddInput, "imported"> {
   from: string;
   /** Leave the export's secrets out: every secret of the client is derived (a planned sign-out). */
   withoutSecrets?: boolean;
-  /**
-   * The stamp the client's videos carry where it comes from (`<environment>:<client>`, a move
-   * between this account's environments or fleets): only these, besides unstamped ones and the
-   * client's own, are re-stamped (`--videos-from`). Never a client of this deployment.
-   */
-  videosFrom?: string;
 }
 
 /**
- * Which of the videos an imported database names may be stamped as `creator`, checked against
- * each one's creator now, before any is stamped (review of #552, M-S1): a video id is no secret
- * (every playback token names it), so a database that names another client's video must not take
- * it. Accepted: a video with no creator (a single-client deployment's uploads carry none), one
- * already `creator`'s, and one carrying exactly `videosFrom` (the stamp of the place the client
- * moves from, named by the operator; never a client of this deployment). Any other stamp refuses
- * the import, naming the videos, with none re-stamped; the client stays paused, never served.
- * The ones not in this account are returned; the rest are stamped.
+ * Checks the videos an imported database names against Stream, before the client is served
+ * (review of #552: M-S1, then the third check's M1 and S1). An import re-stamps nothing: a video id
+ * is no secret (every playback token names it), and live and staging are separate deployments on
+ * one Stream account, so neither "no creator yet" nor a stamp of another place proves a video is
+ * this client's to take. Accepted: a video already this client's (`creator`), and one this account
+ * does not hold (returned, to be named). Anything else (no creator, any other creator, a read that
+ * failed) refuses the import, naming each video and its stamp; the client stays paused and is
+ * never served. Moving a client's videos between deployments is not built.
  */
-async function restampableVideos(
+async function checkImportedVideos(
   ctx: FleetContext,
   id: ClientId,
   creator: string,
   uids: readonly string[],
-  videosFrom: string | undefined,
 ): Promise<string[]> {
   const videos = ctx.videos as NonNullable<FleetContext["videos"]>;
-  if (videosFrom !== undefined) {
-    const [environment, other] = videosFrom.split(":");
-    if (!environment || !other || !/^(live|staging)$/.test(environment)) {
-      throw new FleetError("--videos-from is a stamp, <environment>:<client>");
-    }
-    if (
-      environment === ctx.fleet.environment &&
-      (await readClient(ctx.registry, other as ClientId))
-    ) {
-      throw new FleetError(
-        `--videos-from ${videosFrom} is a client of this deployment: its videos are its own`,
-      );
-    }
-  }
   const missing: string[] = [];
-  const stamp: string[] = [];
-  const others: string[] = [];
+  const refused: string[] = [];
   for (const uid of uids) {
-    const now = await videos.creatorOf(uid);
+    let now: string | null | undefined;
+    try {
+      now = await videos.creatorOf(uid);
+    } catch (error) {
+      refused.push(`${uid} (its creator could not be read: ${(error as Error).message})`);
+      continue;
+    }
     if (now === undefined) missing.push(uid);
-    else if (now === creator) continue;
-    else if (now === null || (videosFrom !== undefined && now === videosFrom)) stamp.push(uid);
-    else others.push(`${uid} (${now})`);
+    else if (now !== creator) refused.push(`${uid} (${now === null ? "no creator" : now})`);
   }
-  if (others.length) {
+  if (refused.length) {
     throw new FleetError(
-      `Not imported further: the database names ${others.length} video${others.length > 1 ? "s" : ""} another creator holds, which are not ${id}'s to take: ${others.join(", ")}. None was re-stamped, and ${id} stays paused (cos client remove ${id} to drop it). A client moving from another environment names where with --videos-from <environment>:<client>.`,
+      `Not imported further: the database names ${refused.length} video${refused.length > 1 ? "s" : ""} that ${refused.length > 1 ? "are" : "is"} not ${id}'s: ${refused.join(", ")}. An import re-stamps no video: moving a client's videos between deployments is not built yet. ${id} is left paused, never served; cos client remove ${id} drops it.`,
     );
-  }
-  for (const uid of stamp) {
-    if (!(await videos.setCreator(uid, creator))) missing.push(uid);
   }
   return missing;
 }
@@ -990,9 +969,9 @@ async function restampableVideos(
  * migrations, the row counts against the export's), its files, and its own secrets stored sealed
  * as `imported` rows so its sessions, cards, PINs, app codes and desk enrolments carry on (given
  * secrets as given ones), then migrated to this release, its search index queued for rebuilding,
- * and served. Its videos are not copied: those its records name that this account's Stream holds
- * are re-stamped with the client's creator (`clientStamp`, `<environment>:<client>`, step 5), so
- * the host's video host serves them to it; any this account does not hold are named (issue #525).
+ * and served. Its videos are not copied and none is re-stamped: each its records name must already
+ * be the client's (`clientStamp`, `<environment>:<client>`, step 5) or not be in this account
+ * (named; issue #525); any other refuses the import (`checkImportedVideos`, review of #552).
  *
  * Crash and re-run: the client is paused until the end; a re-run carries on from the operation's
  * step (an unfinished database import resumes from its next part, files from the next one not
@@ -1151,19 +1130,20 @@ export async function importClient(ctx: FleetContext, input: ImportInput): Promi
   if (videos.length) {
     const creator = clientStamp(record.environment, id);
     if (!ctx.videos) {
-      ctx.io.err(`  videos: ${videos.length} named, not re-stamped (no Stream access here)`);
+      ctx.io.err(
+        `  videos: ${videos.length} named, not checked (no Stream access here): each plays only if it is already ${creator}'s`,
+      );
     } else {
-      const missing = await restampableVideos(
+      const missing = await checkImportedVideos(
         ctx,
         id,
         creator,
         videos.map((v) => v.stream_uid),
-        input.videosFrom,
       );
-      ctx.io.out(`  videos: ${videos.length - missing.length} re-stamped as ${creator}`);
+      ctx.io.out(`  videos: ${videos.length - missing.length} already ${creator}'s`);
       if (missing.length) {
         ctx.io.err(
-          `  videos: ${missing.length} not in this account's Stream (copy them, then import again or stamp them): ${missing.join(", ")}`,
+          `  videos: ${missing.length} not in this account's Stream (they do not play here): ${missing.join(", ")}`,
         );
       }
     }

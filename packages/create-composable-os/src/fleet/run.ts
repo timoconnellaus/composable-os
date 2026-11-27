@@ -120,7 +120,7 @@ cos client: the clients of a host of many clients (each takes --env <live|stagin
   cos client secret set <id> <NAME> [--value-file <f>] | secret remove <id> <NAME>
   cos client export <id> [--out <dir>] [--leaving]
   cos client import <id> --from <dir> [--without-secrets] [--staff-hostname h] [--web-hostname h]
-                 [--videos-from <environment>:<client>]   another creator's videos are never taken
+                 (no video is re-stamped: one that is not already the client's refuses it)
                  [--setting COS_PACKS=…] (needed for an export that does not carry its packs)
   cos client remove <id>
   cos client sender add|verify|unverify|remove <id> <domain>
@@ -529,7 +529,6 @@ async function withContext(
       yes: Boolean(flags.yes),
       dryRun: Boolean(flags["dry-run"]),
       videos: {
-        setCreator: (uid, creator) => s.api.setStreamCreator(s.accountId, uid, creator),
         creatorOf: (uid) => s.api.streamVideoCreator(s.accountId, uid),
       },
     });
@@ -707,9 +706,6 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
             id: positional[0] as string,
             from,
             withoutSecrets: Boolean(flags["without-secrets"]),
-            ...(str(flags, "videos-from")
-              ? { videosFrom: str(flags, "videos-from") as string }
-              : {}),
             settings: settingsOf(flags),
             ...(str(flags, "staff-hostname")
               ? { staffHostname: str(flags, "staff-hostname") as string }

@@ -130,7 +130,8 @@ Live takes a release only once staging runs it (`--skip-staging` deliberately). 
   the schema against this code's migrations for core objects), its files, its derivable secrets
   stored with `writeImportedSecret` and its given ones with `writeClientSecret`, migrated to this
   release, every embedded record queued again (the index is new), its videos in this account
-  re-stamped with its creator, then served. **An import over an
+  re-stamped with its creator (*corrected 2026-11-28, review of #552: none is re-stamped, see "An
+  import never takes another client's video"*), then served. **An import over an
   existing id is refused**, not overwritten: a client's id is never given new data under it.
 - **`cos install --import <dir>`**: the same export installed as a single-client deployment in
   another account (criterion 13): into the new install's empty D1 before any migration, files into
@@ -367,10 +368,11 @@ plane, `products/crm/apps/control`, stays the CRM's).
 
 ## What is left out, and why
 - **Videos are not copied.** Step 5 (#522, merged) stamps each video with its client's creator
-  (`<environment>:<client>`) and refuses one without. An import re-stamps every video the client's
-  records name (`core_media.stream_uid`) that this account's Stream holds, with `clientStamp`, the
-  one place the creator's shape is decided (`clientStampOf` uses it), and names the ones the account
-  does not hold; an export lists none and does not download them (issue #525).
+  (`<environment>:<client>`) and refuses one without. An import re-stamps no video (corrected
+  2026-11-28, review of #552): each the client's records name (`core_media.stream_uid`) must
+  already carry its `clientStamp`, the one place the creator's shape is decided (`clientStampOf`
+  uses it), or not be in this account (named); any other refuses the import. An export lists none
+  and does not download them (issue #525).
 - **Extension objects in an import** (`x_*`, `rec_*`) are taken as the export declares them; core
   objects are checked against this code's migrations. Checking extension objects against what the
   reconciler derives from the imported manifests is not built.
@@ -516,26 +518,33 @@ sign-in codes, invites and every notification name the client's product, never a
   each checked, nothing of the two secrets printed; a re-run with them replaces them. Never a
   client's: `cos client secret` does not take them.
 
-### An import never takes another client's video (review of #552, M-S1; 2026-11-28)
+### An import never takes another client's video (review of #552, M-S1 and its third check; 2026-11-28)
 - **The gap.** `cos client import` re-stamped every video the imported database names
   (`core_media.stream_uid`) with the importing client, whatever its creator. A video id is no
   secret (every playback token's `sub` names it), so a crafted export could name another client's
   videos and take them: play, caption and delete them, and the owner refused.
-- **Decided.** Before any video is re-stamped, each one's creator is read (`streamVideoCreator`,
-  Stream's `GET /stream/<uid>`). Re-stamped: a video with no creator (what a single-client
-  deployment's uploads carry), and one carrying exactly the stamp the operator names with
-  `--videos-from <environment>:<client>` (a genuine move from another environment or fleet of this
-  account; refused when it names a client of this deployment). Left as they are: the client's own.
-  Any other creator stops the import, naming the videos, with none re-stamped. The export's SQL is
-  only readable once it is in a database, so the refusal comes after the database is in and
-  before any video is touched; the client was added paused and is never served, and `cos client
-  remove` drops it. The safe default is no other stamp, ever; the flag is explicit per import.
+- **Decided (the coordinator's, after the third check): an import re-stamps nothing.** Before the
+  client is served, each video's creator is read (`streamVideoCreator`, Stream's `GET
+  /stream/<uid>`). Accepted: a video already the importing client's (`<environment>:<client>`),
+  and one this account does not hold (named, as before). Anything else refuses the import, naming
+  each video and its stamp: no creator (an unstamped video is anyone's to name, so claiming it on
+  no evidence would let an import take it), any other creator, or a read that failed. The export's
+  SQL is only readable once it is in a database, so the refusal comes after the database is in;
+  the client was added paused and is never served, and `cos client remove` drops it.
+- **First built with a `--videos-from <stamp>` flag, removed:** live and staging are separate
+  deployments with separate registries on one Stream account, so a staging import naming
+  `live:<client>` could not be checked against live's registry and would take live's videos. With
+  nothing re-stamped, `setStreamCreator` had no caller and is gone.
+- **Not built: a safe move of a client's videos between deployments.** It needs the named
+  client checked in its own environment's registry, `live:*` refused on staging, and an explicit
+  opt-in for unstamped videos (stage 66 Status).
 - **A checked video's memory.** A client's video host signed without asking Stream for any video
   it had checked (up to 1,000). It now does so for `CHECKED_VIDEO_TTL_MS` (60 seconds) after the
-  check, then asks again, so a video re-stamped elsewhere stops being signed for within a minute.
+  check, then asks again, so a video whose creator changed stops being signed for within a minute.
 - Tests: `packages/create-composable-os/test/fleet.test.ts` (an import naming gym-a's video is
-  refused and nothing is re-stamped; `--videos-from` naming gym-a is refused; a genuine move with
-  it is taken), the app's two-client `caches.test.ts` (the signing memory).
+  refused, so is one naming an unstamped video and one whose read fails; an import whose videos
+  are its own is taken; nothing is re-stamped), `packages/release/test/fleet.test.ts` (the creator
+  read), the app's two-client `caches.test.ts` (the signing memory).
 
 ### The fleet's domain at the write (review of #552, S-R1; 2026-11-28)
 An allowed origin is checked against the fleet's registrable domain where the registry is written
