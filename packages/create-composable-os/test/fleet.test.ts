@@ -1061,6 +1061,65 @@ describe("cos fleet install", () => {
       world.server.close();
     }
   });
+
+  it("refuses an install over a fleet unless it names the version, domain and callback hostname installed (review of #547, M1)", async () => {
+    const { buildFixtureRelease } = await import("@composable-os/release/testing");
+    const { runIn, startWorld } = await import("./world.ts");
+    const world = await startWorld();
+    try {
+      for (const version of ["1.0.0", "1.1.0"]) {
+        await world.github.publish(
+          await buildFixtureRelease({ version, fleet: true, clientGatekeepers: true }),
+        );
+      }
+      const keysPath = join(mkdtempSync(join(tmpdir(), "s66-m1-keys-")), "live.json");
+      expect((await runIn(world, "fleet", "keys", "--env", "live", "--out", keysPath)).code).toBe(
+        0,
+      );
+      const install = (version: string, domain: string, callback: string) =>
+        runIn(
+          world,
+          ...["fleet", "install", "--env", "live", "--keys-file", keysPath, "--version", version],
+          ...["--callback-hostname", callback, "--domain", domain],
+        );
+      const first = await install("1.0.0", "fleet.example", "callback.fleet.example");
+      expect(first.code, first.output).toBe(0);
+      const host = [...world.cf.d1.values()].find((d) => d.name === "demo");
+      const stateText = async () =>
+        String(
+          (
+            await host?.engine.query("SELECT value FROM core_install WHERE key = 'deployment'", [])
+          )?.[0]?.value,
+        );
+      const before = await stateText();
+      const versions = () => world.cf.live("demo-app")?.metadata.bindings;
+      const uploaded = JSON.stringify(versions());
+      for (const [version, domain, callback, says] of [
+        // An upgrade under the wrong command: the clients' databases would not be migrated.
+        ["1.1.0", "fleet.example", "callback.fleet.example", "cos fleet upgrade"],
+        // A typo in the domain or the callback hostname would move what clients rely on.
+        ["1.0.0", "flet.example", "callback.fleet.example", "domain fleet.example"],
+        [
+          "1.0.0",
+          "fleet.example",
+          "callback2.fleet.example",
+          "callback hostname callback.fleet.example",
+        ],
+      ] as const) {
+        const { code, output } = await install(version, domain, callback);
+        expect(code, output).toBe(1);
+        expect(output).toContain("already installed");
+        expect(output).toContain(says);
+        expect(await stateText()).toBe(before);
+        expect(JSON.stringify(versions())).toBe(uploaded);
+      }
+      // The same names: a re-run, to finish an install that stopped.
+      const again = await install("1.0.0", "fleet.example", "callback.fleet.example");
+      expect(again.code, again.output).toBe(0);
+    } finally {
+      world.server.close();
+    }
+  });
 });
 
 describe("a fleet's gatekeepers (ADR 0618, issue #529)", () => {
