@@ -16,7 +16,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applyMigrations, type Migration } from "@composable-os/db";
 import { clientDbCallerProps, runnerCallerProps } from "@composable-os/db/client-proofs";
-import { REGISTRY_MIGRATIONS_TABLE } from "@composable-os/db/registry";
+import { firstAdminEmail, REGISTRY_MIGRATIONS_TABLE } from "@composable-os/db/registry";
 import { migrationOf } from "@composable-os/db/sql-split";
 import {
   compareVersions,
@@ -76,6 +76,13 @@ import {
 } from "./keys.ts";
 import { openOperator, STALE_NOTE } from "./operator-client.ts";
 import { lazyOperator } from "./session.ts";
+import {
+  addSettingsProblems,
+  firstAdminCommand,
+  labelSetting,
+  releasePacksOf,
+  settingCommand,
+} from "./settings.ts";
 import { fleetUpdate } from "./update.ts";
 
 export const CLIENT_COMMANDS = [
@@ -88,6 +95,8 @@ export const CLIENT_COMMANDS = [
   "import",
   "remove",
   "sender",
+  "setting",
+  "first-admin",
 ] as const;
 
 export const FLEET_USAGE = `cos fleet: a host of many clients (stage 66, docs/deploying.md "A host of many clients")
@@ -106,6 +115,12 @@ cos client: the clients of a host of many clients (each takes --env <live|stagin
   cos client sender add|verify|unverify|remove <id> <domain>
                  a client's sender domains; verify is your confirmation that the domain is
                  onboarded to Email Sending in this account with valid records
+  cos client setting list <id> | setting set <id> <NAME> <value> | setting unset <id> <NAME>
+                 a running client's settings: COS_PACKS (only wider), API_ALLOWED_ORIGINS,
+                 NATIVE_REDIRECT_URIS, APPROVAL_EXPIRY_DAYS, COS_PRODUCT_LABEL
+  cos client first-admin <id> <email>
+                 who may make the client's first account: a setup link for that address, printed
+                 once (add takes --admin <email> and --label <name> too)
 Every command that removes or overwrites asks for the client's id (or --yes); --dry-run changes nothing.
 One command at a time uses the operator's Worker; --take-over takes it from one that was killed.`;
 
@@ -414,7 +429,7 @@ async function withContext(
   deps: Deps,
   s: Session,
   state: DeploymentState,
-  body: (ctx: FleetContext) => Promise<number>,
+  body: (ctx: FleetContext & { release: ReleaseBundle }) => Promise<number>,
 ): Promise<number> {
   const fleet = state.fleet;
   if (!fleet) throw new CliError("Not a host of many clients");
@@ -452,6 +467,7 @@ async function withContext(
       io: deps.io,
       yes: Boolean(flags.yes),
       dryRun: Boolean(flags["dry-run"]),
+      release: installed.bundle,
       videos: {
         setCreator: (uid, creator) => s.api.setStreamCreator(s.accountId, uid, creator),
       },
@@ -481,6 +497,48 @@ async function secretValue(flags: Flags, deps: Deps, name: string): Promise<stri
   if (!value) throw new CliError(`${name}: give the value with --value-file <f> or at the prompt`);
   deps.redactor.add(value);
   return value;
+}
+
+/**
+ * `cos client add`'s own flags of stage 66 step 9, before anything is written: `--label` as the
+ * client's `COS_PRODUCT_LABEL`, `--admin` an address, and each setting as `cos client setting`
+ * checks it (packs against the installed release).
+ */
+function prepareAdd(ctx: FleetContext & { release: ReleaseBundle }, flags: Flags): void {
+  const label = str(flags, "label");
+  if (label !== undefined) {
+    const setting = labelSetting(label);
+    flags.setting = [
+      ...((flags.setting as string[] | undefined) ?? []),
+      `COS_PRODUCT_LABEL=${setting.COS_PRODUCT_LABEL}`,
+    ];
+  }
+  const admin = str(flags, "admin");
+  if (admin !== undefined && !firstAdminEmail(admin)) {
+    throw new CliError("--admin: the first admin's email address");
+  }
+  const problems = addSettingsProblems(settingsOf(flags), releasePacksOf(ctx.release.clientFiles));
+  if (problems.length) throw new CliError(problems.join("; "));
+}
+
+/** After `cos client add`: with `--admin`, the first admin named and the setup link printed. */
+function afterAdd(ctx: FleetContext, id: string | undefined, flags: Flags) {
+  return async (code: number): Promise<number> => {
+    const admin = str(flags, "admin");
+    if (code === 0 && admin && ctx.dryRun) {
+      ctx.io.out(`  Would name ${admin} its first admin and print a setup link.`);
+      return code;
+    }
+    if (code !== 0 || !admin) {
+      if (code === 0 && !ctx.dryRun) {
+        ctx.io.out(
+          "  No first admin was named: nobody can make the client's first account until you run cos client first-admin <id> <email>.",
+        );
+      }
+      return code;
+    }
+    return firstAdminCommand(ctx, id, admin);
+  };
 }
 
 /** `cos client <command>`. */
@@ -513,6 +571,8 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
     const s = await session(flags, deps);
     const { state } = await locateFleet(s, environment);
     return await withContext(`client ${command}`, flags, deps, s, state, async (ctx) => {
+      // `--label` and `--admin` (stage 66 step 9), and every setting checked, before anything.
+      if (command === "add") prepareAdd(ctx, flags);
       switch (command) {
         case "add":
           return addClient(ctx, {
@@ -527,7 +587,7 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
               ? { webHostname: str(flags, "web-hostname") as string }
               : {}),
             settings: settingsOf(flags),
-          });
+          }).then(afterAdd(ctx, positional[0], flags));
         case "pause":
           return pauseClient(ctx, positional[0] as string);
         case "resume":
@@ -566,6 +626,19 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
         }
         case "remove":
           return removeClient(ctx, positional[0] as string);
+        case "setting": {
+          const [verb, id, name, value] = positional;
+          return settingCommand(
+            ctx,
+            releasePacksOf(ctx.release.clientFiles),
+            verb,
+            id,
+            name,
+            value,
+          );
+        }
+        case "first-admin":
+          return firstAdminCommand(ctx, positional[0], positional[1]);
         case "sender": {
           const [verb, id, domain] = positional;
           if (!verb || !id || !domain) {

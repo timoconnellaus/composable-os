@@ -464,3 +464,28 @@ export async function releaseOperatorSession(registry: D1Database, holder: strin
     .bind(holder)
     .run();
 }
+
+// --- A client's settings, read back (stage 66 step 9, `cos client setting list`) -----------------
+
+/** A client's own settings rows, by name (none: every setting inherited or empty). */
+export async function readClientSettings(
+  registry: D1Database,
+  id: ClientId,
+): Promise<Record<string, string>> {
+  const { results } = await registry
+    .prepare("SELECT name, value FROM registry_settings WHERE client = ? ORDER BY name")
+    .bind(validateClientId(id))
+    .all<{ name: string; value: string }>();
+  return Object.fromEntries(results.map((r) => [r.name, r.value]));
+}
+
+/** A client's staff hostname: its marked verified one, else any verified one, else null. */
+export async function staffHostnameOf(registry: D1Database, id: ClientId): Promise<string | null> {
+  const row = await registry
+    .prepare(
+      "SELECT hostname FROM registry_hostnames WHERE client = ? AND surface = 'staff' AND verified = 1 ORDER BY is_primary DESC, hostname LIMIT 1",
+    )
+    .bind(validateClientId(id))
+    .first<{ hostname: string }>();
+  return row?.hostname ?? null;
+}

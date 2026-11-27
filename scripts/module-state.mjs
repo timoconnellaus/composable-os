@@ -244,7 +244,11 @@ export const MODULE_STATE = {
   // --- packages/product and packages/sdk -----------------------------------------------------
   "packages/product/src/index.ts#deployedLabel": [
     "independent",
-    "the deployment's product label (COS_PRODUCT_LABEL, SHARED in ENV_NAMES): every client of a host is the same product",
+    "the deployment's own product label (its COS_PRODUCT_LABEL var), what a client with no label of its own and code outside every client's scope read; a client's own label comes from its scope (clientLabel)",
+  ],
+  "packages/product/src/index.ts#clientLabel": [
+    "independent",
+    "code registered at load: reads the label of the scope the code runs in (core's AsyncLocalStorage), holds none itself",
   ],
   "packages/sdk/src/testing.ts#sequence": [
     "independent",

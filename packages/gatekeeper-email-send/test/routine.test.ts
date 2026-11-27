@@ -11,7 +11,9 @@ const SENDER_URL = "email-send://sender/crm%40example.com";
 const SITE = "https://gym.example";
 
 let seq = 0;
-async function host(options: { hostRoutine?: { siteOrigin: string | null } } = {}) {
+async function host(
+  options: { hostRoutine?: { siteOrigin: string | null; replyTo?: string | null } } = {},
+) {
   seq += 1;
   const stub = env.TEST_HOST.getByName(`routine-${seq}-${crypto.randomUUID()}`);
   await stub.open(SENDER_URL, options);
@@ -100,6 +102,51 @@ describe("the routine kind", () => {
   });
 });
 
+// Stage 66 step 9: the business's own reply address, a human admin's setting the host's routine
+// queue names, is the one Reply-To a routine email keeps its kind with. A Reply-To from anywhere
+// else (the message's author, a queue that names none) makes it an ordinary send, held for a
+// person, exactly as before.
+describe("a Reply-To on routine mail", () => {
+  const REPLY = "hello@gym.example";
+
+  it("the business's own reply address, as the host's queue names it, keeps the routine kind", async () => {
+    for (const replyTo of [REPLY, "Hello@Gym.Example"]) {
+      resetFakes();
+      const h = await host({ hostRoutine: { siteOrigin: SITE, replyTo: REPLY } });
+      const receipt = await send(h, { ...routine, replyTo });
+      expect(kindOf(), replyTo).toBe("email.routine");
+      await h.apply(receipt.id);
+      expect(sentEmails[0]?.replyTo, replyTo).toBe(replyTo);
+    }
+  });
+
+  it("any other Reply-To, or one the queue does not name, is an ordinary send", async () => {
+    const cases: [{ siteOrigin: string | null; replyTo?: string | null }, string][] = [
+      [{ siteOrigin: SITE, replyTo: REPLY }, "phish@evil.test"],
+      [{ siteOrigin: SITE, replyTo: REPLY }, `${REPLY}.evil.test`],
+      [{ siteOrigin: SITE, replyTo: null }, REPLY],
+      [{ siteOrigin: SITE }, REPLY],
+    ];
+    for (const [hostRoutine, replyTo] of cases) {
+      resetFakes();
+      const h = await host({ hostRoutine });
+      await send(h, { ...routine, replyTo });
+      expect(kindOf(), `${JSON.stringify(hostRoutine)} ${replyTo}`).toBe("email.send");
+    }
+  });
+
+  it("a sign-in code with a Reply-To is never the sign-in kind", async () => {
+    const h = await host({ hostSignIn: true } as never);
+    await send(h, {
+      to: ["owner@gym.example"],
+      subject: "Your Gym sign-in code",
+      text: "Your sign-in code for Gym is 123456.\n\nIt works once and expires in five minutes. If you did not ask for it, ignore this email.",
+      replyTo: REPLY,
+    });
+    expect(kindOf()).not.toBe("email.signin");
+  });
+});
+
 describe("the one-tap stop (ADR 0675)", () => {
   const link = `${SITE}/stop?t=AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCd`;
   const stoppable = {
@@ -119,7 +166,10 @@ describe("the one-tap stop (ADR 0675)", () => {
   });
 
   it("any other queue, or a link off the site's stop route, is refused", async () => {
-    const cases: [{ hostRoutine?: { siteOrigin: string | null } }, string][] = [
+    const cases: [
+      { hostRoutine?: { siteOrigin: string | null; replyTo?: string | null } },
+      string,
+    ][] = [
       [{}, link],
       [{ hostRoutine: { siteOrigin: SITE } }, "https://evil.test/stop?t=x"],
       [{ hostRoutine: { siteOrigin: SITE } }, `${SITE}/login?t=x`],

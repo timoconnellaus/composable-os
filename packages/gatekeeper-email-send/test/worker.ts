@@ -66,13 +66,13 @@ export class FakeEmail extends WorkerEntrypoint {
 class FakeQueue extends RpcTarget {
   readonly #autoApply: ((id: number) => Promise<void>) | undefined;
   readonly #hostSignIn: boolean;
-  readonly #routine: { siteOrigin: string | null } | null;
+  readonly #routine: { siteOrigin: string | null; replyTo?: string | null } | null;
   readonly #hostAgreement: boolean;
 
   constructor(
     autoApply?: (id: number) => Promise<void>,
     hostSignIn = false,
-    routine: { siteOrigin: string | null } | null = null,
+    routine: { siteOrigin: string | null; replyTo?: string | null } | null = null,
     hostAgreement = false,
   ) {
     super();
@@ -110,7 +110,7 @@ class FakeQueue extends RpcTarget {
   }
 
   /** As the CRM's integration host answers: only for its own routine mail, decided routine (ADR 0590). */
-  async hostRoutineMail(): Promise<{ siteOrigin: string | null } | null> {
+  async hostRoutineMail(): Promise<{ siteOrigin: string | null; replyTo?: string | null } | null> {
     return this.#routine;
   }
 
@@ -166,7 +166,7 @@ export class TestHost extends DurableObject<Cloudflare.Env> {
     options: {
       autoApply?: boolean;
       hostSignIn?: boolean;
-      hostRoutine?: { siteOrigin: string | null };
+      hostRoutine?: { siteOrigin: string | null; replyTo?: string | null };
       hostAgreement?: boolean;
       /** The host's purpose the queue answers (`agreements`, `routine-mail`, …). */
       hostPurpose?: string;

@@ -86,6 +86,11 @@ export type QueueCaller =
         runId: string | null;
         extensionId: string;
         siteOrigin: string | null;
+        /**
+         * The business's own reply address (Settings → Routine email, a human admin's; stage 66
+         * step 9): the only Reply-To routine email may carry and keep its routine kind.
+         */
+        replyTo?: string | null;
         /** The row's channel: an email, or a text (ADR 0672). Absent: an email. */
         channel?: "email" | "text";
       };
@@ -230,11 +235,15 @@ export class HostQueue extends RpcTarget {
    * Whether this session is the host's own routine mail, decided routine (ADR 0590), and the
    * business's site its links may point to. Email-send gives a send its routine kind only when
    * this answers, and only for a message of routine shape: a held one answers null and is an
-   * ordinary send. The answer comes from how the host opened the queue, never from the caller.
+   * ordinary send. The answer comes from how the host opened the queue, never from the caller;
+   * so does the reply address it names, the only Reply-To a routine email keeps its kind with.
    */
-  async hostRoutineMail(): Promise<{ siteOrigin: string | null } | null> {
+  async hostRoutineMail(): Promise<{ siteOrigin: string | null; replyTo: string | null } | null> {
     if (this.#caller.kind !== "system" || this.#caller.purpose !== "routine-mail") return null;
-    return this.#caller.routine.routine ? { siteOrigin: this.#caller.routine.siteOrigin } : null;
+    const routine = this.#caller.routine;
+    return routine.routine
+      ? { siteOrigin: routine.siteOrigin, replyTo: routine.replyTo ?? null }
+      : null;
   }
 
   /**

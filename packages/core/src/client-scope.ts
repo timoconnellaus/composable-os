@@ -30,6 +30,11 @@ export interface ClientScope {
    * single client; a scope `invoke` made with no entry).
    */
   readonly client: string | null;
+  /**
+   * The client's own name for the product (its environment's `COS_PRODUCT_LABEL`, stage 66 step
+   * 9), set by the entry with the scope; absent where an entry did not give one.
+   */
+  readonly label?: string | null;
 }
 
 /** The part of `AsyncLocalStorage` this uses (workerd's, under nodejs_compat). */
@@ -108,6 +113,15 @@ export function currentClientScope(): ClientScope | null {
  */
 export function currentClientId(): string | null {
   return currentClientScope()?.client ?? null;
+}
+
+/**
+ * The label of the client the code runs for (stage 66 step 9), or null: no store, no scope, or a
+ * scope given none. Never throws, and never another scope's: outside every client's scope the
+ * product's name falls back to the deployment's (`productName`).
+ */
+export function currentClientLabel(): string | null {
+  return store?.getStore()?.label ?? null;
 }
 
 /** One value per client: what a module keeps between requests (`clientState`). */

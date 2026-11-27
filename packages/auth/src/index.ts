@@ -1,10 +1,12 @@
 import type { RateLimitBinding } from "@composable-os/core";
 import { perClientMissing } from "@composable-os/db/client-entries";
+import { parseFirstAdmin } from "@composable-os/db/registry";
 import {
   type BetterAuthInstance,
   betterAuthProvider,
   clientAddressSecret,
   createBetterAuth,
+  humanCount,
   type StaffCodes,
 } from "./better-auth.ts";
 import { cloudflareAccessProvider } from "./cloudflare-access.ts";
@@ -34,6 +36,9 @@ export {
   clientAddressSecret,
   codeRequestRefusal,
   createBetterAuth,
+  FIRST_ADMIN_HEADER,
+  type FirstAdmin,
+  firstAdminMaySignUp,
   hostOnlyCookies,
   isSessionCookie,
   requestStaffCode,
@@ -93,6 +98,11 @@ export interface IdentityEnv {
   CF_ACCESS_AUD?: string;
   /** Set in a client's environment on a host of many clients (ADR 0616): `__Host-` cookies. */
   COS_CLIENT_ID?: string;
+  /**
+   * A many-client host's client setting (stage 66 step 9): who may make its first account, by
+   * the operator's setup link (`@composable-os/db/registry` `firstAdminValue`).
+   */
+  COS_FIRST_ADMIN?: string;
   /** A many-client host's derived key for client addresses (ADR 0616). */
   CLIENT_ADDRESS_SECRET?: string;
   /** Code requests per address asked for: staff and customers share it (ADR 0455). */
@@ -151,6 +161,9 @@ export function getBetterAuth(env: IdentityEnv): BetterAuthInstance | null {
       codeAddressRateLimit: env.CUSTOMER_CODE_ADDRESS_RATE_LIMIT,
       addressSecret: clientAddressSecret(env),
       hostOnlyCookies: Boolean(env.COS_CLIENT_ID),
+      // A client of a many-client host: only its named first admin makes its first account
+      // (stage 66 step 9). A single-client deployment: the first person, as before.
+      ...(env.COS_CLIENT_ID ? { firstAdmin: parseFirstAdmin(env.COS_FIRST_ADMIN) } : {}),
     });
     betterAuthCache.set(env, auth);
   }
@@ -177,12 +190,21 @@ export function createIdentityProvider(env: IdentityEnv): IdentityProvider {
 }
 
 /**
- * True until the deployment has its first user, who may always sign up (better-auth.ts) and
- * becomes its admin, so the sign-in page offers to create that account.
+ * True until the deployment has its first person (an installed pack's principal is not one),
+ * who becomes its admin, so the sign-in page offers to create that account: anyone on a
+ * single-client deployment, the named first admin by the operator's setup link on a host of many
+ * clients (better-auth.ts).
  */
 export async function awaitingFirstUser(db: D1Database): Promise<boolean> {
-  const row = await db.prepare("SELECT COUNT(*) AS n FROM core_user").first<{ n: number }>();
-  return (row?.n ?? 0) === 0;
+  return (await humanCount(db)) === 0;
+}
+
+/**
+ * Whether the first account is made only by the operator's setup link (stage 66 step 9): on a
+ * host of many clients. Safe to send to the browser.
+ */
+export function firstAdminByLink(env: object): boolean {
+  return Boolean((env as Pick<IdentityEnv, "COS_CLIENT_ID">).COS_CLIENT_ID);
 }
 
 /** Which sign-in methods the UI should offer. Safe to send to the browser. */

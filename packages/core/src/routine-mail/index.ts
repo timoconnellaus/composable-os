@@ -158,6 +158,13 @@ export const routineMailSettingsSchema = z.object({
   kinds: z.record(z.string().max(80), z.boolean()).default({}),
   /** The business's own site (`https://gym.example`): the only place a routine email links to. */
   siteOrigin: z.string().max(200).nullable().default(null),
+  /**
+   * The business's own reply address (`hello@gym.example`), a human admin's (stage 66 step 9):
+   * routine email carries it as its Reply-To and still goes on its own, because the gatekeeper
+   * takes a Reply-To on routine mail only when it is this, which the host gives it, never the
+   * message. None, the default: no Reply-To.
+   */
+  replyTo: z.string().max(254).nullable().default(null),
   /** Routine emails the organisation sends in a rolling day before the rest wait for a person. */
   orgDailyCap: z.number().int().min(1).max(100_000).default(ROUTINE_ORG_DAILY_CAP),
   /** Months the log is kept. */
@@ -218,6 +225,7 @@ const DEFAULT_SETTINGS: RoutineMailSettings = {
   packs: {},
   kinds: {},
   siteOrigin: null,
+  replyTo: null,
   orgDailyCap: ROUTINE_ORG_DAILY_CAP,
   retentionMonths: ROUTINE_LOG_MONTHS,
   receiptDailyCap: ROUTINE_RECEIPT_DAILY_CAP,
@@ -286,6 +294,16 @@ export function siteOriginOf(value: string | null | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+/** A reply address routine email may carry: one plain address, lowercase, or null. */
+export function replyToOf(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const address = value.trim().toLowerCase();
+  if (address.length > 254) return null;
+  return /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(address)
+    ? address
+    : null;
 }
 
 /** A link a routine email may carry: https, on the site, no credentials; else null. */
@@ -2283,6 +2301,8 @@ export interface RoutineMailRow {
      * List-Unsubscribe and List-Unsubscribe-Post headers to it, for the host's routine mail only.
      */
     listUnsubscribe?: string;
+    /** The business's own reply address (`replyTo` in the settings, a human admin's). */
+    replyTo?: string;
   };
 }
 
@@ -2631,6 +2651,7 @@ export async function claimRoutineMail(
           ? { calendar: events }
           : {}),
       ...(listUnsubscribe ? { listUnsubscribe } : {}),
+      ...(replyToOf(settings.replyTo) ? { replyTo: replyToOf(settings.replyTo) as string } : {}),
     },
   };
 }

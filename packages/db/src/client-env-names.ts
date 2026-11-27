@@ -206,9 +206,8 @@ export const ENV_NAMES: Readonly<Record<string, EnvNameUse>> = {
   COS_SUPPORT_PUBLIC_KEY: SHARED(
     "verifies support grants, whose audience is the request's hostname, so one client's grant fails at another's",
   ),
-  COS_PRODUCT_LABEL: SHARED(
-    "the product's name; read once into a module-level label today, which step 5 makes per client",
-  ),
+  // COS_PRODUCT_LABEL is a client setting (`CLIENT_SETTINGS`, stage 66 step 9): the client's own
+  // label, else the deployment's.
   COS_DEV_ORG_PACKS: SHARED("a development flag"),
   MCP_ACCESS_TOKEN_TTL: SHARED("a duration"),
   INTEGRATIONS_FAKE_PROVIDER: SHARED("a test flag"),

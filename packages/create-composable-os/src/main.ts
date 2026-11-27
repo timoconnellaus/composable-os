@@ -200,6 +200,13 @@ A host of many clients (stage 66; docs/deploying.md "A host of many clients")
   cos client sender add|verify|unverify|remove <id> <domain>
                                          a client's sender domains (added unverified; verify is
                                          your confirmation it is onboarded to Email Sending)
+  cos client setting list|set|unset <id> [NAME] [value]
+                                         a running client's settings: COS_PACKS (only wider),
+                                         API_ALLOWED_ORIGINS, NATIVE_REDIRECT_URIS,
+                                         APPROVAL_EXPIRY_DAYS, COS_PRODUCT_LABEL
+  cos client first-admin <id> <email>    who may make its first account: a setup link for that
+                                         address, printed once (add takes --admin <email> and
+                                         --label <name> too)
   Each asks for the client's id before removing or overwriting (or --yes); a re-run after a
   failure carries on where it stopped.
 

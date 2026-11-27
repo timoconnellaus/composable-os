@@ -47,6 +47,8 @@ export interface OperationsEnv extends AiAppEnv, DeskEnv {
   APPROVAL_FLOOR?: string;
   /** Days before a pending action expires (ADR 0022). Default 7. */
   APPROVAL_EXPIRY_DAYS?: string;
+  /** The packs the deployment (or the client) has: the runner installs them (ADR 0420). */
+  COS_PACKS?: string;
   /** The OAuth provider's store, so revoking a connected app also deletes its tokens. */
   OAUTH_KV?: KVNamespace;
   /** cos-runner: the extension host (ADR 0025). */
@@ -182,6 +184,23 @@ function rpcHost(stub: ExtensionHost): ExtensionHost {
   };
 }
 
+/**
+ * The packs an explicit `COS_PACKS` list names that an install's results do not mention: the
+ * runner installed from another list. None for "*" or no list (the release's own packs).
+ */
+export function packsNotInstalled(
+  packs: string | undefined,
+  results: readonly { id: string }[],
+): string[] {
+  const value = packs?.trim();
+  if (!value || value === "*") return [];
+  const seen = new Set(results.map((r) => r.id));
+  return value
+    .split(",")
+    .map((id) => id.trim())
+    .filter((id) => id && !seen.has(id));
+}
+
 // Once per environment (stage 66 step 5, ADR 0617): on a many-client host each client's
 // environment is its own object, and each client's database needs its own install.
 const shippedInstalls = new WeakMap<object, Promise<void>>();
@@ -201,6 +220,12 @@ export function ensureShippedExtensions(env: OperationsEnv): Promise<void> {
     .then((results) => {
       const failed = results.filter((r) => r.outcome === "failed");
       if (failed.length) console.error("shipped extensions failed to install", failed);
+      // The runner read an older registry than this environment (each refreshes on its own, within
+      // 10 seconds): a pack just added to the client's COS_PACKS was not in its list. Not held, so
+      // the next request installs it (stage 66 step 9).
+      if (packsNotInstalled(env.COS_PACKS, results).length) {
+        shippedInstalls.delete(key);
+      }
     })
     .catch((error: unknown) => {
       console.error("could not install shipped extensions", error);

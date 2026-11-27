@@ -43,6 +43,7 @@ function RoutineEmailPage() {
           <PacksCard />
           <KindsCard />
           <SiteCard />
+          <ReplyToCard />
           <LogCard />
         </div>
       ) : (
@@ -245,6 +246,60 @@ function SiteCard() {
                 type="url"
                 placeholder="https://www.example.com"
                 defaultValue={site ?? ""}
+              />
+            </div>
+            <Button type="submit" variant="outline" disabled={update.isPending}>
+              {update.isPending ? "Saving…" : "Save"}
+            </Button>
+          </form>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * The business's own reply address (stage 66 step 9): routine email's Reply-To, so a member's
+ * reply reaches the business. Only this address keeps routine email going on its own.
+ */
+function ReplyToCard() {
+  const state = useOp("routineMail.get", {});
+  const update = useOpMutation("routineMail.settings.update");
+  const replyTo = state.data?.replyTo;
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const value = String(new FormData(event.currentTarget).get("replyTo") ?? "").trim();
+    try {
+      await update.mutateAsync({ replyTo: value || null });
+      toast.success(value ? "Saved. Replies to routine email go there." : "Removed: no Reply-To");
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Replies</CardTitle>
+        <CardDescription>
+          Where a member's reply to a routine email goes. Empty: the emails carry no reply address.
+          Sign-in codes never carry one.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {state.isPending ? (
+          <Skeleton className="h-10" />
+        ) : (
+          <form onSubmit={onSubmit} className="flex items-end gap-2" key={replyTo ?? ""}>
+            <div className="grid flex-1 gap-2">
+              <Label htmlFor="routine-reply-to">Reply address</Label>
+              <Input
+                id="routine-reply-to"
+                name="replyTo"
+                type="email"
+                placeholder="hello@example.com"
+                defaultValue={replyTo ?? ""}
               />
             </div>
             <Button type="submit" variant="outline" disabled={update.isPending}>
