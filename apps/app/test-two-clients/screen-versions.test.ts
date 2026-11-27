@@ -20,7 +20,12 @@ const parts: AppParts = { app: createAppHandler({ fetch: start }), start };
 
 async function fetchAt(hostname: string, path: string, init: RequestInit = {}): Promise<Response> {
   const ctx = createExecutionContext();
-  const response = await hostFetch(new Request(`https://${hostname}${path}`, init), host, ctx, parts);
+  const response = await hostFetch(
+    new Request(`https://${hostname}${path}`, init),
+    host,
+    ctx,
+    parts,
+  );
   await waitOnExecutionContext(ctx);
   return response;
 }
@@ -80,7 +85,7 @@ function putFile(hostname: string, token: string, version: string, sha: string, 
   return fetchAt(hostname, `/api/v1/screens/versions/${version}/files/${sha}`, {
     method: "PUT",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" },
-    body: bytes,
+    body: bytes as Uint8Array<ArrayBuffer>,
   });
 }
 
@@ -163,20 +168,36 @@ describe("one client's screen versions, out of another's reach (criterion 7)", (
   });
 
   it("cannot be written to by B, by its id or with A's token at B's address", async () => {
-    const put = await putFile(b.hostname, tokenB, versionA, hashes[0] as string, files[0]?.bytes as Uint8Array);
+    const put = await putFile(
+      b.hostname,
+      tokenB,
+      versionA,
+      hashes[0] as string,
+      files[0]?.bytes as Uint8Array,
+    );
     expect(put.status).toBe(404);
     // A's token at B's address is no one's there.
     const crossed = await op(b.hostname, tokenA, "screens.versionList", {});
     expect(crossed.status).toBe(401);
-    const crossedPut = await putFile(b.hostname, tokenA, versionA, hashes[0] as string, files[0]?.bytes as Uint8Array);
+    const crossedPut = await putFile(
+      b.hostname,
+      tokenA,
+      versionA,
+      hashes[0] as string,
+      files[0]?.bytes as Uint8Array,
+    );
     expect(crossedPut.status).toBe(401);
   });
 
   it("refuses a file sent without a staff device token", async () => {
-    const response = await fetchAt(a.hostname, `/api/v1/screens/versions/${versionA}/files/${hashes[0]}`, {
-      method: "PUT",
-      body: files[0]?.bytes,
-    });
+    const response = await fetchAt(
+      a.hostname,
+      `/api/v1/screens/versions/${versionA}/files/${hashes[0]}`,
+      {
+        method: "PUT",
+        body: files[0]?.bytes as Uint8Array<ArrayBuffer>,
+      },
+    );
     expect(response.status).toBe(401);
   });
 });

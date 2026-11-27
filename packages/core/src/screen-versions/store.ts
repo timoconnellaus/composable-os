@@ -14,6 +14,7 @@
 // removed only when ten newer sealed versions exist and nothing holds it; a file named by a
 // version is never removed.
 import type { CoreDatabase, CrmDb } from "@composable-os/db";
+import { SCREEN_VERSION_KINDS } from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
 import type { BlobStore } from "../integrations/runtime.ts";
 
@@ -25,10 +26,10 @@ export const SCREEN_FILES_PREFIX = "screens/";
 /** How long an open version may take to be sealed before it is swept, with what it was sent. */
 export const OPEN_VERSION_HOURS = 24;
 
-/** Open versions a client may have at once: with the limits of one, the bound on unsealed bytes. */
+/** Open versions of a kind a client may have at once: with a version's limits, the bound on unsealed bytes. */
 export const MAX_OPEN_VERSIONS = 3;
 
-/** Sealed versions always kept, newest first; the trigger on core_screen_version holds it too. */
+/** Sealed versions of each kind always kept, newest first; the delete trigger holds it too. */
 export const KEPT_VERSIONS = 10;
 
 /** Where a file's bytes are: by its hash, and the version that first stored it. */
@@ -92,7 +93,7 @@ const SWEEP_PAGES = 20;
 /**
  * The daily sweep (the maintenance cron, per client): holds whose time has passed end; open
  * versions past their time go with what they were sent; sealed versions the retention rule lets go
- * are removed (all but the ten newest sealed, unless held); files no version names and no open
+ * are removed (all but the ten newest sealed of each kind, unless held); files no version names and no open
  * version was sent are queued for deletion from the files binding (core_blob_deletion, drained by
  * the 10-minute cron) in the same batch that removes their rows, so a file put again after that
  * gets a new key; and stray objects under `screens/` that no row names (a put whose batch failed,
@@ -134,32 +135,35 @@ export async function sweepScreenVersions(
     result.openRemoved += 1;
   }
 
-  const beyond = await db
-    .selectFrom("core_screen_version as v")
-    .select("v.id")
-    .where("v.state", "=", "sealed")
-    .where(({ not, exists, selectFrom }) =>
-      not(
-        exists(
-          selectFrom("core_screen_version_hold as h")
-            .select("h.version_id")
-            .whereRef("h.version_id", "=", "v.id"),
+  for (const kind of SCREEN_VERSION_KINDS) {
+    const beyond = await db
+      .selectFrom("core_screen_version as v")
+      .select("v.id")
+      .where("v.kind", "=", kind)
+      .where("v.state", "=", "sealed")
+      .where(({ not, exists, selectFrom }) =>
+        not(
+          exists(
+            selectFrom("core_screen_version_hold as h")
+              .select("h.version_id")
+              .whereRef("h.version_id", "=", "v.id"),
+          ),
         ),
-      ),
-    )
-    .orderBy("v.sealed_at", "desc")
-    .orderBy("v.id", "desc")
-    .limit(SWEEP_VERSIONS)
-    .offset(KEPT_VERSIONS)
-    .execute();
-  for (const { id } of beyond) {
-    // The version first (its trigger refuses one still kept), then its files, whose trigger lets
-    // them go only once it has. One batch: both or neither.
-    await crm.batch([
-      db.deleteFrom("core_screen_version").where("id", "=", id),
-      db.deleteFrom("core_screen_version_file").where("version_id", "=", id),
-    ]);
-    result.sealedRemoved += 1;
+      )
+      .orderBy("v.sealed_at", "desc")
+      .orderBy("v.id", "desc")
+      .limit(SWEEP_VERSIONS)
+      .offset(KEPT_VERSIONS)
+      .execute();
+    for (const { id } of beyond) {
+      // The version first (its trigger refuses one still kept), then its files, whose trigger
+      // lets them go only once it has. One batch: both or neither.
+      await crm.batch([
+        db.deleteFrom("core_screen_version").where("id", "=", id),
+        db.deleteFrom("core_screen_version_file").where("version_id", "=", id),
+      ]);
+      result.sealedRemoved += 1;
+    }
   }
 
   const unnamed = sql<boolean>`NOT EXISTS (SELECT 1 FROM core_screen_version_file f WHERE f.sha256 = core_screen_blob.sha256)
@@ -193,11 +197,7 @@ async function deleteStrays(db: Db, blobs: BlobStore): Promise<number> {
   );
   const open = new Set(
     (
-      await db
-        .selectFrom("core_screen_version")
-        .select("id")
-        .where("state", "=", "open")
-        .execute()
+      await db.selectFrom("core_screen_version").select("id").where("state", "=", "open").execute()
     ).map((r) => r.id),
   );
   const queued = new Set(

@@ -201,7 +201,10 @@ here (CONTRIBUTING.md, Working in parallel).
 
 - **Step 2** — not built — The browser-only build
 
-- **Step 3** — not built — The version store
+- **Step 3** — in progress — branch `feat/stage-75-version-store` — The version store: versions
+  (kind `web`), manifests (`@composable-os/sdk/screen-version`), the checks, kept apart per client;
+  `screens.versionBegin`/`versionPut`/`versionSeal`/`versionList`/`versionGet`, the upload route,
+  the retention sweep and the hold step 4 fills; migration 1490, ADR 0961
 
 - **Step 4** — not built — needs: step 3 — The pointer and `screens.publish`
 

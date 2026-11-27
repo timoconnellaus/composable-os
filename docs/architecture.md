@@ -3364,6 +3364,21 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
 - **Environments** ([ADR 0450](adr/0450-client-environments.md)): `product.ts` may declare
   several deployments (`staging`, `live`), each its own host in the same account (`<id>-staging-app`;
   `live` keeps `<id>-app`), deployed with `cos deploy --env <name>`.
+- **Screen versions** (stage 75 step 3, [ADR 0961](adr/0961-the-screen-version-store.md)): a
+  client's built screens are stored as versions in its own database (`core_screen_version`, of a
+  kind: `web` for now) and its own part of the files binding (`screens/<sha256>/<version>`, once
+  a file whatever number of versions name it). A version is begun (`screens.versionBegin`), sent
+  file by file to `PUT /api/v1/screens/versions/<id>/files/<sha256>` (a staff device token only;
+  each file hashed on arrival, `screens.versionPut`), and sealed with its manifest
+  (`screens.versionSeal`; the shape is `@composable-os/sdk/screen-version`'s: files, entry, the
+  API contract version, what built it). The seal checks every path, the limits (1000 files, 25 MB
+  a file, 50 MB a version), the entry and every file's hash and size; content types are the
+  host's. Sealed, a version never changes: triggers refuse any change whatever writes the
+  database. The daily maintenance sweeps uploads not sealed within 24 hours and sealed versions
+  beyond the ten newest of their kind that `core_screen_version_hold` does not keep (step 4's
+  seam for the published version and those published in the last 90 days). Who may:
+  `screens:upload`, people only, staff only. `screenVersionFile` is the one way a target finds a
+  sealed version's file; the store knows nothing of how a version is served.
 - **The template** (`templates/client`): `apps/web` (TanStack Start, `src/host.ts` framework-free)
   and `apps/mobile` (Expo, `--with-mobile`; its `src/host.ts` signs in and keeps a device session).
 - **App publishing** (stage 63, ADRs [0900](adr/0900-the-apps-identity-brand-and-listing-from-product-ts.md),

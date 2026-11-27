@@ -18,16 +18,17 @@
 // Who may: `screens:upload` (admins; grantable to a member who builds the screens). People only:
 // an assistant, MCP, an automation or an extension cannot store a version. Storing a draft is
 // lower risk than publishing (it changes nothing anyone sees), but an AI caller has no way to
-// send a file's bytes here and nothing needs it to; the build service (step 9) stores drafts as
-// its own caller when it is built. Publishing is step 4's `screens.publish`, with its own
+// send a file's bytes here and nothing needs it to; a caller that builds versions inside the
+// product would be given its own way in when one is built. Publishing is step 4's `screens.publish`, with its own
 // permission. Staff only: no customer or public caller is told these exist.
 import {
   canonicalScreenVersionManifest,
+  SCREEN_VERSION_KINDS,
   SCREEN_VERSION_LIMITS,
   type ScreenVersionManifest,
+  SHA256_HEX,
   screenContentType,
   screenVersionManifestSchema,
-  SHA256_HEX,
 } from "@composable-os/sdk";
 import { sql } from "kysely";
 import { z } from "zod";
@@ -45,6 +46,9 @@ const versionId = z
   .string()
   .regex(/^scv_[0-9A-HJKMNP-TV-Z]{26}$/, "a screen version's id")
   .describe("The version's id (scv_…)");
+const kind = z
+  .enum(SCREEN_VERSION_KINDS)
+  .describe("What the version is the built output of: web, a client's web app");
 const sha256 = z.string().regex(SHA256_HEX, "a SHA-256 in lowercase hex");
 
 const limitsOut = z.object({
@@ -58,6 +62,7 @@ const limitsOut = z.object({
 
 const versionOut = z.object({
   id: z.string(),
+  kind,
   state: z.enum(["open", "sealed"]),
   createdAt: z.string(),
   createdBy: z.string().describe("The staff user who began it"),
@@ -75,6 +80,7 @@ export type ScreenVersionSummary = z.infer<typeof versionOut>;
 
 type VersionRow = {
   id: string;
+  kind: "web";
   state: "open" | "sealed";
   created_at: string;
   created_by: string;
@@ -91,6 +97,7 @@ type VersionRow = {
 
 const SUMMARY_COLUMNS = [
   "id",
+  "kind",
   "state",
   "created_at",
   "created_by",
@@ -108,6 +115,7 @@ const SUMMARY_COLUMNS = [
 function summary(row: VersionRow): ScreenVersionSummary {
   return {
     id: row.id,
+    kind: row.kind,
     state: row.state,
     createdAt: row.created_at,
     createdBy: row.created_by,
@@ -191,6 +199,7 @@ export const screenVersionBegin = defineOperation({
     "upload route (screens.versionPut) and seal it with its manifest (screens.versionSeal). " +
     "Changes nothing anyone sees: a version is published only by screens.publish.",
   input: z.object({
+    kind: kind.default("web"),
     sha256: z
       .array(sha256)
       .max(SCREEN_VERSION_LIMITS.maxFiles)
@@ -199,6 +208,7 @@ export const screenVersionBegin = defineOperation({
   }),
   output: z.object({
     id: z.string(),
+    kind,
     expiresAt: z.string(),
     limits: limitsOut,
     held: z.array(z.string()).describe("The hashes given that the client holds: do not send them"),
@@ -212,12 +222,13 @@ export const screenVersionBegin = defineOperation({
     const open = await ctx.db
       .selectFrom("core_screen_version")
       .select(({ fn }) => fn.countAll<number>().as("n"))
+      .where("kind", "=", input.kind)
       .where("state", "=", "open")
       .where("expires_at", ">", ctx.now)
       .executeTakeFirst();
     if (Number(open?.n ?? 0) >= MAX_OPEN_VERSIONS) {
       throw new ConflictError(
-        `${MAX_OPEN_VERSIONS} versions are being uploaded already: seal one, or wait until one is swept`,
+        `${MAX_OPEN_VERSIONS} versions of this kind are being uploaded already: seal one, or wait until one is swept`,
         { rule: "screen_version", reason: "too_many_open", max: MAX_OPEN_VERSIONS },
       );
     }
@@ -234,6 +245,7 @@ export const screenVersionBegin = defineOperation({
     ctx.write(
       ctx.db.insertInto("core_screen_version").values({
         id,
+        kind: input.kind,
         state: "open",
         created_at: ctx.now,
         created_by: ctx.user.id,
@@ -244,12 +256,18 @@ export const screenVersionBegin = defineOperation({
     if (held.length) {
       ctx.write(
         ctx.db.insertInto("core_screen_version_upload").values(
-          held.map((h) => ({ version_id: id, sha256: h.sha256, size: h.size, received_at: ctx.now })),
+          held.map((h) => ({
+            version_id: id,
+            sha256: h.sha256,
+            size: h.size,
+            received_at: ctx.now,
+          })),
         ),
       );
     }
     return {
       id,
+      kind: input.kind,
       expiresAt,
       limits: { ...SCREEN_VERSION_LIMITS },
       held: held.map((h) => h.sha256).sort(),
@@ -469,7 +487,10 @@ export const screenVersionSeal = defineOperation({
       .where("version_id", "=", input.version)
       .execute();
     const named = new Set(hashes);
-    const unused = sent.map((s) => s.sha256).filter((h) => !named.has(h)).sort();
+    const unused = sent
+      .map((s) => s.sha256)
+      .filter((h) => !named.has(h))
+      .sort();
     // One statement for every file (json_each: the manifest is one parameter), then the seal,
     // which its trigger checks against those files; then what it was sent is no longer claimed.
     ctx.write(
@@ -519,11 +540,12 @@ export const screenVersionSeal = defineOperation({
 export const screenVersionList = defineOperation({
   name: "screens.versionList",
   description:
-    "The client's screen versions, newest first: each one's state (open while its files are " +
+    "The client's screen versions of one kind (web: its web app), newest first: each one's state (open while its files are " +
     "uploaded, sealed once it is checked and fixed), who began and sealed it, its entry, the API " +
     "contract version it was built against, its file count and size, and its manifest's hash. " +
-    "Read-only. The last ten sealed versions are always kept, and any version held.",
+    "Read-only. The last ten sealed versions of a kind are always kept, and any version held.",
   input: z.object({
+    kind: kind.default("web"),
     state: z.enum(["open", "sealed"]).optional().describe("Only versions in this state"),
     limit: z.number().int().min(1).max(100).default(50),
   }),
@@ -531,9 +553,16 @@ export const screenVersionList = defineOperation({
   permission: "screens:upload",
   risk: "read",
   async handler(input, ctx) {
-    let query = ctx.db.selectFrom("core_screen_version").select(SUMMARY_COLUMNS);
+    let query = ctx.db
+      .selectFrom("core_screen_version")
+      .select(SUMMARY_COLUMNS)
+      .where("kind", "=", input.kind);
     if (input.state) query = query.where("state", "=", input.state);
-    const rows = await query.orderBy("created_at", "desc").orderBy("id", "desc").limit(input.limit).execute();
+    const rows = await query
+      .orderBy("created_at", "desc")
+      .orderBy("id", "desc")
+      .limit(input.limit)
+      .execute();
     return { versions: (rows as VersionRow[]).map(summary) };
   },
 });
@@ -548,7 +577,12 @@ export const screenVersionGet = defineOperation({
   output: versionOut.extend({
     manifest: z.unknown().nullable().describe("The canonical manifest, once sealed"),
     files: z.array(
-      z.object({ path: z.string(), sha256: z.string(), size: z.number().int(), contentType: z.string() }),
+      z.object({
+        path: z.string(),
+        sha256: z.string(),
+        size: z.number().int(),
+        contentType: z.string(),
+      }),
     ),
     received: z.array(z.object({ sha256: z.string(), size: z.number().int() })),
   }),

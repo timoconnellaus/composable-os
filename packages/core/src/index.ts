@@ -249,8 +249,6 @@ export * from "./operations/me-attention.ts";
 export * from "./operations/me-portal.ts";
 export * from "./operations/media.ts";
 export * from "./operations/media-video.ts";
-export * from "./operations/screen-versions.ts";
-export * from "./screen-versions/store.ts";
 export * from "./operations/memory.ts";
 export * from "./operations/my.ts";
 export * from "./operations/notification.ts";
@@ -266,6 +264,7 @@ export * from "./operations/record-versions.ts";
 export { type RecurringDueOptions, runRecurringDue } from "./operations/recurring.ts";
 export * from "./operations/retention.ts";
 export * from "./operations/routine.ts";
+export * from "./operations/screen-versions.ts";
 export { personMayCall, setBuiltScreens } from "./operations/screens.ts";
 export * from "./operations/search.ts";
 export { COMMON_CURRENCIES, MAX_LOGO_LENGTH } from "./operations/settings.ts";
@@ -401,6 +400,7 @@ export { mobileInCountries, TEXT_COUNTRY_CODES } from "./routine-mail/numbers.ts
 export * from "./routine-mail/quiet.ts";
 export * from "./routine-mail/reach.ts";
 export * from "./routine-mail/texts.ts";
+export * from "./screen-versions/store.ts";
 export {
   AI_SETTINGS,
   BASE_CURRENCY_SETTING,

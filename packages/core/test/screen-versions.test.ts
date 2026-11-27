@@ -59,7 +59,7 @@ const blobs = {
 const text = (s: string) => new TextEncoder().encode(s);
 let admin: ActingUser;
 let member: ActingUser;
-let clock = () => new Date();
+const clock = () => new Date();
 
 const asStaff = (extra: Record<string, unknown> = {}, user = admin) =>
   context(user, { media: store, clock: () => clock(), ...extra } as never);
@@ -92,7 +92,11 @@ async function put(version: string, bytes: Uint8Array, sha256?: string) {
 }
 
 async function seal(version: string, manifest: unknown) {
-  return invoke("screens.versionSeal", { version, manifest }, asStaff()) as Promise<{
+  return invoke(
+    "screens.versionSeal",
+    { version, manifest: manifest as never },
+    asStaff(),
+  ) as Promise<{
     id: string;
     state: string;
     manifestSha256: string;
@@ -103,7 +107,10 @@ async function seal(version: string, manifest: unknown) {
 /** A small build: an entry, a script, a stylesheet. */
 function build(tag: string) {
   return [
-    { path: "index.html", bytes: text(`<!doctype html><script src="assets/app.js"></script>${tag}`) },
+    {
+      path: "index.html",
+      bytes: text(`<!doctype html><script src="assets/app.js"></script>${tag}`),
+    },
     { path: "assets/app.js", bytes: text(`console.log(${JSON.stringify(tag)})`) },
     { path: "assets/app.css", bytes: text(`body{color:red}/*${tag}*/`) },
   ];
@@ -113,7 +120,10 @@ async function manifestOf(files: { path: string; bytes: Uint8Array }[]) {
   return screenVersionManifestOf(files, {
     entry: "index.html",
     contract: "v1",
-    build: { tool: "vite 8", from: { repository: "https://example.test/screens", commit: "abc1234" } },
+    build: {
+      tool: "vite 8",
+      from: { repository: "https://example.test/screens", commit: "abc1234" },
+    },
   });
 }
 
@@ -217,7 +227,7 @@ describe("a build stored as a version (criterion 2)", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.details?.reason).toBe("missing_files");
-      expect((result.error.details?.missing as unknown[]).length).toBe(2);
+      expect((result.error.details?.missing as unknown[] | undefined)?.length).toBe(2);
     }
   });
 
@@ -257,6 +267,28 @@ describe("a build stored as a version (criterion 2)", () => {
   });
 });
 
+describe("a version's kind", () => {
+  it("is web, the only kind there is: another is refused by the operation and the database", async () => {
+    const version = await begin();
+    const got = (await invoke("screens.versionGet", { version: version.id }, asStaff())) as {
+      kind: string;
+    };
+    expect(got.kind).toBe("web");
+    const refused = await attempt(
+      invoke("screens.versionBegin", { kind: "admin" as never }, asStaff()),
+    );
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error.code).toBe("invalid_input");
+    const raw = await attempt(
+      env.DB.prepare(
+        "INSERT INTO core_screen_version (id, kind, state, created_at, created_by, expires_at) VALUES ('scv_kind', 'admin', 'open', '2026', 'u', '2999')",
+      ).run(),
+    );
+    expect(raw.ok).toBe(false);
+    if (!raw.ok) expect(raw.error.message).toMatch(/CHECK constraint failed/);
+  });
+});
+
 describe("the manifest's checks", () => {
   it("refuses paths that leave the version, are absolute, hold a NUL or are too long", () => {
     for (const bad of [
@@ -278,7 +310,12 @@ describe("the manifest's checks", () => {
     ]) {
       expect(screenPathProblem(bad), JSON.stringify(bad)).not.toBeNull();
     }
-    for (const good of ["index.html", "assets/index-BwX3k_9a.js", ".well-known/x.json", "a@2x.png"]) {
+    for (const good of [
+      "index.html",
+      "assets/index-BwX3k_9a.js",
+      ".well-known/x.json",
+      "a@2x.png",
+    ]) {
       expect(screenPathProblem(good), good).toBeNull();
     }
   });
@@ -349,7 +386,12 @@ describe("the manifest's checks", () => {
     await env.DB.prepare(
       "INSERT INTO core_screen_version_upload (version_id, sha256, size, received_at) VALUES (?, ?, ?, ?)",
     )
-      .bind(version.id, "f".repeat(64), SCREEN_VERSION_LIMITS.maxTotalBytes - 4, new Date().toISOString())
+      .bind(
+        version.id,
+        "f".repeat(64),
+        SCREEN_VERSION_LIMITS.maxTotalBytes - 4,
+        new Date().toISOString(),
+      )
       .run();
     const result = await attempt(put(version.id, text("12345")));
     expect(result.ok).toBe(false);
@@ -374,6 +416,7 @@ describe("a sealed version never changes", () => {
     const { id } = await store3("sql");
     const refusals = [
       "UPDATE core_screen_version SET entry = 'other.html' WHERE id = ?1",
+      "UPDATE core_screen_version SET kind = 'web' WHERE id = ?1",
       "UPDATE core_screen_version SET state = 'open', expires_at = '2999-01-01' WHERE id = ?1",
       "UPDATE core_screen_version_file SET sha256 = 'x' WHERE version_id = ?1",
       "DELETE FROM core_screen_version_file WHERE version_id = ?1",
@@ -383,7 +426,7 @@ describe("a sealed version never changes", () => {
       "DELETE FROM core_screen_blob WHERE sha256 IN (SELECT sha256 FROM core_screen_version_file WHERE version_id = ?1)",
       // One of the last ten: kept.
       "DELETE FROM core_screen_version WHERE id = ?1",
-      "INSERT INTO core_screen_version (id, state, created_at, created_by, sealed_at, sealed_by, manifest, manifest_sha256, entry, contract, build_tool, file_count, total_bytes) VALUES (?1 || 'x', 'sealed', '2026', 'u', '2026', 'u', '{}', 'x', 'index.html', 'v1', 't', 0, 0)",
+      "INSERT INTO core_screen_version (id, kind, state, created_at, created_by, sealed_at, sealed_by, manifest, manifest_sha256, entry, contract, build_tool, file_count, total_bytes) VALUES (?1 || 'x', 'web', 'sealed', '2026', 'u', '2026', 'u', '{}', 'x', 'index.html', 'v1', 't', 0, 0)",
     ];
     for (const statement of refusals) {
       const result = await attempt(env.DB.prepare(statement).bind(id).run());
@@ -559,7 +602,11 @@ describe.skipIf(clientScopesHeld())("another client (criterion 7, as far as vers
     };
     expect(mine.held).toEqual([]);
     const sealed = await attempt(
-      invoke("screens.versionSeal", { version: mine.id, manifest: await manifestOf(files) }, asOther()),
+      invoke(
+        "screens.versionSeal",
+        { version: mine.id, manifest: await manifestOf(files) },
+        asOther(),
+      ),
     );
     expect(sealed.ok).toBe(false);
     if (!sealed.ok) expect(sealed.error.details?.reason).toBe("missing_files");
@@ -567,7 +614,7 @@ describe.skipIf(clientScopesHeld())("another client (criterion 7, as far as vers
     const into = await attempt(
       invoke(
         "screens.versionPut",
-        { version: id, sha256: hashes[0] },
+        { version: id, sha256: hashes[0] as string },
         asOther({ upload: { bytes: files[0]?.bytes } }),
       ),
     );

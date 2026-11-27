@@ -1541,6 +1541,29 @@ its service binding to the host's `ClientApp` entrypoint, as the signed-in custo
 and never as staff (ADR 0421); a phone over HTTPS.
 _Avoid_: frontend, site (a site is one kind of client app)
 
+### Version
+
+(of a client's screens)
+
+The built output of a client's screens, stored in the host (stage 75, ADR 0961): its files, each
+named by the SHA-256 of its bytes, and its manifest. Built outside the host, begun, sent file by
+file and sealed; once sealed it never changes. It has a kind (`web`: a client's web app, the only
+one so far). The last ten sealed of a kind are kept, and any held (the published one). Kept in the
+client's own database and part of the files binding, so another client never reaches it.
+_Avoid_: build (a build is what makes a version), release (a release is the platform's), deploy
+(a version is stored and published, never deployed), revision
+
+### Manifest
+
+(of a screen version)
+
+What a version holds, as its build wrote it (`@composable-os/sdk/screen-version`): every file's
+path, SHA-256 and size, the entry (an `.html` file among them), the API contract version it was
+built against, and what built it from what (a tool, a repository and commit; never a person's
+name). The host checks it at seal and keeps its canonical text and that text's SHA-256. Content
+types are not in it: the host decides them from each path.
+_Avoid_: the manifest (alone: an extension's manifest is another thing), index, file list
+
 ### Client repo
 
 The repository holding one product's client apps, its own extensions (`extensions/`), copied

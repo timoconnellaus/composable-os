@@ -12,7 +12,10 @@
 --   the version that first stored it): a file removed and put again gets a new key, so a removal
 --   queued for the old key never deletes the new bytes.
 -- core_screen_version: the version, open or sealed. Sealed, it holds its canonical manifest, its
---   hash and what the manifest says, and nothing about it changes again.
+--   hash and what the manifest says, and nothing about it changes again. Its `kind` is what it is
+--   the built output of: only `web` (a client's web app) for now. Retention, the bound on open
+--   uploads and listing are per kind, so another kind of built output,
+--   if one is ever wanted, adds a value to the CHECK in a migration and gets its own published pointer.
 -- core_screen_version_file: a sealed version's files, exactly its manifest's: written at seal,
 --   while the version is still open, and never changed.
 -- core_screen_version_upload: which files an open version has been sent, for its bounds and so
@@ -30,6 +33,7 @@ CREATE TABLE core_screen_blob (
 
 CREATE TABLE core_screen_version (
   id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('web')),
   state TEXT NOT NULL CHECK (state IN ('open', 'sealed')),
   created_at TEXT NOT NULL,
   created_by TEXT NOT NULL,
@@ -53,7 +57,7 @@ CREATE TABLE core_screen_version (
   )
 );
 
-CREATE INDEX core_screen_version_sealed ON core_screen_version (state, sealed_at);
+CREATE INDEX core_screen_version_kind ON core_screen_version (kind, state, sealed_at);
 
 CREATE TABLE core_screen_version_file (
   version_id TEXT NOT NULL,
@@ -98,7 +102,7 @@ END;
 -- Sealed, a version never changes.
 CREATE TRIGGER core_screen_version_sealed_fixed
 BEFORE UPDATE ON core_screen_version
-WHEN OLD.state = 'sealed' OR NEW.id != OLD.id
+WHEN OLD.state = 'sealed' OR NEW.id != OLD.id OR NEW.kind != OLD.kind
 BEGIN
   SELECT RAISE(ABORT, 'core_screen_version_sealed');
 END;
@@ -114,7 +118,8 @@ BEGIN
     OR NOT EXISTS (SELECT 1 FROM core_screen_version_file f WHERE f.version_id = NEW.id AND f.path = NEW.entry);
 END;
 
--- A sealed version is removed only by the retention rule: never one of the last ten sealed, and
+-- A sealed version is removed only by the retention rule: never one of the last ten sealed of its
+-- kind, and
 -- never one held (the published version, one published in the last 90 days).
 CREATE TRIGGER core_screen_version_delete
 BEFORE DELETE ON core_screen_version
@@ -123,7 +128,7 @@ BEGIN
   SELECT RAISE(ABORT, 'core_screen_version_kept')
   WHERE EXISTS (SELECT 1 FROM core_screen_version_hold h WHERE h.version_id = OLD.id)
     OR (SELECT count(*) FROM core_screen_version v
-        WHERE v.state = 'sealed'
+        WHERE v.state = 'sealed' AND v.kind = OLD.kind
           AND (v.sealed_at > OLD.sealed_at OR (v.sealed_at = OLD.sealed_at AND v.id > OLD.id))) < 10;
 END;
 

@@ -19,7 +19,8 @@ import { readCapped, staffTokenContext } from "./media.ts";
 
 export const SCREEN_VERSIONS_ROUTE = "/api/v1/screens/versions";
 
-const FILE_PATH = /^\/api\/v1\/screens\/versions\/(scv_[0-9A-HJKMNP-TV-Z]{26})\/files\/([0-9a-f]{64})$/;
+const FILE_PATH =
+  /^\/api\/v1\/screens\/versions\/(scv_[0-9A-HJKMNP-TV-Z]{26})\/files\/([0-9a-f]{64})$/;
 
 /** Whether `pathname` is the route's. */
 export function isScreenVersionsPath(pathname: string): boolean {

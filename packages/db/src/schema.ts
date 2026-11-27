@@ -1087,6 +1087,8 @@ export interface CoreScreenBlobTable {
 /** A screen version, open while its files are put, then sealed and never changed (migration 1490). */
 export interface CoreScreenVersionTable {
   id: string;
+  /** What it is the built output of: only `web` (a client's web app) for now. */
+  kind: "web";
   state: "open" | "sealed";
   created_at: string;
   created_by: string;

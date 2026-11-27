@@ -20,6 +20,14 @@
 //   sealed version. Nothing signs yet.
 import { z } from "zod";
 
+/**
+ * What a version is the built output of. Only a client's web app for now; another kind of
+ * built output, if one is ever wanted, is one more value here and in migration 1490's
+ * CHECK, with its own published pointer, since retention and listing are per kind.
+ */
+export const SCREEN_VERSION_KINDS = ["web"] as const;
+export type ScreenVersionKind = (typeof SCREEN_VERSION_KINDS)[number];
+
 /** The manifest's format; another is refused. */
 export const SCREEN_VERSION_MANIFEST_FORMAT = "cos-screens/1";
 
@@ -197,7 +205,10 @@ export function screenVersionManifestProblems(
     });
   }
   if (!manifest.files.some((file) => file.path === manifest.entry)) {
-    problems.push({ message: `the entry ${manifest.entry} is not one of the files`, path: ["entry"] });
+    problems.push({
+      message: `the entry ${manifest.entry} is not one of the files`,
+      path: ["entry"],
+    });
   } else if (!/\.html$/.test(manifest.entry)) {
     problems.push({ message: "the entry is an .html file", path: ["entry"] });
   }

@@ -90243,6 +90243,14 @@
       "input": {
         "type": "object",
         "properties": {
+          "kind": {
+            "default": "web",
+            "type": "string",
+            "enum": [
+              "web"
+            ],
+            "description": "What the version is the built output of: web, a client's web app"
+          },
           "sha256": {
             "default": [],
             "description": "The hashes of the build's files, to learn which the client already holds",
@@ -90260,6 +90268,13 @@
         "properties": {
           "id": {
             "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "web"
+            ],
+            "description": "What the version is the built output of: web, a client's web app"
           },
           "expiresAt": {
             "type": "string"
@@ -90318,6 +90333,7 @@
         },
         "required": [
           "id",
+          "kind",
           "expiresAt",
           "limits",
           "held"
@@ -90356,6 +90372,13 @@
         "properties": {
           "id": {
             "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "web"
+            ],
+            "description": "What the version is the built output of: web, a client's web app"
           },
           "state": {
             "type": "string",
@@ -90503,6 +90526,7 @@
         },
         "required": [
           "id",
+          "kind",
           "state",
           "createdAt",
           "createdBy",
@@ -90525,7 +90549,7 @@
     },
     {
       "name": "screens.versionList",
-      "description": "The client's screen versions, newest first: each one's state (open while its files are uploaded, sealed once it is checked and fixed), who began and sealed it, its entry, the API contract version it was built against, its file count and size, and its manifest's hash. Read-only. The last ten sealed versions are always kept, and any version held.",
+      "description": "The client's screen versions of one kind (web: its web app), newest first: each one's state (open while its files are uploaded, sealed once it is checked and fixed), who began and sealed it, its entry, the API contract version it was built against, its file count and size, and its manifest's hash. Read-only. The last ten sealed versions of a kind are always kept, and any version held.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -90534,6 +90558,14 @@
       "input": {
         "type": "object",
         "properties": {
+          "kind": {
+            "default": "web",
+            "type": "string",
+            "enum": [
+              "web"
+            ],
+            "description": "What the version is the built output of: web, a client's web app"
+          },
           "state": {
             "description": "Only versions in this state",
             "type": "string",
@@ -90560,6 +90592,13 @@
               "properties": {
                 "id": {
                   "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "web"
+                  ],
+                  "description": "What the version is the built output of: web, a client's web app"
                 },
                 "state": {
                   "type": "string",
@@ -90648,6 +90687,7 @@
               },
               "required": [
                 "id",
+                "kind",
                 "state",
                 "createdAt",
                 "createdBy",
@@ -90845,6 +90885,13 @@
           "id": {
             "type": "string"
           },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "web"
+            ],
+            "description": "What the version is the built output of: web, a client's web app"
+          },
           "state": {
             "type": "string",
             "enum": [
@@ -90939,6 +90986,7 @@
         },
         "required": [
           "id",
+          "kind",
           "state",
           "createdAt",
           "createdBy",
