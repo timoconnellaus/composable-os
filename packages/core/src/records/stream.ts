@@ -526,6 +526,13 @@ export function streamHostFromEnv(
 
 // --- One client's videos on a shared account (stage 66 step 5, ADR 0617) ----------------------
 
+/**
+ * How long a check of a video's creator lets the host sign for it without asking Stream again: a
+ * video whose creator changed since (an import that re-stamped it) is signed for at most this
+ * long after (review of #552, M-S1).
+ */
+export const CHECKED_VIDEO_TTL_MS = 60_000;
+
 /** How many videos one client's host remembers it has checked, for signing without a call. */
 export const CHECKED_VIDEOS_MAX = 1000;
 
@@ -542,14 +549,24 @@ function notThisClients(): OperationError {
  * client's, so what it remembers is that client's (`CHECKED_VIDEOS_MAX` of them, the oldest
  * forgotten first).
  */
-export function creatorCheckedVideoHost(shared: VideoHost, creator: string): VideoHost {
+export function creatorCheckedVideoHost(
+  shared: VideoHost,
+  creator: string,
+  options: { now?: () => number } = {},
+): VideoHost {
   if (!creator) throw new Error("A client's video host needs the client");
   const inner = shared.provider;
-  const checked = new Set<string>();
+  const now = options.now ?? (() => Date.now());
+  // Each checked video and when: signing without a call only within `CHECKED_VIDEO_TTL_MS`.
+  const checked = new Map<string, number>();
   const remember = (uid: string) => {
     checked.delete(uid);
-    checked.add(uid);
-    if (checked.size > CHECKED_VIDEOS_MAX) checked.delete(checked.values().next().value as string);
+    checked.set(uid, now());
+    if (checked.size > CHECKED_VIDEOS_MAX) checked.delete(checked.keys().next().value as string);
+  };
+  const fresh = (uid: string) => {
+    const at = checked.get(uid);
+    return at !== undefined && now() - at < CHECKED_VIDEO_TTL_MS;
   };
   /** The video's details if it is this client's; null if there is none; refused if another's. */
   const owned = async (uid: string): Promise<StreamVideoDetails | null> => {
@@ -602,7 +619,7 @@ export function creatorCheckedVideoHost(shared: VideoHost, creator: string): Vid
   };
   const signer: StreamSigner = {
     async sign(input) {
-      if (!checked.has(input.uid)) await mustOwn(input.uid);
+      if (!fresh(input.uid)) await mustOwn(input.uid);
       return shared.signer.sign(input);
     },
   };

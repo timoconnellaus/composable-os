@@ -192,8 +192,13 @@ export async function hostnamesTaken(
  * on), its hostnames verified and each its surface's address, and its settings. The registry
  * writes its secret generation itself and refuses a removed id (migrations 0792 to 0794).
  */
-export async function addClientRows(registry: D1Database, client: NewClient): Promise<void> {
-  const problems = newClientProblems(client);
+export async function addClientRows(
+  registry: D1Database,
+  client: NewClient,
+  /** The fleet's registrable domain: a setting that needs it is refused without it (S-R1). */
+  deployment: { fleetDomain?: string | null } = {},
+): Promise<void> {
+  const problems = newClientProblems(client, deployment);
   if (problems.length) throw new RangeError(`Not a client to add: ${problems.join("; ")}`);
   const id = validateClientId(client.id);
   await registry.batch([

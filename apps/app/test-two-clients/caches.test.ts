@@ -6,6 +6,7 @@
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import {
   applyPlan,
+  CHECKED_VIDEO_TTL_MS,
   createFakeStream,
   creatorCheckedVideoHost,
   getObject,
@@ -204,6 +205,32 @@ describe("one Stream account shared by every client's video host", () => {
     await expect(aHost.signer.sign({ uid: bVideo, expiresAt })).rejects.toThrow(refused);
     // No way to list the account's videos.
     expect(Object.keys(aHost.provider).filter((k) => /list(?!Captions)/i.test(k))).toEqual([]);
+  });
+});
+
+describe("a client's video host's memory of the videos it checked (review of #552, M-S1)", () => {
+  it("never signs for a video once its creator changed, past CHECKED_VIDEO_TTL_MS", async () => {
+    const account = createFakeStream({ baseUrl: "https://gym-a.test/api/v1/media/fake-stream" });
+    const aEnv = await clientEnv(a.id);
+    let clock = 1_000_000;
+    const aHost = creatorCheckedVideoHost(account, clientStampOf(aEnv) as string, {
+      now: () => clock,
+    });
+    const uid = (
+      await aHost.provider.createUpload({
+        name: "class.mp4",
+        bytes: 100,
+        maxDurationSeconds: 60,
+        allowedOrigins: [],
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      })
+    ).uid;
+    const expiresAt = new Date(Date.now() + 60_000);
+    await aHost.signer.sign({ uid, expiresAt });
+    // Stamped with another client since (an operator's import, say).
+    (account.fake.video(uid) as { creator: string | null }).creator = "live:gym-b";
+    clock += CHECKED_VIDEO_TTL_MS;
+    await expect(aHost.signer.sign({ uid, expiresAt })).rejects.toThrow(/No such video/);
   });
 });
 

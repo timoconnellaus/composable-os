@@ -73,7 +73,11 @@ export interface FleetContext {
    * Stamps a Stream video of the account with its creator (Stream's API, with the account's
    * token); false when the account has no such video. Absent: videos are left as they are.
    */
-  videos?: { setCreator(uid: string, creator: string): Promise<boolean> };
+  videos?: {
+    setCreator(uid: string, creator: string): Promise<boolean>;
+    /** The video's creator now: its stamp, null for none, undefined when there is no video. */
+    creatorOf(uid: string): Promise<string | null | undefined>;
+  };
 }
 
 /** A refreshed registry is served within this long (packages/db `REGISTRY_REFRESH_MS`). */
@@ -293,7 +297,7 @@ export async function addClient(ctx: FleetContext, input: AddInput): Promise<num
     }));
   if (unfinished) ctx.io.out(`Carrying on the add of ${id} started ${unfinished.startedAt}.`);
   if (!(await readClient(ctx.registry, id))) {
-    await addClientRows(ctx.registry, client);
+    await addClientRows(ctx.registry, client, { fleetDomain: registrableDomain(ctx.fleet.domain) });
     ctx.io.out(`  registry: ${id} added, paused until its database is ready`);
   }
   await saveOperation(ctx.registry, op.id, { ...op.state, step: "database" });
@@ -814,6 +818,65 @@ export interface ImportInput extends Omit<AddInput, "imported"> {
   from: string;
   /** Leave the export's secrets out: every secret of the client is derived (a planned sign-out). */
   withoutSecrets?: boolean;
+  /**
+   * The stamp the client's videos carry where it comes from (`<environment>:<client>`, a move
+   * between this account's environments or fleets): only these, besides unstamped ones and the
+   * client's own, are re-stamped (`--videos-from`). Never a client of this deployment.
+   */
+  videosFrom?: string;
+}
+
+/**
+ * Which of the videos an imported database names may be stamped as `creator`, checked against
+ * each one's creator now, before any is stamped (review of #552, M-S1): a video id is no secret
+ * (every playback token names it), so a database that names another client's video must not take
+ * it. Accepted: a video with no creator (a single-client deployment's uploads carry none), one
+ * already `creator`'s, and one carrying exactly `videosFrom` (the stamp of the place the client
+ * moves from, named by the operator; never a client of this deployment). Any other stamp refuses
+ * the import, naming the videos, with none re-stamped; the client stays paused, never served.
+ * The ones not in this account are returned; the rest are stamped.
+ */
+async function restampableVideos(
+  ctx: FleetContext,
+  id: ClientId,
+  creator: string,
+  uids: readonly string[],
+  videosFrom: string | undefined,
+): Promise<string[]> {
+  const videos = ctx.videos as NonNullable<FleetContext["videos"]>;
+  if (videosFrom !== undefined) {
+    const [environment, other] = videosFrom.split(":");
+    if (!environment || !other || !/^(live|staging)$/.test(environment)) {
+      throw new FleetError("--videos-from is a stamp, <environment>:<client>");
+    }
+    if (
+      environment === ctx.fleet.environment &&
+      (await readClient(ctx.registry, other as ClientId))
+    ) {
+      throw new FleetError(
+        `--videos-from ${videosFrom} is a client of this deployment: its videos are its own`,
+      );
+    }
+  }
+  const missing: string[] = [];
+  const stamp: string[] = [];
+  const others: string[] = [];
+  for (const uid of uids) {
+    const now = await videos.creatorOf(uid);
+    if (now === undefined) missing.push(uid);
+    else if (now === creator) continue;
+    else if (now === null || (videosFrom !== undefined && now === videosFrom)) stamp.push(uid);
+    else others.push(`${uid} (${now})`);
+  }
+  if (others.length) {
+    throw new FleetError(
+      `Not imported further: the database names ${others.length} video${others.length > 1 ? "s" : ""} another creator holds, which are not ${id}'s to take: ${others.join(", ")}. None was re-stamped, and ${id} stays paused (cos client remove ${id} to drop it). A client moving from another environment names where with --videos-from <environment>:<client>.`,
+    );
+  }
+  for (const uid of stamp) {
+    if (!(await videos.setCreator(uid, creator))) missing.push(uid);
+  }
+  return missing;
 }
 
 /**
@@ -887,7 +950,9 @@ export async function importClient(ctx: FleetContext, input: ImportInput): Promi
     ctx.io.out(`Carrying on the import of ${id} started ${op.startedAt}.`);
   }
   const state = op.state;
-  if (!(await readClient(ctx.registry, id))) await addClientRows(ctx.registry, client);
+  if (!(await readClient(ctx.registry, id))) {
+    await addClientRows(ctx.registry, client, { fleetDomain: registrableDomain(ctx.fleet.domain) });
+  }
   const record = await readClient(ctx.registry, id);
   if (!record?.imported) throw new FleetError(`${id} is not a client added as imported`);
   if (state.step === "rows") state.step = "database";
@@ -971,10 +1036,13 @@ export async function importClient(ctx: FleetContext, input: ImportInput): Promi
     if (!ctx.videos) {
       ctx.io.err(`  videos: ${videos.length} named, not re-stamped (no Stream access here)`);
     } else {
-      const missing: string[] = [];
-      for (const { stream_uid: uid } of videos) {
-        if (!(await ctx.videos.setCreator(uid, creator))) missing.push(uid);
-      }
+      const missing = await restampableVideos(
+        ctx,
+        id,
+        creator,
+        videos.map((v) => v.stream_uid),
+        input.videosFrom,
+      );
       ctx.io.out(`  videos: ${videos.length - missing.length} re-stamped as ${creator}`);
       if (missing.length) {
         ctx.io.err(

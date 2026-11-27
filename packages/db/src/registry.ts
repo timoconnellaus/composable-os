@@ -388,10 +388,13 @@ export const OPERATOR_SETTINGS: Readonly<
         const origin = httpsOrigin(entry);
         if (!origin) return `${entry} is not an https origin with nothing after it`;
         // Under the fleet's own domain only the client's own hostname: a sibling there is another
-        // client's or the fleet's (stage 66 step 8, ADR 0619).
+        // client's or the fleet's (stage 66 step 8, ADR 0619). Without the fleet's domain this
+        // cannot be checked, so it is refused: the write fails closed (review of #552, S-R1).
+        if (!context.fleetDomain) {
+          return "the fleet's domain is needed to check an allowed origin, and none was given";
+        }
         const host = new URL(origin).hostname;
         if (
-          context.fleetDomain &&
           isUnderDomain(host, context.fleetDomain) &&
           !(context.ownHostnames ?? []).includes(host)
         ) {

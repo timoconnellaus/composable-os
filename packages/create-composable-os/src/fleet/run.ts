@@ -520,6 +520,7 @@ async function withContext(
       release: installed.bundle,
       videos: {
         setCreator: (uid, creator) => s.api.setStreamCreator(s.accountId, uid, creator),
+        creatorOf: (uid) => s.api.streamVideoCreator(s.accountId, uid),
       },
     });
   } finally {
@@ -696,6 +697,9 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
             id: positional[0] as string,
             from,
             withoutSecrets: Boolean(flags["without-secrets"]),
+            ...(str(flags, "videos-from")
+              ? { videosFrom: str(flags, "videos-from") as string }
+              : {}),
             ...(str(flags, "staff-hostname")
               ? { staffHostname: str(flags, "staff-hostname") as string }
               : {}),

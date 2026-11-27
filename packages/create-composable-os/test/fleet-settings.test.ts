@@ -14,7 +14,11 @@ import {
   REGISTRY_MIGRATIONS_TABLE,
   readRegistry,
 } from "@composable-os/db/registry";
-import { readClientSettings, setClientSetting } from "@composable-os/db/registry-writes";
+import {
+  addClientRows,
+  readClientSettings,
+  setClientSetting,
+} from "@composable-os/db/registry-writes";
 import { beforeEach, describe, expect, it } from "vitest";
 import { addClient, type FleetContext } from "../src/fleet/clients.ts";
 import { nodeD1 } from "../src/fleet/node-d1.ts";
@@ -190,6 +194,28 @@ describe("cos client setting (G4)", () => {
     await expect(
       settingCommand(ctx(), release, "set", "gym-b", "COS_PRODUCT_LABEL", "G"),
     ).rejects.toThrow(/No client gym-b/);
+  });
+
+  it("checks an allowed origin at add's own write, failing closed without the fleet's domain (S-R1)", async () => {
+    const client = (origin: string) => ({
+      id: "gym-c",
+      environment: "live" as const,
+      tier: "standard" as const,
+      hostnames: [{ hostname: "gym-c-admin.fleet.example", surface: "staff" as const }],
+      settings: { API_ALLOWED_ORIGINS: origin },
+    });
+    await expect(addClientRows(registry, client("https://www.gym-c.example"))).rejects.toThrow(
+      /the fleet's domain is needed/,
+    );
+    await expect(
+      addClientRows(registry, client("https://gym-a-admin.fleet.example"), {
+        fleetDomain: "fleet.example",
+      }),
+    ).rejects.toThrow(/under the fleet's domain/);
+    await addClientRows(registry, client("https://gym-c-admin.fleet.example"), {
+      fleetDomain: "fleet.example",
+    });
+    expect((await own("gym-c")).API_ALLOWED_ORIGINS).toBe("https://gym-c-admin.fleet.example");
   });
 
   it("holds the same list where the write is: the registry's own write refuses them too (S3)", async () => {

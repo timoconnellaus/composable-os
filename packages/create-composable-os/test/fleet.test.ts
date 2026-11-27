@@ -810,10 +810,13 @@ describe("export, import and remove (criterion 13)", () => {
         stamped.push(`${uid}=${creator}`);
         return uid === held;
       },
+      // The held one has no creator yet (a single-client deployment's upload); the other is not
+      // in this account.
+      creatorOf: async (uid: string) => (uid === held ? null : undefined),
     };
     expect(await importClient(ctx({ videos }), { id: "gym-b", from: dir })).toBe(0);
     // Re-stamped with the creator step 5's video host checks: `<environment>:<client>`.
-    expect(stamped).toEqual([`${held}=live:gym-b`, `${elsewhere}=live:gym-b`]);
+    expect(stamped).toEqual([`${held}=live:gym-b`]);
     expect(out.lines.join("\n")).toContain(`1 not in this account's Stream`);
     expect(await readClient(registry, id("gym-b"))).toMatchObject({
       status: "active",
@@ -831,6 +834,54 @@ describe("export, import and remove (criterion 13)", () => {
     await expect(importClient(ctx(), { id: "gym-b", from: dir })).rejects.toThrow(
       /already a client/,
     );
+  });
+
+  it("never takes another client's video: an import naming one is refused, nothing re-stamped (review of #552, M-S1)", async () => {
+    // gym-a's video, stamped as its own; a crafted export for gym-b names it.
+    await addClient(ctx(), { id: "gym-a" });
+    const theirs = "c".repeat(32);
+    const unstamped = "d".repeat(32);
+    const before = "e".repeat(32);
+    const creators = new Map<string, string | null>([
+      [theirs, "live:gym-a"],
+      [unstamped, null],
+      [before, "staging:gym-b"],
+    ]);
+    const stamped: string[] = [];
+    const videos = {
+      setCreator: async (uid: string, creator: string) => {
+        stamped.push(uid);
+        creators.set(uid, creator);
+        return true;
+      },
+      creatorOf: async (uid: string) => (creators.has(uid) ? creators.get(uid) : undefined),
+    };
+    const dir = join(mkdtempSync(join(tmpdir(), "s66-ms1-")), "export");
+    await exportClient(ctx(), { id: "gym-a", out: dir });
+    operator.mediaVideos["gym-b"] = [theirs, unstamped];
+    await expect(importClient(ctx({ videos }), { id: "gym-b", from: dir })).rejects.toThrow(
+      new RegExp(`another creator holds.*${theirs} \\(live:gym-a\\)`),
+    );
+    // Nothing re-stamped, gym-a's video still gym-a's, and gym-b never served.
+    expect(stamped).toEqual([]);
+    expect(creators.get(theirs)).toBe("live:gym-a");
+    expect(await readClient(registry, id("gym-b"))).toMatchObject({ status: "paused" });
+    // Naming gym-a, a client of this deployment, as where the videos come from is refused too.
+    operator.mediaVideos["gym-c"] = [theirs];
+    await expect(
+      importClient(ctx({ videos }), { id: "gym-c", from: dir, videosFrom: "live:gym-a" }),
+    ).rejects.toThrow(/is a client of this deployment/);
+    expect(creators.get(theirs)).toBe("live:gym-a");
+    // A genuine move: unstamped videos, and those of the place it comes from, named explicitly.
+    operator.mediaVideos["gym-d"] = [unstamped, before];
+    await expect(importClient(ctx({ videos }), { id: "gym-d", from: dir })).rejects.toThrow(
+      /staging:gym-b/,
+    );
+    expect(
+      await importClient(ctx({ videos }), { id: "gym-d", from: dir, videosFrom: "staging:gym-b" }),
+    ).toBe(0);
+    expect(creators.get(unstamped)).toBe("live:gym-d");
+    expect(creators.get(before)).toBe("live:gym-d");
   });
 
   it("refuses a database part that is not what was exported, before writing anything", async () => {

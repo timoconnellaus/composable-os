@@ -1057,6 +1057,26 @@ export class CloudflareClient {
    * the host's video host serves only to the client stamped as their creator). False when the
    * account has no such video (an export from another account carries none).
    */
+  /**
+   * A Stream video's creator as the account holds it: its stamp, null when it has none, or
+   * undefined when the account has no such video (review of #552, M-S1: an import re-stamps only
+   * a video that is no other client's).
+   */
+  async streamVideoCreator(accountId: string, uid: string): Promise<string | null | undefined> {
+    if (!/^[0-9a-f]{32}$/.test(uid)) throw new Error("Not a Stream video id");
+    try {
+      const video = await this.request<{ creator?: string | null }>(
+        "GET",
+        `/accounts/${accountId}/stream/${uid}`,
+      );
+      const creator = video.result?.creator;
+      return typeof creator === "string" && creator ? creator : null;
+    } catch (error) {
+      if (error instanceof CloudflareApiError && error.status === 404) return undefined;
+      throw error;
+    }
+  }
+
   async setStreamCreator(accountId: string, uid: string, creator: string): Promise<boolean> {
     if (!/^[0-9a-f]{32}$/.test(uid)) throw new Error("Not a Stream video id");
     try {

@@ -340,6 +340,10 @@ export class FakeCloudflare {
       return ok(null);
     }
     m = new RegExp(`^${a}/stream/([0-9a-f]{32})$`).exec(path);
+    if (m && method === "GET") {
+      if (!this.streamCreators.has(m[1] as string)) return fail(404, 10003, "video not found");
+      return ok({ uid: m[1], creator: this.streamCreators.get(m[1] as string) });
+    }
     if (m && method === "POST") {
       if (!this.streamCreators.has(m[1] as string)) return fail(404, 10003, "video not found");
       if (typeof b.creator === "string") this.streamCreators.set(m[1] as string, b.creator);
